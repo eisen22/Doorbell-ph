@@ -1,4 +1,4 @@
-# Doorbell (JavaScript edition)
+# Doorbell 
 
 **Safe Arrival: A Barcode-Based Attendance Checking and SMS Notification System for Child Safety in Schools**
 
