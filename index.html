@@ -1,37 +1,19 @@
 <!doctype html>
-<!-- index.html — SIGN-IN PAGE. Everyone starts here. -->
+<!-- index.html — the only HTML page. React draws every screen inside <div id="root">. -->
 <html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Doorbell · Sign in</title>
-  <link rel="stylesheet" href="css/style.css" />
-</head>
-<body class="center-page">
-  <main class="card login">
-    <h1>🔔 Doorbell</h1>
-    <p class="muted">Barcode attendance and SMS for kindergarten. Sign in with the account from your school.</p>
-
-    <!-- Normal sign-in form. login.js handles the submit. -->
-    <form id="login-form">
-      <label>Email <input id="email" type="email" required autocomplete="username" /></label>
-      <label>Password <input id="password" type="password" required autocomplete="current-password" /></label>
-      <button class="btn primary" type="submit">Sign in</button>
-      <button class="btn link" type="button" id="forgot">Forgot password?</button>
-      <p id="login-error" class="error"></p>
-    </form>
-
-    <!-- Only shown the very first time, when the database has no admin yet. -->
-    <form id="setup-form" hidden>
-      <h2>First-time setup</h2>
-      <p class="muted">No admin exists yet. Create the school admin account. This form disappears once it is done.</p>
-      <label>Admin name <input id="setup-name" required value="School Admin" /></label>
-      <label>Admin email <input id="setup-email" type="email" required /></label>
-      <label>Password (at least 6 characters) <input id="setup-password" type="password" minlength="6" required /></label>
-      <button class="btn primary" type="submit">Create admin account</button>
-      <p id="setup-error" class="error"></p>
-    </form>
-  </main>
-  <script type="module" src="js/login.js"></script>
-</body>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#bfddeb" />
+    <title>Doorbell</title>
+    <!-- The font used everywhere (Plus Jakarta Sans) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <!-- The app starts in src/main.jsx -->
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
 </html>

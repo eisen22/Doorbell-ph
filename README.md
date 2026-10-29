@@ -1,71 +1,64 @@
-# Doorbell (simple version)
+# Doorbell (JavaScript edition)
 
 **Safe Arrival: A Barcode-Based Attendance Checking and SMS Notification System for Child Safety in Schools**
 
-This is a small, plain-JavaScript version of Doorbell, made to be easy to read and debug. No frameworks, no build step, no `npm install`. The browser loads the files as they are.
+This is the full Doorbell system, rewritten in plain **JavaScript**, with the same features and the same look as the main version (written in TypeScript). The code is in **9 source files** instead of about 50, and every file is commented so it can be read and debugged.
 
-## What it does
+## Run it on your computer
 
-| Who | Can do |
+You need [Node.js](https://nodejs.org) (version 20 or newer).
+
+```bash
+npm install      # once: downloads the packages (React, Firebase, ...)
+npm run dev      # starts the app at http://localhost:5173
+```
+
+Press `Ctrl + C` in the terminal to stop it. `npm run build` makes the finished website in `dist/`.
+
+## The files
+
+| File | What is inside |
 |---|---|
-| **Teacher** | Scan ID cards (barcode scanner or typing the code) → child marked present or late → parent texted. Change statuses by hand. Confirm attendance → unscanned children become absent → a child absent or late **3 school days in a row** triggers a warning text to the parent and an alert. Sees "Attention needed", alerts and today's texts. A teacher with several classes picks one; the class happening now is shown first. |
-| **Admin** | Absence watch, sections (teacher and class times), teachers (creates their accounts), students (add, edit, move, transfer, drop, new card), printable ID cards with barcodes, no-class days (holidays and suspensions; teachers are alerted), log of all texts. |
+| `src/main.jsx` | Where the app starts: sign-in page, the frame around every page (menu), and the list of pages (routes) |
+| `src/logic.js` | **The rules**: late or on time, school days, 3-day streaks, SMS wording, phone numbers, DepEd calendar, auto-assign. No screens, no database: the best place to start debugging |
+| `src/engine.js` | **The engine**: holds the school's data and does every action (scan, confirm, alerts, texts, sections, students...). Also the sample school |
+| `src/firebase.js` | Connection to Firebase (sign-in and database), first-time setup, "Load sample school". **`MODE`** here switches cloud / demo |
+| `src/ui.jsx` | Shared pieces: cards, pop-ups, status chips, date picker, year calendar, class switcher |
+| `src/teacher.jsx` | Teacher screens: Dashboard, Attendance, My Students, Calendar, Reports, Alerts, SMS Messages, Settings |
+| `src/admin.jsx` | Admin screens: Overview, Absence Watch, School Calendar, Sections, Teachers, Students, ID Cards, Settings & SMS, Audit Log |
+| `src/files.js` | Excel: attendance report download and student import |
+| `src/style.css` | How everything looks (colors at the top) |
+| `firestore.rules` | Who may read and write what in the database |
+| `index.html`, `vite.config.js`, `package.json` | Project setup |
+| `.github/workflows/deploy.yml` | Publishes the site to GitHub Pages on every push |
 
-Texts are **simulated**: they are saved in the `sms` collection instead of being sent. Connecting a real SMS provider later only needs a small program that reads new `sms` documents and sends them.
-
-## Files (10)
+### How a screen gets its data
 
 ```
-index.html        sign-in page (+ first-time admin setup)
-teacher.html      teacher page
-admin.html        admin page (tabs)
-css/style.css     all the styling
-js/firebase.js    connection to Firebase + small shared helpers   <- paste your Firebase config here
-js/logic.js       THE RULES: late or not, school days, 3-day streak, SMS wording (no Firebase)
-js/login.js       code for index.html
-js/teacher.js     code for teacher.html
-js/admin.js       code for admin.html
-firestore.rules   security rules (who can read/write what)
+screen (teacher.jsx / admin.jsx)
+   └─ useLive(r => r.getRoster(...))        ui.jsx: loads data and reloads on every change
+        └─ Engine method (engine.js)         rules from logic.js, data in memory (engine.s)
+             └─ persistence.put(...)         firebase.js: saves to Firestore (cloud mode)
 ```
 
-Every file has comments explaining what each part does and what you can safely change.
+## Firebase setup (once)
 
-## Data in Firestore
+1. Firebase console → **Firestore Database → Rules** → paste `firestore.rules` → **Publish**.
+2. **Authentication → Settings → Authorized domains** → add `eisen22.github.io`.
+3. Open the app. The sign-in page shows **First-time setup**: create the admin account.
+4. As admin, the Overview page offers **Load sample school** (4 teachers, 4 sections, 89 children, attendance since June 8). Sample teachers sign in with password `Teacher-2026!`.
 
-| Collection | One document is | Main fields |
-|---|---|---|
-| `users/{uid}` | a staff account's profile | `name, email, role: 'admin' or 'teacher'` |
-| `sections` | a class | `name, teacherUid, startTime, endTime, startDate` |
-| `students` | a child | `firstName, lastName, sectionId, code (barcode), guardianName, guardianPhone, active` |
-| `attendance/{sectionId}_{date}` | one class on one day | `confirmed, records: { studentId: { status, time } }` |
-| `noClassDays/{date}` | a holiday or suspension | `type, reason` |
-| `sms` | a text to a parent | `to, body, kind, studentName, date` |
-| `alerts` | a message for teachers | `sectionId ('all' = everyone), title, body` |
-| `meta/setup` | marks that the first admin exists | `done` |
+**Demo mode** (no internet, sample data that resets): set `MODE = 'demo'` in `src/firebase.js`.
 
-## Setting up
+## Publish on GitHub Pages
 
-1. Create a Firebase project; turn on **Authentication → Email/Password**; create a **Firestore** database.
-2. Add `eisen22.github.io` under Authentication → Settings → Authorized domains.
-3. Paste your web app's `firebaseConfig` into `js/firebase.js`.
-4. Firestore → **Rules** → paste the contents of `firestore.rules` → **Publish**.
-5. Open the site. The sign-in page shows **First-time setup**: create the admin account.
-6. As admin: **Add sample data** (optional) → **Teachers → Add teacher** → **Sections** → choose the teacher for each class.
-
-### Running it
-
-* **Online:** GitHub repository → Settings → Pages → Source: *Deploy from a branch* → `main` / root → the site appears at `https://eisen22.github.io/Doorbell-ph/`.
-* **On your computer:** the files must be served (opening `index.html` by double-click does not allow modules). In VS Code install **Live Server** and click *Go Live*, or run `npx serve` in this folder.
+GitHub → repository **Settings → Pages → Source: GitHub Actions**. Every push to `main` rebuilds the site at `https://eisen22.github.io/Doorbell-ph/`.
 
 ## Debugging tips
 
-* Press **F12** → **Console** to see errors. Most errors name the file and line.
-* `Missing or insufficient permissions` → a rule in `firestore.rules` blocked it (wrong role, or the teacher is not that section's teacher).
-* `Failed to resolve module` / blank page → open the site through Live Server or GitHub Pages, not by double-clicking.
-* Wrong late/on-time result or wrong 3-day count → test the functions in `js/logic.js` from the console:
-  ```js
-  const L = await import('./js/logic.js');
-  L.statusForScan('08:20', '08:00');            // 'late'
-  L.recentSchoolDays(L.todayManila(), 5, new Set());
-  ```
-* To see what is saved: Firebase console → Firestore Database → Data.
+* **F12 → Console** shows errors with the file and line number. Vite keeps the original file names, so the line points into `src/...`.
+* Look at the data while the app runs: type `doorbell.s.students` or `doorbell.session` in the console.
+* Try a rule directly: `const L = await import('/src/logic.js'); L.classifyScan('08:20', { startTime: '08:00', scanWindowMins: 30, lateCutoffMins: 15 })`.
+* `Missing or insufficient permissions` → `firestore.rules` blocked it (wrong role, or not that class's teacher).
+* `useLive load skipped: ...` in the console → a screen's loading code threw an error; the message says why.
+* The React Developer Tools browser extension shows each screen's state.

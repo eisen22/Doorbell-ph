@@ -1,0 +1,8 @@
+# Installed packages (re-created by "npm install")
+node_modules
+# Built website (re-created by "npm run build")
+dist
+# Never commit secret keys
+*.local
+.env
+serviceAccount*.json
