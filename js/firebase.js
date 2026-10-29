@@ -23,12 +23,12 @@ import {
 // These values are not secret: they only say WHICH project to talk to.
 // What protects the data are the security rules in firestore.rules.
 export const firebaseConfig = {
-  apiKey: 'PASTE_API_KEY',
-  authDomain: 'PASTE_PROJECT_ID.firebaseapp.com',
-  projectId: 'PASTE_PROJECT_ID',
-  storageBucket: 'PASTE_PROJECT_ID.firebasestorage.app',
-  messagingSenderId: 'PASTE_SENDER_ID',
-  appId: 'PASTE_APP_ID',
+  apiKey: 'AIzaSyClVWQwsBbDPrIUqrASHSnowVWqVLowT4o',
+  authDomain: 'doorbell-ph-f12d0.firebaseapp.com',
+  projectId: 'doorbell-ph-f12d0',
+  storageBucket: 'doorbell-ph-f12d0.firebasestorage.app',
+  messagingSenderId: '870779183956',
+  appId: '1:870779183956:web:21fa604c5f23c0c5301ec1',
 };
 
 // Start Firebase once and share the connection.

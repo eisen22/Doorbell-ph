@@ -29,8 +29,15 @@ if (firebaseConfig.apiKey.startsWith('PASTE')) {
 // ---- Step 1: first-time setup check ----
 // meta/setup is created together with the first admin. Anyone may read it
 // (see firestore.rules) so this page can tell if setup is still needed.
-const setup = await getDoc(doc(db, 'meta', 'setup')).catch(() => null);
-if (setup && !setup.exists()) $('setup-form').hidden = false;
+try {
+  const setup = await getDoc(doc(db, 'meta', 'setup'));
+  if (!setup.exists()) $('setup-form').hidden = false;
+} catch (err) {
+  // "permission-denied" here almost always means firestore.rules was not published yet.
+  $('login-error').textContent = err.code === 'permission-denied'
+    ? 'The database is locked: publish firestore.rules in Firebase console -> Firestore -> Rules.'
+    : `Cannot reach the database: ${err.message}`;
+}
 
 // ---- Step 2: normal sign-in ----
 $('login-form').addEventListener('submit', async (e) => {
