@@ -1,0 +1,60 @@
+rules_version = '2';
+
+// =====================================================================
+// firestore.rules — WHO MAY READ AND WRITE WHAT
+// ---------------------------------------------------------------------
+// Paste this into Firebase console -> Firestore Database -> Rules -> Publish.
+// Only signed-in staff (people with a users/{uid} profile) can see data.
+// Only the admin can change sections, students and the calendar.
+// A teacher can write attendance only for their own classes.
+// If something says "Missing or insufficient permissions", the cause is here.
+// =====================================================================
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ----- helper checks -----
+    function signedIn() { return request.auth != null; }
+    function profile() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data; }
+    function isStaff() { return signedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid)); }
+    function isAdmin() { return isStaff() && profile().role == 'admin'; }
+    // True when the signed-in teacher is the teacher of that section.
+    function teaches(sectionId) {
+      return isStaff() && get(/databases/$(database)/documents/sections/$(sectionId)).data.teacherUid == request.auth.uid;
+    }
+
+    // First-time setup flag. Anyone can read it (the sign-in page checks it).
+    // It can be created only once, together with the first admin.
+    match /meta/setup {
+      allow read: if true;
+      allow create: if signedIn() && !exists(/databases/$(database)/documents/meta/setup);
+    }
+
+    // Staff profiles: { name, email, role: 'admin' | 'teacher' }
+    match /users/{uid} {
+      allow read: if isStaff();
+      // The admin creates teacher profiles. The very first admin creates their own
+      // profile in the same batch that creates meta/setup (see js/login.js).
+      allow create: if isAdmin()
+        || (signedIn() && request.auth.uid == uid && request.resource.data.role == 'admin'
+            && !exists(/databases/$(database)/documents/meta/setup)
+            && existsAfter(/databases/$(database)/documents/meta/setup));
+      allow update, delete: if isAdmin();
+    }
+
+    // School setup: only the admin changes these; all staff can read them.
+    match /sections/{id}    { allow read: if isStaff(); allow write: if isAdmin(); }
+    match /students/{id}    { allow read: if isStaff(); allow write: if isAdmin(); }
+    match /noClassDays/{id} { allow read: if isStaff(); allow write: if isAdmin(); }
+
+    // One document per class per day. Teachers write only their own classes.
+    match /attendance/{id} {
+      allow read: if isStaff();
+      allow create, update: if isAdmin() || teaches(request.resource.data.sectionId);
+      allow delete: if isAdmin();
+    }
+
+    // Text messages (simulated) and alerts: any staff member can add them.
+    match /sms/{id}    { allow read, create: if isStaff(); allow update, delete: if isAdmin(); }
+    match /alerts/{id} { allow read, create: if isStaff(); allow update, delete: if isAdmin(); }
+  }
+}
