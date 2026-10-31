@@ -183,8 +183,8 @@ export function AdminDashboard() {
     <div className="page">
       <div className="page-head">
         <div>
-          <p className="eyebrow">Good day, {session?.name.split(' ')[0] ?? ''}</p>
           <h1>School overview</h1>
+          <p className="page-sub">Good day, {session?.name.split(' ')[0] ?? ''}</p>
         </div>
         <p className="muted">{format(parseISO(today.date), 'EEEE, MMMM d, yyyy')}</p>
       </div>
@@ -432,8 +432,8 @@ export function AbsenceWatch() {
     <div className="page">
       <div className="page-head">
         <div>
-          <p className="eyebrow">As of {format(parseISO(data.today.date), 'EEEE, MMMM d')} · school days only</p>
           <h1>Absence Watch</h1>
+          <p className="page-sub">As of {format(parseISO(data.today.date), 'EEEE, MMMM d')} · school days only</p>
         </div>
         <label className="sort-pick">
           <ArrowDownUp size={16} />
@@ -559,10 +559,10 @@ export function AdminCalendar() {
     <div className="page">
       <div className="page-head">
         <div>
-          <p className="eyebrow">
+          <h1>School Calendar</h1>
+          <p className="page-sub">
             {year.name} · {countClassDays(year, calendar)} class days
           </p>
-          <h1>School Calendar</h1>
         </div>
         <div className="head-actions">
           <button className="btn" onClick={() => setResetOpen(true)}>
@@ -888,8 +888,8 @@ export function Sections() {
     <div className="page">
       <div className="page-head">
         <div>
-          <p className="eyebrow">Click a section to see its teacher and students</p>
           <h1>Sections</h1>
+          <p className="page-sub">Click a section to see its teacher and students</p>
         </div>
         <div className="head-actions">
           <label className="check">
@@ -1407,8 +1407,8 @@ export function Teachers() {
     <div className="page">
       <div className="page-head">
         <div>
-          <p className="eyebrow">{data.teachers.filter((t) => t.active !== false).length} active</p>
           <h1>Teachers</h1>
+          <p className="page-sub">{data.teachers.filter((t) => t.active !== false).length} active</p>
         </div>
         <button className="btn btn-ink" onClick={() => setEdit({ name: '', email: '', mobile: '' })}>
           <Plus size={17} /> Add teacher
@@ -1601,10 +1601,10 @@ export function AdminStudents() {
     <div className="page">
       <div className="page-head">
         <div>
-          <p className="eyebrow">
+          <h1>Students</h1>
+          <p className="page-sub">
             {data.rows.filter((r) => r.enrollment?.status === 'active').length} enrolled · {unassigned} not in a section
           </p>
-          <h1>Students</h1>
         </div>
         <div className="head-actions">
           <button
@@ -2330,8 +2330,8 @@ export function QrCards() {
     <div className="page">
       <div className="page-head no-print">
         <div>
-          <p className="eyebrow">A code is created automatically for every student</p>
           <h1>ID Cards</h1>
+          <p className="page-sub">A code is created automatically for every student</p>
         </div>
         <button
           className="btn btn-ink"
@@ -2499,8 +2499,8 @@ export function AdminSettings() {
     <div className="page">
       <div className="page-head">
         <div>
-          <p className="eyebrow">School-wide</p>
           <h1>Settings &amp; SMS</h1>
+          <p className="page-sub">School-wide</p>
         </div>
         <button
           className="btn btn-ink"
@@ -2615,8 +2615,8 @@ export function AuditLog() {
     <div className="page">
       <div className="page-head">
         <div>
-          <p className="eyebrow">Every change is recorded and cannot be edited</p>
           <h1>Audit Log</h1>
+          <p className="page-sub">Every change is recorded and cannot be edited</p>
         </div>
         <input
           className="input"

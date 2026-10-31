@@ -355,7 +355,6 @@ export function Shell() {
             >
               <Search size={17} aria-hidden="true" />
               <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search students" aria-label="Search students" />
-              <kbd>Enter</kbd>
             </form>
             <div className="topbar-right">
               {!isAdmin && (

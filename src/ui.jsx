@@ -122,12 +122,18 @@ export function textOn(hex) {
 // =====================================================================
 export function Logo({ size = 34 }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 40 40" aria-hidden="true">
-      <rect x="2" y="2" width="36" height="36" rx="11" fill="#D8F5A2" />
-      {/* bell */}
-      <path d="M20 9.5c-4.6 0-7.6 3.3-7.6 7.8v4.9l-2.3 3.6c-.4.6 0 1.4.8 1.4h18.2c.8 0 1.2-.8.8-1.4l-2.3-3.6v-4.9c0-4.5-3-7.8-7.6-7.8z" fill="#111" />
-      <path d="M16.6 29.4a3.5 3.5 0 0 0 6.8 0" fill="none" stroke="#111" strokeWidth="2.6" strokeLinecap="round" />
-      <circle cx="28.6" cy="11.4" r="3.6" fill="#FFB65C" stroke="#D8F5A2" strokeWidth="1.6" />
+    // The Doorbell mark: a bell whose body is an arched doorway (the door a child walks through,
+    // the bell that tells the parent). Drawn on a 256 x 256 grid; master files are in design/logo/.
+    <svg width={size} height={size} viewBox="0 0 256 256" aria-hidden="true" className="logo">
+      {/* the lime tile behind the mark: change fill to recolor it */}
+      <rect width="256" height="256" rx="60" fill="#D8F29F" />
+      {/* the mark, shrunk to 75% and centered on the tile */}
+      <g transform="translate(32 32) scale(0.75)">
+        {/* arched door + bell lip, with the doorway cut out (evenodd makes the hole) */}
+        <path fillRule="evenodd" fill="#1B1D19" d="M72 162V90a56 56 0 0 1 112 0v72h16a12 12 0 0 1 0 24H56a12 12 0 0 1 0-24zM108 162v-48a20 20 0 0 1 40 0v48z" />
+        {/* the clapper */}
+        <circle cx="128" cy="208" r="16" fill="#1B1D19" />
+      </g>
     </svg>
   );
 }

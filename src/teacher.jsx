@@ -177,10 +177,10 @@ export function Dashboard() {
     <div className="page">
       <div className="page-head">
         <div>
-          <p className="eyebrow">
+          <h1>Dashboard</h1>
+          <p className="page-sub">
             {greet}, Teacher {session.name.split(' ')[0]}
           </p>
-          <h1>Dashboard</h1>
         </div>
         <p className="muted">
           {format(parseISO(today.date), 'EEEE, MMMM d, yyyy')}
@@ -626,10 +626,10 @@ export function Attendance() {
     <div className="page">
       <div className="page-head">
         <div>
-          <p className="eyebrow">
+          <h1>Attendance</h1>
+          <p className="page-sub">
             {section.name} · {to12h(section.schedule.startTime)} to {to12h(section.schedule.endTime)}
           </p>
-          <h1>Attendance</h1>
         </div>
         <div className="date-nav">
           <button className="icon-btn" onClick={() => step(-1)} aria-label="Previous school day">
@@ -848,10 +848,10 @@ export function Students() {
     <div className="page">
       <div className="page-head">
         <div>
-          <p className="eyebrow">
+          <h1>My Students</h1>
+          <p className="page-sub">
             {data.section.name} · {data.roster.length} learners
           </p>
-          <h1>My Students</h1>
         </div>
         <input
           className="input"
@@ -1005,10 +1005,10 @@ export function CalendarPage() {
     <div className="page">
       <div className="page-head">
         <div>
-          <p className="eyebrow">
+          <h1>School Calendar</h1>
+          <p className="page-sub">
             {year.name} · {format(parseISO(year.start), 'MMM d, yyyy')} to {format(parseISO(year.end), 'MMM d, yyyy')}
           </p>
-          <h1>School Calendar</h1>
         </div>
         <div className="cal-stats">
           <div title="Days learners are in school. DepEd's 201 also counts wellness-break and INSET days.">
@@ -1128,8 +1128,8 @@ export function Reports() {
     <div className="page">
       <div className="page-head">
         <div>
-          <p className="eyebrow">{data.section.name}</p>
           <h1>Reports</h1>
+          <p className="page-sub">{data.section.name}</p>
         </div>
       </div>
       <ClassSwitch classes={data.classes} value={data.section.id} onChange={setClass} />
@@ -1319,8 +1319,8 @@ export function Notifications() {
     <div className="page">
       <div className="page-head">
         <div>
-          <p className="eyebrow">Absences and lateness in a row, failed texts, and calendar changes from the admin</p>
           <h1>Alerts</h1>
+          <p className="page-sub">Absences and lateness in a row, failed texts, and calendar changes from the admin</p>
         </div>
         <button className="btn" onClick={() => repo.markNotificationsRead()}>
           <CheckCheck size={17} /> Mark all read
@@ -1443,10 +1443,10 @@ export function SmsMessages() {
     <div className="page">
       <div className="page-head">
         <div>
-          <p className="eyebrow">
+          <h1>SMS Messages</h1>
+          <p className="page-sub">
             {repo.mode === 'demo' ? 'Demo: messages are simulated, nothing is actually sent' : 'Messages sent to parents and guardians'}
           </p>
-          <h1>SMS Messages</h1>
         </div>
         <div className="head-actions">
           <label className="sort-pick">
@@ -1579,8 +1579,8 @@ export function SettingsPage() {
     <div className="page">
       <div className="page-head">
         <div>
-          <p className="eyebrow">Your account and class rules</p>
           <h1>Settings</h1>
+          <p className="page-sub">Your account and class rules</p>
         </div>
       </div>
       <div className="grid-2">
