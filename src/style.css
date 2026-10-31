@@ -608,13 +608,28 @@ a.kpi:hover { background: var(--surface) !important; }
 .feed li:last-child .feed-row { border-bottom: 0; }
 .chips .push { margin-left: auto; }
 .attention li { padding: 0; border: 0; display: block; }
-.attention-link { display: grid; grid-template-columns: auto 1fr auto; grid-template-rows: auto auto; align-items: center; gap: 2px 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--r-md); text-decoration: none; color: inherit; }
-.attention-link:hover { border-color: var(--ink); }
-.attention-link > div { display: flex; flex-direction: column; grid-row: span 2; }
-.attention-link .avatar { grid-row: span 2; }
-.attention-link > .muted.small:last-child { text-align: right; }
-.attention-link > :nth-child(3), .attention-link > :nth-child(4) { justify-self: end; }
-.attention-link > div .muted.small { text-align: left; }
+/* Attention cards: every card in a row is the same height (grid-auto-rows: 1fr), and each line has a
+   fixed place, so long names or streak texts never make one card bigger or shift the others.
+     | avatar | name                     |   streak chip |
+     |        | streak text (2 lines max)|               |
+     |        | guardian (1 line)        |  texted / not |  */
+.attention { grid-auto-rows: 1fr; }
+.attention-link {
+  height: 100%; box-sizing: border-box; display: grid; grid-template-columns: 40px minmax(0, 1fr) auto;
+  grid-template-areas: 'av txt chip' 'av txt note'; grid-template-rows: auto 1fr; align-items: start; gap: 4px 12px;
+  padding: 14px; border: 1px solid var(--line); border-radius: var(--r-md); text-decoration: none; color: inherit;
+  transition: border-color 0.15s ease;
+}
+.attention-link:hover { border-color: rgba(27, 29, 25, 0.35); }
+.attention-link .avatar { grid-area: av; align-self: center; }
+.attention-link > div { grid-area: txt; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.attention-link > div strong { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.attention-link > div .muted.small { text-align: left; line-height: 1.35; }
+/* streak text: at most 2 lines; guardian: 1 line, cut with "..." */
+.attention-link > div .muted.small:nth-of-type(1) { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; min-height: 2.7em; }
+.attention-link > div .muted.small:nth-of-type(2) { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.attention-link > :nth-child(3) { grid-area: chip; justify-self: end; white-space: nowrap; }
+.attention-link > :nth-child(4) { grid-area: note; justify-self: end; align-self: end; text-align: right; white-space: nowrap; }
 .filter-note { display: flex; gap: 12px; align-items: center; background: var(--lavender); padding: 8px 14px; border-radius: var(--r-sm); margin-bottom: 6px; font-size: 14px; }
 .nav-badge-red { background: var(--absent); }
 
