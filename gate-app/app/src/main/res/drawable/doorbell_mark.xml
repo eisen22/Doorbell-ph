@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The Doorbell mark: a bell whose body is an arched doorway. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp" android:height="48dp"
+    android:viewportWidth="256" android:viewportHeight="256">
+    <path android:fillColor="#1B1D19" android:fillType="evenOdd" android:pathData="M72,162V90a56,56 0,0 1,112 0v72h16a12,12 0,0 1,0 24H56a12,12 0,0 1,0 -24zM108,162v-48a20,20 0,0 1,40 0v48z" />
+    <path android:fillColor="#1B1D19" android:pathData="M128,192a16,16 0,1 1,0 32a16,16 0,1 1,0 -32z" />
+</vector>

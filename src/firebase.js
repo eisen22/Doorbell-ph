@@ -305,6 +305,12 @@ export function createCloudEngine() {
         return;
       }
       const account = { ...snap.data(), uid: user.uid };
+      // The gate phone's account only works in the Doorbell Gate app, not on this website.
+      if (account.role === 'gate') {
+        await fbSignOut(auth);
+        signInFailer?.(new Error('This is the school gate account. Use it in the Doorbell Gate app on the gate phone.'));
+        return;
+      }
       const teacher = account.teacherId ? (await getDoc(doc(db, 'teachers', account.teacherId))).data() : undefined;
       if (teacher && teacher.active === false) {
         await fbSignOut(auth);

@@ -2593,8 +2593,76 @@ export function AdminSettings() {
           ))}
         </div>
       </Card>
+      <GateAccountCard flash={flash} />
       <Toast message={toast} />
     </div>
+  );
+}
+
+// The account the gate phone signs in with (Doorbell Gate app, see gate-app/README.md).
+// Children scan their ID at the school gate; the teacher still confirms attendance in the classroom.
+function GateAccountCard({ flash }) {
+  const repo = useRepo();
+  const { data: accounts } = useLive((r) => r.gateAccounts());
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const create = async (e) => {
+    e.preventDefault(); // stop the page from reloading
+    setError('');
+    setBusy(true);
+    try {
+      await repo.createGateAccount(email, password);
+      flash('Gate account created. Sign in with it on the gate phone.');
+      setEmail('');
+      setPassword('');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Card title="Gate scanner phone">
+      <p className="muted small">
+        Children scan their ID card on a phone at the school gate (the Doorbell Gate app). Parents get the arrival text right away, and each teacher
+        confirms attendance once the class is inside. The phone signs in with this account; it cannot open this website.
+      </p>
+      {accounts?.length ? (
+        <ul className="cal-list">
+          {accounts.map((a) => (
+            <li key={a.uid}>
+              <QrCode size={16} aria-hidden="true" />
+              <span>{a.email}</span>
+              <button
+                className="btn btn-sm"
+                onClick={async () => {
+                  await repo.removeGateAccount(a.uid);
+                  flash('Gate account removed. That phone can no longer scan.');
+                }}
+              >
+                <Trash2 size={15} /> Remove
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <form className="form-row" onSubmit={create}>
+        <label className="field">
+          <span>Email for the gate phone</span>
+          <input className="input" type="email" placeholder="gate@yourschool.edu.ph" value={email} onChange={(e) => setEmail(e.target.value)} />
+        </label>
+        <label className="field">
+          <span>Password (at least 8 characters)</span>
+          <input className="input" type="text" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" />
+        </label>
+        <button className="btn btn-ink align-end" disabled={busy || !email || !password}>
+          <Plus size={17} /> Create gate account
+        </button>
+      </form>
+      {error && <p className="error">{error}</p>}
+    </Card>
   );
 }
 

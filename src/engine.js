@@ -781,6 +781,36 @@ export class Engine {
     this.emit();
     return { teacher, tempPassword };
   }
+  // ---------------------------------------------------------------------
+  // GATE SCANNER ACCOUNTS
+  // The phone at the school gate runs the Doorbell Gate app (gate-app/ folder). It signs in with
+  // its own account whose role is 'gate': it can record scans and queue the parent texts, but it
+  // cannot open this website. Removing the account's profile stops the phone from scanning.
+  // ---------------------------------------------------------------------
+  gateAccounts() {
+    return [...this.s.users.values()].filter((u) => u.role === 'gate').sort((a, b) => a.email.localeCompare(b.email));
+  }
+  async createGateAccount(email, password) {
+    const clean = email.trim().toLowerCase();
+    if (!clean.includes('@')) throw new Error('Enter an email address for the gate phone, e.g. gate@yourschool.edu.ph');
+    if ((password ?? '').length < 8) throw new Error('Use a password with at least 8 characters.');
+    if ([...this.s.users.values()].some((u) => u.email.toLowerCase() === clean)) throw new Error('That email already has an account.');
+    const { uid: accountUid } = await this.auth.createTeacherAccount(clean, 'School gate', undefined, password);
+    const account = { uid: accountUid || uid('u'), email: clean, name: 'School gate', role: 'gate' };
+    this.s.users.set(account.uid, account);
+    this.put('users', account.uid, account);
+    await this.logAudit('gate.create', clean, 'gate scanner account created');
+    this.emit();
+    return account;
+  }
+  async removeGateAccount(accountUid) {
+    const acc = this.s.users.get(accountUid);
+    if (!acc || acc.role !== 'gate') return;
+    this.s.users.delete(accountUid);
+    this.persistence.remove('users', accountUid);
+    await this.logAudit('gate.remove', acc.email, 'gate scanner account removed');
+    this.emit();
+  }
   // Deactivate (cannot sign in, removed from their classes) or reactivate a teacher.
   async setTeacherActive(id, active) {
     const t = this.s.teachers.get(id);

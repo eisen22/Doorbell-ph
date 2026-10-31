@@ -18,6 +18,8 @@ service cloud.firestore {
     function account() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data; }
     function isStaff() { return signedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid)); }
     function isAdmin() { return isStaff() && account().role == 'admin'; }
+    // The phone at the school gate (Doorbell Gate app) signs in with an account whose role is 'gate'.
+    function isGate() { return isStaff() && account().role == 'gate'; }
     // True when the signed-in teacher is the teacher of that section.
     function teachesSection(sectionId) {
       return isStaff() && account().role == 'teacher'
@@ -55,9 +57,10 @@ service cloud.firestore {
     match /enrollments/{id} { allow read: if isStaff(); allow write: if isAdmin(); }
 
     // One document per section per day.
+    // The gate phone may add scans to any section (children of every class pass the same gate).
     match /attendance/{id} {
       allow read: if isStaff();
-      allow create, update: if isAdmin() || teachesSection(request.resource.data.sectionId);
+      allow create, update: if isAdmin() || isGate() || teachesSection(request.resource.data.sectionId);
       allow delete: if isAdmin();
     }
     // A confirmed (locked) day. Only the admin can undo it.

@@ -1,0 +1,9 @@
+<resources>
+    <!-- Only the window colors before Compose draws the screens. The real theme is ui/Theme.kt. -->
+    <style name="Theme.DoorbellGate" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/canvas</item>
+        <item name="android:statusBarColor">@color/canvas</item>
+        <item name="android:navigationBarColor">@color/canvas</item>
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
+</resources>
