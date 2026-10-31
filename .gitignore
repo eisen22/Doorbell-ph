@@ -6,3 +6,6 @@ dist
 *.local
 .env
 serviceAccount*.json
+
+# Android Studio / IntelliJ settings (per computer)
+.idea/
