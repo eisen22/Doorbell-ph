@@ -711,9 +711,11 @@ a.kpi:hover { background: var(--surface) !important; }
 .note-calendar { background: var(--sky); color: #0b4a6f; }
 
 /* ---------- Multiple classes ---------- */
-.class-tile { flex-basis: 268px; padding: 0; gap: 0; overflow: hidden; }
+/* Every class tile has a 2px border; it is invisible until the tile is the selected class.
+   (A border follows the squircle corners and is not cut off by the scrolling row, unlike the old outer shadow.) */
+.class-tile { flex-basis: 268px; padding: 0; gap: 0; overflow: hidden; border: 2px solid transparent; }
 .class-tile:hover { transform: none; }
-.class-tile.class-on { box-shadow: 0 0 0 2px var(--ink); }
+.class-tile.class-on { border-color: rgba(27, 29, 25, 0.45); /* softer than pure black */ }
 .class-tile-main { all: unset; box-sizing: border-box; display: flex; flex-direction: column; gap: 8px; padding: 16px 16px 10px; flex: 1; cursor: pointer; }
 .class-tile-main:focus-visible { outline: 2px solid var(--ink); outline-offset: -4px; border-radius: var(--radius-md); }
 .class-tile-main p { color: inherit; opacity: 0.85; }
