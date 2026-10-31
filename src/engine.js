@@ -11,6 +11,7 @@ import {
   renderTemplate,
   shouldAlertStreak,
   shouldAutoFinalize,
+  autoFinalizeTime,
   streakInfo,
   to12h,
   toMinutes,
@@ -383,7 +384,9 @@ export class Engine {
       for (let d = this.year.start; d <= end; d = addDays(d, 1)) {
         if (!isSchoolDay(d, sec.schedule, this.s.calendar) || this.s.confirmations.has(dayId(sec.id, d))) continue;
         if (d < today || (d === today && shouldAutoFinalize(this.clock.peek(), sec.schedule))) {
-          this.finalize(sec.id, d, 'Auto-confirm', true);
+          // Stamp it with the class's auto-confirm time (e.g. 8:45 AM on that day), not the moment the
+          // app happened to be opened. A day caught up later (nobody was signed in at 8:45) still reads 8:45 AM.
+          this.finalize(sec.id, d, 'Auto-confirm', true, `${d}T${autoFinalizeTime(sec.schedule)}:00+08:00`);
         }
       }
     }

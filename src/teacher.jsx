@@ -675,8 +675,13 @@ export function Attendance() {
         </div>
         {confirmation ? (
           <div className="locked-note">
-            <Lock size={16} /> Confirmed by {confirmation.confirmedBy} at {format(new Date(confirmation.confirmedAt), 'h:mm a')}. You can still change a
-            status.
+            <Lock size={16} />{' '}
+            {/* Auto-confirmed days show the class's auto-confirm time. (Days auto-confirmed before this fix were
+                stamped with the time the app was opened, e.g. 6:50 PM; this shows them correctly too.) */}
+            {confirmation.auto
+              ? `Auto-confirmed at ${to12h(autoFinalizeTime(section.schedule))}`
+              : `Confirmed by ${confirmation.confirmedBy} at ${format(new Date(confirmation.confirmedAt), 'h:mm a')}`}
+            . You can still change a status.
           </div>
         ) : schoolDay ? (
           <button className="btn btn-ink" onClick={() => setConfirmOpen(true)}>
