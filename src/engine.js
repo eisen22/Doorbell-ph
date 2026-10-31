@@ -540,11 +540,10 @@ export class Engine {
     this.emit();
     return { kind: 'recorded', student, status, time };
   }
-  // A teacher changes a status by hand. After confirming, a reason is required (saved in the audit log).
+  // A teacher changes a status by hand, before or after confirming (every change is saved in the audit log).
   async setStatus(input) {
     await this.ready;
     const locked = this.s.confirmations.has(dayId(input.sectionId, input.date));
-    if (locked && !input.reason?.trim()) throw new Error('This day is confirmed. Give a reason for the change.');
     const prev = this.record(input.sectionId, input.date, input.studentId);
     this.writeRecord({
       date: input.date,

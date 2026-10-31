@@ -537,7 +537,7 @@ export function Attendance() {
     p.delete('status');
     setParams(p);
   };
-  // pending = a change that needs a note or reason first (Excused, or any change after confirming).
+  // pending = an Excused change waiting for its (optional) note.
   const [pending, setPending] = useState(null);
   const [text, setText] = useState('');
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -587,10 +587,11 @@ export function Attendance() {
           })();
     if (next && next <= today.date) setDate(next);
   };
-  // A status button was pressed. Excused, or any change after the day is confirmed, opens a window for a note/reason.
+  // A status button was pressed. Excused opens a window for an optional note; every other status saves right away
+  // (also after the day is confirmed).
   const choose = async (row, status) => {
     if (row.record?.status === status) return;
-    if (confirmation || status === 'excused') {
+    if (status === 'excused') {
       setPending({ row, status });
       setText('');
       setError(null);
@@ -607,8 +608,7 @@ export function Attendance() {
         date: day,
         studentId: pending.row.student.id,
         status: pending.status,
-        note: pending.status === 'excused' ? text : undefined,
-        reason: confirmation ? text : undefined,
+        note: text,
       });
       setPending(null);
       flash(`${pending.row.student.firstName} updated`);
@@ -675,8 +675,8 @@ export function Attendance() {
         </div>
         {confirmation ? (
           <div className="locked-note">
-            <Lock size={16} /> Confirmed by {confirmation.confirmedBy} at {format(new Date(confirmation.confirmedAt), 'h:mm a')}. Changes need a
-            reason.
+            <Lock size={16} /> Confirmed by {confirmation.confirmedBy} at {format(new Date(confirmation.confirmedAt), 'h:mm a')}. You can still change a
+            status.
           </div>
         ) : schoolDay ? (
           <button className="btn btn-ink" onClick={() => setConfirmOpen(true)}>
@@ -761,28 +761,24 @@ export function Attendance() {
         </Card>
       )}
 
-      {/* Window for an excuse note or a change reason. */}
+      {/* Window for an excuse note (optional). */}
       {pending && (
         <Modal
-          title={
-            pending.status === 'excused' && !confirmation
-              ? `Excuse ${pending.row.student.firstName}`
-              : `Change ${pending.row.student.firstName} to ${pending.status}`
-          }
+          title={`Excuse ${pending.row.student.firstName}`}
           onClose={() => setPending(null)}
           footer={
             <>
               <button className="btn" onClick={() => setPending(null)}>
                 Cancel
               </button>
-              <button className="btn btn-ink" onClick={savePending} disabled={!!confirmation && !text.trim()}>
+              <button className="btn btn-ink" onClick={savePending}>
                 Save
               </button>
             </>
           }
         >
           <label className="field">
-            <span>{confirmation ? 'Reason for the change (required, saved in the audit log)' : 'Note (optional), e.g. "Parent called, fever"'}</span>
+            <span>Note (optional), e.g. "Parent called, fever"</span>
             <textarea value={text} onChange={(e) => setText(e.target.value)} rows={3} autoFocus />
           </label>
           {error && <p className="error">{error}</p>}
