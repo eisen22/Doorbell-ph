@@ -564,20 +564,42 @@ export function YearCalendar({ year, calendar, today, selection, onDayClick }) {
 }
 // The color key under the calendar.
 export function CalendarLegend({ counts }) {
+  // The legend is split into what the colors MEAN: days with class, days without class, and marks
+  // drawn around a day. Each group is a column; the number on the right counts those days this school year.
+  const groups = [
+    { title: 'Class days', kinds: ['class', 'exam', 'event', 'halfday', 'makeup'] },
+    { title: 'No classes', kinds: ['holiday', 'suspension', 'break'] },
+  ];
   return (
-    <ul className="legend">
-      {LEGEND.map((k) => (
-        <li key={k}>
-          <span className={`swatch k-${k}`} aria-hidden="true" />
-          {DAY_KIND_META[k].label}
-          {counts?.[k] !== undefined && <b>{counts[k]}</b>}
-        </li>
+    <div className="legend">
+      {groups.map((g) => (
+        <div className="legend-group" key={g.title}>
+          <h3>{g.title}</h3>
+          <ul>
+            {g.kinds.map((k) => (
+              <li key={k}>
+                <span className={`swatch k-${k}`} aria-hidden="true" />
+                <span className="legend-label">{DAY_KIND_META[k].label}</span>
+                {counts?.[k] !== undefined && <b>{counts[k]}</b>}
+              </li>
+            ))}
+          </ul>
+        </div>
       ))}
-      <li>
-        <span className="swatch k-holiday is-local" aria-hidden="true" />
-        Local holiday (Baguio)
-      </li>
-    </ul>
+      <div className="legend-group">
+        <h3>Marks on a day</h3>
+        <ul>
+          <li>
+            <span className="swatch k-holiday is-local" aria-hidden="true" />
+            <span className="legend-label">Local holiday (Baguio)</span>
+          </li>
+          <li>
+            <span className="swatch swatch-today" aria-hidden="true" />
+            <span className="legend-label">Today</span>
+          </li>
+        </ul>
+      </div>
+    </div>
   );
 }
 
