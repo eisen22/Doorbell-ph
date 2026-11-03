@@ -807,3 +807,20 @@ a.kpi:hover { background: var(--surface) !important; }
 .sd-name { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .leave-options { display: flex; flex-direction: column; gap: 8px; margin: 8px 0 12px; }
 .sd-name .name-link, .sd-teacher .name-link { align-self: flex-start; }
+
+/* ---------- Teacher absent, missing child, sending texts ---------- */
+.note-missing { background: var(--absent); color: #fff; }
+.cover-note { display: flex; align-items: center; gap: 8px; margin: 0; padding: 10px 14px; border-radius: var(--r-md); background: var(--lavender); font-weight: 600; font-size: 14px; }
+.away-box { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.away-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.away-box .cal-list li { gap: 12px; }
+/* The urgent box at the top of the admin Overview: a child the gate saw but the classroom did not. */
+.urgent { border: 2px solid var(--absent); background: var(--absent-bg); border-radius: var(--r-lg); padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; }
+.urgent-head { display: flex; align-items: center; gap: 10px; color: var(--absent); font-size: 17px; }
+.urgent ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.urgent li { display: flex; align-items: center; gap: 14px; justify-content: space-between; background: var(--frame); border-radius: var(--r-md); padding: 12px 14px; }
+.urgent li > div { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.urgent li span { color: var(--ink-2); font-size: 14px; }
+
+.away-box .cal-list li > span { flex: 1; }
+.urgent li .btn { white-space: nowrap; flex-shrink: 0; }

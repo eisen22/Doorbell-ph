@@ -253,10 +253,11 @@ export function createCloudEngine() {
     }
   };
 
-  // A teacher reads only their own classes. If the admin adds or removes a class, the listeners follow.
+  // A teacher reads only their own classes (plus a class they cover as a substitute today).
+  // If the admin adds or removes a class, or sets a substitute, the listeners follow.
   const listenToClasses = async (account) => {
     const ids = engine
-      .classesOf(account.teacherId)
+      .myClasses(account.teacherId)
       .map((c) => c.id)
       .slice(0, 29); // Firestore 'in' allows 30 values
     const key = ids.join(',');
@@ -323,7 +324,7 @@ export function createCloudEngine() {
         // If the admin assigns or removes a class, reconnect to the right classes.
         watchClasses = engine.subscribe(() => {
           const key = engine
-            .classesOf(account.teacherId)
+            .myClasses(account.teacherId)
             .map((c) => c.id)
             .join(',');
           if (key !== classKey) {

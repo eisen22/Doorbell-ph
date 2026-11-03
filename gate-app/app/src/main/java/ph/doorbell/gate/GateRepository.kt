@@ -199,7 +199,8 @@ class GateRepository(private val db: FirebaseFirestore = FirebaseFirestore.getIn
         refreshStatus()
         if (confirmed) audit("attendance.scan_after_lock", student.fullName, "absent -> late at $time")
 
-        // 7. Text the parent (simulated like the website: saved in 'sms' with status 'sent').
+        // 7. Text the parent: saved in 'sms' ('queued' = the sendSms Cloud Function sends it through
+    //    Semaphore; 'sent' = simulated, like the website's demo setting).
         val texted = queueSms(student, section, if (status == "late") "late" else "arrival", today, time)
         return ScanResult.Recorded(student, section, status, time, texted)
     }
@@ -219,7 +220,7 @@ class GateRepository(private val db: FirebaseFirestore = FirebaseFirestore.getIn
             mapOf(
                 "id" to id, "studentId" to student.id, "guardianId" to g.id, "sectionId" to section.id,
                 "to" to g.mobile, "body" to body, "kind" to kind,
-                "status" to if (g.numberFailed) "failed" else "sent",
+                "status" to if (g.numberFailed) "failed" else if (settings.realSms) "queued" else "sent",
                 "createdAt" to createdAt, "attempts" to 1,
             ),
         )

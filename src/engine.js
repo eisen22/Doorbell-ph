@@ -17,6 +17,8 @@ import {
   toMinutes,
   fromMinutes,
   DEPED_SY_2026_2027,
+  eachDate,
+  displayPhMobile,
 } from './logic';
 
 // =====================================================================
@@ -168,6 +170,26 @@ export class Engine {
     if (!teacherId) return [];
     return sortByStart([...this.s.sections.values()].filter((x) => x.teacherId === teacherId && !x.archived));
   }
+  // ---------------------------------------------------------------------
+  // TEACHER AWAY (a teacher is absent)
+  // Saved inside the section's schedule, one entry per date:
+  //   schedule.teacherAway = { '2026-11-05': { kind: 'substitute', teacherId: 't-ana', note, by, at } }
+  //   kind 'substitute' = another teacher takes and confirms attendance that day
+  //   kind 'noclass'    = no class for this section only: nobody is marked absent (see isSchoolDay in logic.js)
+  // ---------------------------------------------------------------------
+  awayOn(section, date) {
+    return section?.schedule?.teacherAway?.[date] ?? null;
+  }
+  /** Classes another teacher handles today that this teacher covers as a substitute. */
+  coveringToday(teacherId) {
+    if (!teacherId) return [];
+    const today = this.clock.today();
+    return [...this.s.sections.values()].filter((x) => !x.archived && x.teacherId !== teacherId && this.awayOn(x, today)?.teacherId === teacherId);
+  }
+  /** Own classes plus classes covered today: what a teacher sees and takes attendance for. */
+  myClasses(teacherId) {
+    return sortByStart([...this.classesOf(teacherId), ...this.coveringToday(teacherId)]);
+  }
   // Remembers who is signed in. For a teacher it also works out their classes
   // (sectionIds) and which one is happening now (sectionId).
   setSession(account) {
@@ -176,7 +198,10 @@ export class Engine {
       this.emit();
       return;
     }
-    const classes = this.classesOf(account.teacherId);
+    // The admin can open every class (Admin -> Attendance); a teacher sees their own classes
+    // plus any class they cover as a substitute today.
+    const classes =
+      account.role === 'admin' ? sortByStart([...this.s.sections.values()].filter((x) => !x.archived)) : this.myClasses(account.teacherId);
     const now = classNow(classes, this.clock.peek(), this.clock.today());
     this.session = {
       uid: account.uid,
@@ -186,6 +211,7 @@ export class Engine {
       teacherId: account.teacherId,
       sectionIds: classes.map((c) => c.id),
       sectionId: now?.id ?? classes[0]?.id ?? null,
+      coveringIds: account.role === 'admin' ? [] : this.coveringToday(account.teacherId).map((c) => c.id),
     };
     this.emit();
   }
@@ -280,9 +306,11 @@ export class Engine {
   /* ---------- SMS and alerts ---------- */
   // =====================================================================
   // SMS AND ALERTS
-  // queueSms builds and "sends" a text to the child's guardian. Sending is SIMULATED:
-  // the message is saved in the 'sms' collection with status 'sent' (or 'failed' when the
-  // guardian's number is marked failed). A real SMS gateway could read that collection later.
+  // queueSms builds a text to the child's guardian and saves it in the 'sms' collection:
+  //   Settings -> "How texts are sent" = Simulated: status 'sent' at once (nothing really goes out)
+  //   Settings -> "How texts are sent" = Semaphore: status 'queued'; the sendSms Cloud Function
+  //     (functions/index.js) sends it and changes it to 'sent' or 'failed'
+  // A number the office marked as failed is saved as 'failed' straight away.
   // No text is sent when the guardian did not give SMS consent, or when arrival texts are turned off.
   //   kind: 'arrival' | 'late' | 'streak'
   // =====================================================================
@@ -309,7 +337,7 @@ export class Engine {
       to: g.mobile,
       body,
       kind,
-      status: failed ? 'failed' : 'sent',
+      status: failed ? 'failed' : this.newSmsStatus(),
       createdAt: opts.createdAt ?? this.nowIso(opts.date),
       attempts: 1,
     };
@@ -381,7 +409,9 @@ export class Engine {
     const today = this.clock.today();
     const end = today < this.year.end ? today : this.year.end;
     for (const sec of this.writableSections()) {
-      for (let d = this.year.start; d <= end; d = addDays(d, 1)) {
+      // A substitute may only confirm the covered class TODAY (firestore.rules allows only that date).
+      const own = this.session.role === 'admin' || sec.teacherId === this.session.teacherId;
+      for (let d = own ? this.year.start : today; d <= end; d = addDays(d, 1)) {
         if (!isSchoolDay(d, sec.schedule, this.s.calendar) || this.s.confirmations.has(dayId(sec.id, d))) continue;
         if (d < today || (d === today && shouldAutoFinalize(this.clock.peek(), sec.schedule))) {
           // Stamp it with the class's auto-confirm time (e.g. 8:45 AM on that day), not the moment the
@@ -567,7 +597,29 @@ export class Engine {
     if (locked && stu && (input.status === 'absent' || input.status === 'late')) {
       this.checkStreak(this.s.sections.get(input.sectionId), stu, input.date, this.nowIso());
     }
+    // CHILD SAFETY: scanned at the gate but marked absent in class = the child is in school but missing.
+    if (stu && input.status === 'absent' && prev?.scannedAt) await this.alertMissing(stu, input.sectionId, input.date, prev.scannedAt);
     this.emit();
+  }
+  // Raises an urgent alert (admin Overview + the teacher's Alerts): the gate saw the child, the classroom did not.
+  async alertMissing(stu, sectionId, date, scannedAt) {
+    const sec = this.s.sections.get(sectionId);
+    const g = this.guardianOf(stu.id);
+    const n = {
+      id: `miss_${stu.id}_${date}`,
+      kind: 'missing',
+      studentId: stu.id,
+      sectionId,
+      createdAt: this.nowIso(date),
+      read: false,
+      title: `${stu.firstName} ${stu.lastName} was scanned at the gate at ${to12h(scannedAt)} but is not in class`,
+      body: `Marked absent in ${sec?.name ?? 'class'} by ${this.actor()}. Look for the child now (gate, office, comfort rooms, other rooms)${
+        g ? `, then call ${g.name} at ${displayPhMobile(g.mobile)}` : ''
+      }. The parent was told the child arrived.`,
+    };
+    this.s.notifications.set(n.id, n);
+    this.put('notifications', n.id, n);
+    await this.logAudit('attendance.missing_after_scan', `${stu.firstName} ${stu.lastName}`, `scanned ${scannedAt}, marked absent`);
   }
   // The teacher presses "Confirm attendance" (same as finalize, plus an audit entry).
   async confirmDay(sectionId, date) {
@@ -610,13 +662,18 @@ export class Engine {
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
       .slice(0, limit);
   }
+  // 'queued' when real texts are on (the Cloud Function sends it), 'sent' in simulated mode.
+  newSmsStatus() {
+    return this.settings.smsProvider === 'semaphore' ? 'queued' : 'sent';
+  }
   // Tries a failed text again (still fails if the number is marked failed).
   async resendSms(id) {
     const m = this.s.sms.get(id);
     if (!m) return;
     const g = m.guardianId ? this.s.guardians.get(m.guardianId) : undefined;
     m.attempts += 1;
-    m.status = g?.numberStatus === 'failed' ? 'failed' : 'sent';
+    m.status = g?.numberStatus === 'failed' ? 'failed' : this.newSmsStatus();
+    delete m.error;
     this.put('sms', id, m);
     await this.logAudit('sms.resend', m.to, m.status);
     this.emit();
@@ -849,7 +906,8 @@ export class Engine {
           color: input.color,
           capacity: input.capacity,
           teacherId: input.teacherId,
-          schedule: input.schedule,
+          // keep the teacher-away days when the admin edits the class hours
+          schedule: { ...input.schedule, teacherAway: existing.schedule?.teacherAway ?? input.schedule.teacherAway },
         }
       : { id: uid('sec'), schoolYearId: this.year.id, gradeLevel: 'K', archived: false, ...input };
     this.s.sections.set(section.id, section);
@@ -858,6 +916,80 @@ export class Engine {
     this.refreshSession();
     this.emit();
     return section;
+  }
+  // ---------------------------------------------------------------------
+  // TEACHER ABSENT: Admin -> Sections -> a class -> "Teacher absent"
+  //   kind 'substitute': teacherId covers the class on those dates (sees it, takes and confirms attendance)
+  //   kind 'noclass':    no class for this section on those dates (children are not marked absent)
+  // Only class days in from..to that are not confirmed yet are changed. Returns the dates changed.
+  // ---------------------------------------------------------------------
+  async setTeacherAway(sectionId, { from, to, kind, teacherId, note }) {
+    const sec = this.s.sections.get(sectionId);
+    if (!sec) throw new Error('Class not found.');
+    if (!from) throw new Error('Pick the date the teacher is absent.');
+    const end = to && to >= from ? to : from;
+    if (kind === 'substitute') {
+      const sub = teacherId && this.s.teachers.get(teacherId);
+      if (!sub || sub.active === false) throw new Error('Pick the substitute teacher.');
+      if (teacherId === sec.teacherId) throw new Error('Pick a different teacher than the class teacher.');
+    }
+    const base = { ...sec.schedule, teacherAway: undefined }; // class days without any teacher-away marks
+    const dates = eachDate(from, end).filter(
+      (d) => isSchoolDay(d, base, this.s.calendar) && d >= this.year.start && d <= this.year.end && !this.s.confirmations.has(dayId(sectionId, d)),
+    );
+    if (!dates.length) throw new Error('No class days to change in those dates (weekends, holidays and confirmed days are skipped).');
+    const away = { ...(sec.schedule.teacherAway ?? {}) };
+    const entry = { kind, teacherId: kind === 'substitute' ? teacherId : null, note: note?.trim() || '', by: this.actor(), at: new Date().toISOString() };
+    dates.forEach((d) => (away[d] = entry));
+    sec.schedule = { ...sec.schedule, teacherAway: away };
+    this.put('sections', sec.id, sec);
+    const subName = kind === 'substitute' ? this.s.teachers.get(teacherId)?.name : '';
+    const when = dates.length === 1 ? fmtDay(dates[0]) : `${fmtDay(dates[0])} to ${fmtDay(dates[dates.length - 1])} (${dates.length} class days)`;
+    await this.logAudit('section.teacher_away', sec.name, `${when}: ${kind === 'substitute' ? `covered by ${subName}` : 'no class'}${entry.note ? ` (${entry.note})` : ''}`);
+    // Tell the class teacher (and the substitute on the day itself: they see alerts of the classes they cover).
+    const n = {
+      id: uid('cov'),
+      kind: 'cover',
+      sectionId: sec.id,
+      createdAt: this.nowIso(),
+      read: false,
+      title: kind === 'substitute' ? `${subName} covers ${sec.name}: ${when}` : `No class for ${sec.name}: ${when}`,
+      body:
+        kind === 'substitute'
+          ? `${subName} takes and confirms attendance on ${dates.length === 1 ? 'that day' : 'those days'}.${entry.note ? ` Note: ${entry.note}` : ''}`
+          : `Set by ${this.actor()} because the teacher is absent. Children are not marked absent and the 3-day count is not affected.${entry.note ? ` Note: ${entry.note}` : ''}`,
+    };
+    this.s.notifications.set(n.id, n);
+    this.put('notifications', n.id, n);
+    this.refreshSession();
+    this.emit();
+    return dates;
+  }
+  // Undoes one teacher-away day (back to a normal class day with the class teacher).
+  async clearTeacherAway(sectionId, date) {
+    const sec = this.s.sections.get(sectionId);
+    if (!sec?.schedule.teacherAway?.[date]) return;
+    const away = { ...sec.schedule.teacherAway };
+    delete away[date];
+    sec.schedule = { ...sec.schedule, teacherAway: away };
+    this.put('sections', sec.id, sec);
+    await this.logAudit('section.teacher_away_removed', sec.name, fmtDay(date));
+    this.refreshSession();
+    this.emit();
+  }
+  /** Teacher-away days from today on, for one class or all: [{ section, date, kind, teacherId, teacherName, note }]. */
+  async listTeacherAway(sectionId) {
+    await this.ready;
+    const today = this.clock.today();
+    const out = [];
+    for (const sec of this.s.sections.values()) {
+      if (sectionId && sec.id !== sectionId) continue;
+      for (const [date, a] of Object.entries(sec.schedule?.teacherAway ?? {})) {
+        if (date < today) continue;
+        out.push({ section: sec, date, ...a, teacherName: a.teacherId ? this.s.teachers.get(a.teacherId)?.name : undefined });
+      }
+    }
+    return out.sort((a, b) => a.date.localeCompare(b.date) || a.section.name.localeCompare(b.section.name));
   }
   // Hides a section (only when no child is in it). History is kept.
   async archiveSection(id, archived) {
@@ -1045,7 +1177,7 @@ export class Engine {
       to,
       body: `Doorbell test message from ${this.settings.schoolName}. If you got this, SMS works.`,
       kind: 'test',
-      status: 'sent',
+      status: this.newSmsStatus(),
       createdAt: this.nowIso(),
       attempts: 1,
     };
@@ -1091,6 +1223,9 @@ export const settings = {
   contactNumber: '0917 555 0123',
   arrivalSmsEnabled: true,
   streakDays: 3,
+  // How texts are sent: 'simulated' (saved only, for demos) or 'semaphore' (real SMS, see functions/README.md)
+  smsProvider: 'simulated',
+  senderName: '', // Semaphore sender name; empty = the default sender name of the Semaphore account
   templates: {
     en: {
       arrival: 'Doorbell: {child} arrived at school at {time}. - {school}',

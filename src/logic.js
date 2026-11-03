@@ -98,10 +98,13 @@ export function manilaTime(now = new Date()) {
  * Is there class on this date for this section?
  *  - a make-up class day is always a school day (even on a Saturday)
  *  - holidays, suspensions and breaks are never school days
+ *  - a day the admin marked "No class for this section" (teacher absent) is not a school day for that section
  *  - otherwise: is the weekday one of the section's class days (Mon-Fri by default)?
  * Half days, events and exams still count as class days.
  */
 export function isSchoolDay(date, schedule, calendar) {
+  // The admin set "No class for this section" for this date (teacher absent, no substitute).
+  if (schedule.teacherAway?.[date]?.kind === 'noclass') return false;
   const entry = entryOf(calendar, date);
   if (entry?.type === 'makeup') return true;
   if (entry && (entry.type === 'holiday' || entry.type === 'suspension' || entry.type === 'break')) return false;

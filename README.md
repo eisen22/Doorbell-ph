@@ -29,6 +29,8 @@ Press `Ctrl + C` in the terminal to stop it. `npm run build` makes the finished 
 | `src/files.js` | Excel: attendance report download and student import |
 | `src/style.css` | How everything looks (colors at the top) |
 | `firestore.rules` | Who may read and write what in the database |
+| `functions/` | Cloud Functions: real SMS through Semaphore and the scheduled auto-confirm (see `functions/README.md`) |
+| `gate-app/` | Doorbell Gate, the Android scanner app for the school gate (see `gate-app/README.md`) |
 | `index.html`, `vite.config.js`, `package.json` | Project setup |
 | `.github/workflows/deploy.yml` | Publishes the site to GitHub Pages on every push |
 
@@ -49,6 +51,18 @@ screen (teacher.jsx / admin.jsx)
 4. As admin, the Overview page offers **Load sample school** (4 teachers, 4 sections, 89 children, attendance since June 8). Sample teachers sign in with password `Teacher-2026!`.
 
 **Demo mode** (no internet, sample data that resets): set `MODE = 'demo'` in `src/firebase.js`.
+
+## When a teacher is absent
+
+Admin → **Sections** → click the class → **Teacher absent** → pick the date(s), then either
+**a substitute** (the class appears for that teacher on those days only; they take and confirm attendance)
+or **no class for this section** (nobody is marked absent, no 3-day texts, the gate shows "No class today").
+The admin can also take any class's attendance under **Attendance** in the admin menu.
+
+## Real texts (Semaphore)
+
+Texts are simulated until you set up the Cloud Functions: follow `functions/README.md`, then
+Admin → **Settings & SMS** → **How texts are sent** → **Semaphore**.
 
 ## Publish on GitHub Pages
 

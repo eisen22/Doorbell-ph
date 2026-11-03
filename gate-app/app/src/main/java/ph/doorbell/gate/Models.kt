@@ -15,6 +15,8 @@ data class Schedule(
     val endTime: String = "11:30",
     val scanWindowMins: Int = 30, // scanning opens this many minutes before class
     val lateCutoffMins: Int = 15, // after start + this, the child is late
+    // Dates the admin cancelled this section because the teacher is absent ("No class for this section").
+    val noClassDates: Set<String> = emptySet(),
 ) {
     companion object {
         @Suppress("UNCHECKED_CAST")
@@ -26,6 +28,9 @@ data class Schedule(
                 endTime = m["endTime"] as? String ?: "11:30",
                 scanWindowMins = (m["scanWindowMins"] as? Number)?.toInt() ?: 30,
                 lateCutoffMins = (m["lateCutoffMins"] as? Number)?.toInt() ?: 15,
+                // schedule.teacherAway = { "2026-11-05": { kind: "noclass" | "substitute", ... } }
+                noClassDates = (m["teacherAway"] as? Map<String, Any?>)
+                    ?.filterValues { (it as? Map<String, Any?>)?.get("kind") == "noclass" }?.keys ?: emptySet(),
             )
         }
     }
@@ -91,6 +96,7 @@ data class SchoolSettings(
     val schoolName: String = "Doorbell",
     val contactNumber: String = "",
     val arrivalSmsEnabled: Boolean = true,
+    val realSms: Boolean = false, // Settings -> How texts are sent = Semaphore: save texts as 'queued' for the Cloud Function
     val templates: Map<String, Map<String, String>> = emptyMap(), // language -> kind -> text
     val yearStart: String = "2000-01-01",
     val yearEnd: String = "2100-12-31",
@@ -112,6 +118,7 @@ data class SchoolSettings(
                 schoolName = s["schoolName"] as? String ?: "Doorbell",
                 contactNumber = s["contactNumber"] as? String ?: "",
                 arrivalSmsEnabled = s["arrivalSmsEnabled"] != false,
+                realSms = s["smsProvider"] == "semaphore",
                 templates = tpl,
                 yearStart = y["start"] as? String ?: "2000-01-01",
                 yearEnd = y["end"] as? String ?: "2100-12-31",

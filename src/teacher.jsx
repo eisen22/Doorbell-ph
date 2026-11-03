@@ -552,7 +552,8 @@ export function Attendance() {
       const day = date ?? today.date;
       const roster = await r.getRoster(section.id, day);
       const confirmation = await r.getConfirmation(section.id, day);
-      return { session, today, classes, section, calendar, year, day, roster, confirmation };
+      const teachers = await r.listTeachers(); // for the "covering for ..." banner
+      return { session, today, classes, section, calendar, year, day, roster, confirmation, teachers };
     },
     [date, classId],
   );
@@ -565,8 +566,11 @@ export function Attendance() {
         </div>
       </div>
     );
-  const { today, classes, section, calendar, year, day, roster, confirmation } = data;
+  const { session, today, classes, section, calendar, year, day, roster, confirmation, teachers } = data;
   const schoolDay = isSchoolDay(day, section.schedule, calendar);
+  // Teacher absent on this day? (set by the admin: Sections -> a class -> Teacher absent)
+  const away = section.schedule.teacherAway?.[day] ?? null;
+  const nameOf = (id) => teachers.find((x) => x.id === id)?.name ?? 'another teacher';
   const counts = emptyCounts();
   let waiting = 0;
   // Count each status. Children with no record yet are 'waiting' (not yet scanned).
@@ -652,6 +656,15 @@ export function Attendance() {
 
       <ClassSwitch classes={classes} value={section.id} onChange={setClass} time={today.time} date={today.actualDate} />
 
+      {away?.kind === 'substitute' && (
+        <p className="cover-note">
+          {away.teacherId === session.teacherId
+            ? `You are covering this class today for ${nameOf(section.teacherId)}. Take and confirm attendance as usual.`
+            : `${nameOf(away.teacherId)} covers this class on this day (substitute).`}
+          {away.note ? ` Note: ${away.note}` : ''}
+        </p>
+      )}
+
       {/* Totals for the day and the Confirm button (or who confirmed it). */}
       <div className="summary-bar">
         <div className="summary-counts">
@@ -692,7 +705,14 @@ export function Attendance() {
 
       {!schoolDay ? (
         <Card>
-          <Empty title="No class on this day" hint="Weekends, holidays and suspensions are skipped in streaks." />
+          {away?.kind === 'noclass' ? (
+            <Empty
+              title="No class for this section on this day"
+              hint={`The teacher is absent and the admin cancelled this class${away.note ? ` (${away.note})` : ''}. Nobody is marked absent.`}
+            />
+          ) : (
+            <Empty title="No class on this day" hint="Weekends, holidays and suspensions are skipped in streaks." />
+          )}
         </Card>
       ) : (
         <Card>
@@ -1280,7 +1300,9 @@ export function Reports() {
 // kindOf() decides which tab an alert belongs to.
 // ---------------------------------------------------------------------
 const kindOf = (n) =>
-  n.kind === 'calendar'
+  n.kind === 'missing'
+    ? 'missing'
+    : n.kind === 'calendar' || n.kind === 'cover'
     ? 'calendar'
     : n.kind === 'sms_failed'
       ? 'sms'
@@ -1292,7 +1314,7 @@ const kindOf = (n) =>
             ? 'late'
             : 'mixed';
 // The icon shown next to each kind of alert.
-const ICON = { absent: UserX, late: Clock3, mixed: Shuffle, sms: MessageSquareWarning, calendar: CalendarClock, all: UserX };
+const ICON = { missing: ShieldAlert, absent: UserX, late: Clock3, mixed: Shuffle, sms: MessageSquareWarning, calendar: CalendarClock, all: UserX };
 export function Notifications() {
   const repo = useRepo();
   const [params, setParams] = useSearchParams();
@@ -1310,11 +1332,12 @@ export function Notifications() {
   const count = (t) => data.list.filter((n) => kindOf(n) === t).length;
   const tabs = [
     ['all', 'All'],
+    ['missing', `Not in class ${count('missing')}`],
     ['absent', `Absent ${count('absent')}`],
     ['late', `Late ${count('late')}`],
     ['mixed', `Absent and late ${count('mixed')}`],
     ['sms', `SMS problems ${count('sms')}`],
-    ['calendar', `Calendar changes ${count('calendar')}`],
+    ['calendar', `Calendar and substitutes ${count('calendar')}`],
   ];
   return (
     <div className="page">
@@ -1509,7 +1532,10 @@ export function SmsMessages() {
                               {displayPhMobile(m.to)} · {format(new Date(m.createdAt), 'h:mm a')}
                             </span>
                           </span>
-                          <span className={`tag ${m.status === 'failed' ? 'tag-bad' : 'tag-ok'}`}>{m.status === 'failed' ? 'Failed' : 'Sent'}</span>
+                          {/* queued/sending = waiting for the sendSms Cloud Function (real texts through Semaphore) */}
+                          <span className={`tag ${m.status === 'failed' ? 'tag-bad' : m.status === 'queued' || m.status === 'sending' ? 'tag-warn' : 'tag-ok'}`}>
+                            {m.status === 'failed' ? 'Failed' : m.status === 'queued' || m.status === 'sending' ? 'Sending' : 'Sent'}
+                          </span>
                         </button>
                       </li>
                     ))}
@@ -1541,6 +1567,7 @@ export function SmsMessages() {
                       </span>
                     </div>
                   </div>
+                  {pick.status === 'failed' && pick.error && <p className="error small">Why it failed: {pick.error}</p>}
                   {pick.status === 'failed' && (
                     <button className="btn btn-sm" onClick={() => repo.resendSms(pick.id)}>
                       <RotateCw size={15} /> Resend

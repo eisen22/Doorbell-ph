@@ -44,6 +44,11 @@ class GateViewModel : ViewModel() {
     private val _recent = MutableStateFlow<List<RecentScan>>(emptyList())
     val recent: StateFlow<List<RecentScan>> = _recent
 
+    // Shown in amber when the phone's clock is more than 2 minutes off (scans still use the right time).
+    private val _clockWarning = MutableStateFlow<String?>(null)
+    val clockWarning: StateFlow<String?> = _clockWarning
+    private var clockJob: Job? = null
+
     private var clearJob: Job? = null
     private var lastShownAt = 0L
 
@@ -78,6 +83,7 @@ class GateViewModel : ViewModel() {
         try {
             val role = db.collection("users").document(uid).get().await().getString("role")
             if (role == "gate" || role == "admin") {
+                startClockCheck()
                 repo.start()
                 _screen.value = Screen.Scanner
             } else {
@@ -92,7 +98,25 @@ class GateViewModel : ViewModel() {
         }
     }
 
+    // Checks the internet time now and every 30 minutes (see TimeSync.kt).
+    private fun startClockCheck() {
+        clockJob?.cancel()
+        clockJob = viewModelScope.launch {
+            while (true) {
+                val offset = TimeSync.sync()
+                _clockWarning.value = if (offset != null && kotlin.math.abs(offset) > 120_000) {
+                    val mins = kotlin.math.abs(offset) / 60_000
+                    "This phone's clock is $mins min ${if (offset > 0) "behind" else "ahead"}. Scans use internet time, but fix it: Settings > Date & time > Set automatically."
+                } else {
+                    null
+                }
+                delay(if (offset == null) 60_000 else 30 * 60_000) // offline: try again in a minute
+            }
+        }
+    }
+
     fun signOut() {
+        clockJob?.cancel()
         repo.stop()
         auth.signOut()
         _result.value = null

@@ -80,6 +80,7 @@ fun ScannerScreen(
     result: ScanResult?,
     recent: List<RecentScan>,
     error: String?,
+    clockWarning: String?,
     onCode: (String) -> Unit,
     onDismissError: () -> Unit,
     onSignOut: () -> Unit,
@@ -131,6 +132,15 @@ fun ScannerScreen(
                 Text("${status.arrived}", style = MaterialTheme.typography.titleLarge)
                 Text(" of ${status.expected}", style = MaterialTheme.typography.bodyLarge, color = Doorbell.muted)
             }
+        }
+
+        if (clockWarning != null) {
+            Text(
+                clockWarning,
+                color = Doorbell.late,
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.fillMaxWidth().clip(Radii.md).background(Doorbell.lateBg).padding(horizontal = 14.dp, vertical = 10.dp),
+            )
         }
 
         if (error != null) {

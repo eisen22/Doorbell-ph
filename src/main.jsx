@@ -253,6 +253,8 @@ const TEACHER_NAV = [
 const ADMIN_NAV = [
   { to: '/admin', label: 'Overview', Icon: LayoutGrid, end: true },
   { to: '/admin/absences', label: 'Absence Watch', Icon: UserX, badge: 'watch' },
+  // The same Attendance page as teachers, with every class: for a day when a teacher is absent.
+  { to: '/admin/attendance', label: 'Attendance', Icon: ClipboardCheck },
   { to: '/admin/calendar', label: 'School Calendar', Icon: CalendarDays },
   { to: '/admin/sections', label: 'Sections', Icon: Shapes },
   { to: '/admin/teachers', label: 'Teachers', Icon: GraduationCap },
@@ -437,6 +439,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             <Route path="sms" element={<SmsMessages />} />
             <Route path="admin/sms" element={<SmsMessages />} />
             <Route path="admin/absences" element={<AbsenceWatch />} />
+            <Route path="admin/attendance" element={<Attendance />} />
             <Route path="admin" element={<AdminDashboard />} />
             <Route path="admin/calendar" element={<AdminCalendar />} />
             <Route path="admin/sections" element={<Sections />} />

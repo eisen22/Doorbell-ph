@@ -16,11 +16,12 @@ object Rules {
     // Every date and time is in the Philippines, whatever time zone the phone is set to.
     val MANILA: ZoneId = ZoneId.of("Asia/Manila")
 
+    // Both use TimeSync.now(): the phone's clock corrected with internet time (see TimeSync.kt).
     /** Today's date in the Philippines, e.g. "2026-10-29". */
-    fun today(now: ZonedDateTime = ZonedDateTime.now(MANILA)): String = now.withZoneSameInstant(MANILA).toLocalDate().toString()
+    fun today(now: ZonedDateTime = TimeSync.now()): String = now.withZoneSameInstant(MANILA).toLocalDate().toString()
 
     /** The time now in the Philippines, e.g. "07:45". */
-    fun timeNow(now: ZonedDateTime = ZonedDateTime.now(MANILA)): String {
+    fun timeNow(now: ZonedDateTime = TimeSync.now()): String {
         val t = now.withZoneSameInstant(MANILA)
         return "%02d:%02d".format(t.hour, t.minute)
     }
@@ -48,10 +49,12 @@ object Rules {
      * Is there class on this date for this section?
      *  - a make-up class day is always a school day (even on a Saturday)
      *  - holidays, suspensions and breaks are never school days
+     *  - a date the admin cancelled for this section (teacher absent) is not a school day
      *  - otherwise: is the weekday one of the section's class days?
      * calendar = date -> day type from the admin's School Calendar ('holiday', 'suspension', ...).
      */
     fun isSchoolDay(date: String, schedule: Schedule, calendar: Map<String, String>): Boolean {
+        if (date in schedule.noClassDates) return false // teacher absent, class cancelled by the admin
         when (calendar[date]) {
             "makeup" -> return true
             "holiday", "suspension", "break" -> return false

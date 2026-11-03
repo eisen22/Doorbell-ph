@@ -78,11 +78,13 @@ private fun DoorbellGateApp(vm: GateViewModel = viewModel()) {
             val result by vm.result.collectAsStateWithLifecycle()
             val recent by vm.recent.collectAsStateWithLifecycle()
             val error by vm.repo.saveError.collectAsStateWithLifecycle()
+            val clockWarning by vm.clockWarning.collectAsStateWithLifecycle()
             ScannerScreen(
                 status = status,
                 result = result,
                 recent = recent,
                 error = error,
+                clockWarning = clockWarning,
                 onCode = { code -> vm.onCode(code)?.let(feedback::play) },
                 onDismissError = vm::clearError,
                 onSignOut = vm::signOut,

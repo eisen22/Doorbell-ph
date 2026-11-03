@@ -29,6 +29,12 @@ class RulesTest {
         assertFalse(Rules.isSchoolDay("2026-10-29", schedule, mapOf("2026-10-29" to "suspension")))
     }
 
+    @Test fun teacherAbsentNoClass() {
+        val cancelled = schedule.copy(noClassDates = setOf("2026-10-29"))
+        assertFalse(Rules.isSchoolDay("2026-10-29", cancelled, emptyMap()))
+        assertTrue(Rules.isSchoolDay("2026-10-28", cancelled, emptyMap()))
+    }
+
     @Test fun times() {
         assertEquals("7:42 AM", Rules.to12h("07:42"))
         assertEquals("12:00 PM", Rules.to12h("12:00"))

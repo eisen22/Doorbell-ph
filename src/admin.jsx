@@ -37,6 +37,7 @@ import {
   Search,
   Save,
   Send,
+  ShieldAlert,
 } from 'lucide-react';
 import {
   useLive,
@@ -159,12 +160,16 @@ export function AdminDashboard() {
           section: s,
           total: roster.length,
           arrived: roster.filter((x) => x.record?.scannedAt).length,
-          confirmed: !!(await r.getConfirmation(s.id, today.date)),
+          confirmation: await r.getConfirmation(s.id, today.date),
+          away: s.schedule.teacherAway?.[today.date] ?? null,
         };
       }),
     );
-    return { today, sections, rows, teachers, calendar, sms, perSection, session: await r.getSession() };
+    // Children scanned at the gate but marked absent in class (urgent), newest first.
+    const missing = (await r.listNotifications()).filter((n) => n.kind === 'missing' && !n.read);
+    return { today, sections, rows, teachers, calendar, sms, perSection, missing, session: await r.getSession() };
   });
+  const repo = useRepo();
   if (!data)
     return (
       <div className="page">
@@ -179,6 +184,16 @@ export function AdminDashboard() {
   const fixNumbers = rows.filter((r) => r.guardian?.numberStatus === 'failed');
   const upcoming = calendar.filter((c) => c.date > today.date && c.type !== 'event').slice(0, 5);
   const noTeacher = data.sections.filter((s) => !s.teacherId);
+  const teacherName = (id) => teachers.find((t) => t.id === id)?.name ?? 'a teacher';
+  // A class that was auto-confirmed today with no teacher away planned: the teacher may be absent.
+  const unconfirmedByTeacher = perSection.filter((p) => p.confirmation?.auto && p.confirmation.date === today.date && !p.away);
+  // What the "Today by section" line says under each class.
+  const statusOf = ({ confirmation, away }) => {
+    if (away?.kind === 'noclass') return 'No class today (teacher absent)';
+    const sub = away?.kind === 'substitute' ? `Substitute: ${teacherName(away.teacherId)} · ` : '';
+    if (!confirmation) return `${sub}Not yet confirmed`;
+    return `${sub}${confirmation.auto ? 'Auto-confirmed, no teacher confirmed' : `Confirmed by ${confirmation.confirmedBy}`}`;
+  };
   return (
     <div className="page">
       <div className="page-head">
@@ -188,6 +203,31 @@ export function AdminDashboard() {
         </div>
         <p className="muted">{format(parseISO(today.date), 'EEEE, MMMM d, yyyy')}</p>
       </div>
+      {/* URGENT: the gate saw these children, but their teacher marked them absent in class. */}
+      {data.missing.length > 0 && (
+        <div className="urgent">
+          <div className="urgent-head">
+            <ShieldAlert size={20} />
+            <strong>
+              {data.missing.length === 1 ? '1 child is' : `${data.missing.length} children are`} in school but not in class
+            </strong>
+          </div>
+          <ul>
+            {data.missing.map((n) => (
+              <li key={n.id}>
+                <div>
+                  <b>{n.title}</b>
+                  <span>{n.body}</span>
+                  <span className="small">{format(new Date(n.createdAt), 'EEE, MMM d · h:mm a')}</span>
+                </div>
+                <button className="btn btn-sm" onClick={() => repo.markNotificationsRead([n.id])}>
+                  Found, checked
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {/* A brand-new cloud school has no sections: offer to fill it with sample data. */}
       {data.sections.length === 0 && <SampleSchool />}
       <div className="kpis">
@@ -231,12 +271,14 @@ export function AdminDashboard() {
           }
         >
           <ul className="sec-today">
-            {perSection.map(({ section, total, arrived, confirmed }) => (
+            {perSection.map((p) => {
+              const { section, total, arrived } = p;
+              return (
               <li key={section.id}>
                 <span className="sec-dot" style={{ background: section.color }} />
                 <div>
                   <strong>{section.name}</strong>
-                  <span className="muted small">{confirmed ? 'Confirmed' : 'Not yet confirmed'}</span>
+                  <span className="muted small">{statusOf(p)}</span>
                 </div>
                 <div className="mini-bar">
                   <div style={{ width: `${total ? (arrived / total) * 100 : 0}%`, background: section.color }} />
@@ -245,7 +287,8 @@ export function AdminDashboard() {
                   {arrived}/{total}
                 </b>
               </li>
-            ))}
+              );
+            })}
           </ul>
         </Card>
         <Card title="Needs your attention">
@@ -279,7 +322,16 @@ export function AdminDashboard() {
                 </Link>
               </li>
             ))}
-            {unassigned === 0 && noTeacher.length === 0 && fixNumbers.length === 0 && (
+            {unconfirmedByTeacher.map(({ section }) => (
+              <li key={`auto-${section.id}`}>
+                <UserX size={18} />
+                <span>No teacher confirmed {section.name} today. Is the teacher absent?</span>
+                <Link className="link" to="/admin/sections">
+                  Teacher absent
+                </Link>
+              </li>
+            ))}
+            {unassigned === 0 && noTeacher.length === 0 && fixNumbers.length === 0 && unconfirmedByTeacher.length === 0 && (
               <li>
                 <span>All clear.</span>
               </li>
@@ -1130,10 +1182,162 @@ export function Sections() {
 // The window that opens when a section card is clicked: teacher (click to edit),
 // students (click a name to edit, or Transfer / drop). Only one window shows at a time:
 // opening a student hides this window and it comes back when the student window closes.
+// ---------------------------------------------------------------------
+// TEACHER ABSENT: shown inside a section's window. Lists the coming days when the teacher is away
+// (substitute or no class) and opens the window to add more. Saved by engine.setTeacherAway().
+// ---------------------------------------------------------------------
+function TeacherAwayList({ section, onAdd, flash }) {
+  const repo = useRepo();
+  const { data } = useLive((r) => r.listTeacherAway(section.id), [section.id]);
+  return (
+    <div className="away-box">
+      <div className="away-head">
+        <h4 className="form-sub">
+          <UserX size={16} /> Teacher absent
+        </h4>
+        <button className="btn btn-sm" onClick={onAdd}>
+          <Plus size={15} /> Teacher absent
+        </button>
+      </div>
+      {!data?.length ? (
+        <p className="muted small">No absences planned. Use this when the teacher cannot come: pick a substitute, or cancel class for this section only.</p>
+      ) : (
+        <ul className="cal-list">
+          {data.map((a) => (
+            <li key={a.date}>
+              <time>{format(parseISO(a.date), 'EEE, MMM d')}</time>
+              <span>
+                {a.kind === 'substitute' ? `Substitute: ${a.teacherName ?? 'teacher'}` : 'No class for this section'}
+                {a.note ? <span className="muted"> · {a.note}</span> : null}
+              </span>
+              <button
+                className="btn btn-sm"
+                onClick={async () => {
+                  await repo.clearTeacherAway(section.id, a.date);
+                  flash(`${format(parseISO(a.date), 'MMM d')} is a normal class day again`);
+                }}
+              >
+                <Trash2 size={15} /> Remove
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+// The window: dates, substitute or no class, note.
+function TeacherAwayModal({ section, teachers, sections, onClose, onSaved }) {
+  const repo = useRepo();
+  const { data: today } = useLive((r) => r.getToday());
+  const [from, setFrom] = useState(null);
+  const [to, setTo] = useState(null);
+  const [kind, setKind] = useState('substitute');
+  const [teacherId, setTeacherId] = useState('');
+  const [note, setNote] = useState('');
+  const [error, setError] = useState('');
+  const start = from ?? today?.actualDate ?? today?.date;
+  const choices = teachers.filter((t) => t.active !== false && t.id !== section.teacherId);
+  // Warn (do not block) when the substitute has their own class at the same time.
+  const pick = choices.find((t) => t.id === teacherId);
+  const clash = pick
+    ? sections.find(
+        (s) =>
+          s.teacherId === pick.id &&
+          s.id !== section.id &&
+          toMinutes(s.schedule.startTime) < toMinutes(section.schedule.endTime) &&
+          toMinutes(section.schedule.startTime) < toMinutes(s.schedule.endTime),
+      )
+    : null;
+  const save = async () => {
+    setError('');
+    try {
+      const dates = await repo.setTeacherAway(section.id, { from: start, to: to ?? start, kind, teacherId, note });
+      onSaved(
+        `${kind === 'substitute' ? `${pick?.name} covers` : 'No class for'} ${section.name} on ${dates.length} class day${dates.length === 1 ? '' : 's'}`,
+      );
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+  return (
+    <Modal
+      title={`Teacher absent: ${section.name}`}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="btn btn-ink" onClick={save} disabled={!start || (kind === 'substitute' && !teacherId)}>
+            <Save size={16} /> Save
+          </button>
+        </>
+      }
+    >
+      <div className="form-row">
+        <div className="field">
+          <span>From</span>
+          <DatePicker value={start} onChange={setFrom} ariaLabel="First day the teacher is absent" />
+        </div>
+        <div className="field">
+          <span>To (same day if one day)</span>
+          <DatePicker value={to ?? start} onChange={setTo} min={start} ariaLabel="Last day the teacher is absent" />
+        </div>
+      </div>
+      <div className="leave-options">
+        <label className={`type-opt ${kind === 'substitute' ? 'on' : ''}`}>
+          <input type="radio" name="away" checked={kind === 'substitute'} onChange={() => setKind('substitute')} />
+          <span className="swatch k-class" />
+          <span>
+            <b>A substitute takes the class</b>
+            <small>The class appears for the substitute on those days only. They take and confirm attendance.</small>
+          </span>
+        </label>
+        <label className={`type-opt ${kind === 'noclass' ? 'on' : ''}`}>
+          <input type="radio" name="away" checked={kind === 'noclass'} onChange={() => setKind('noclass')} />
+          <span className="swatch k-suspension" />
+          <span>
+            <b>No class for this section</b>
+            <small>Only this section. Children are not marked absent, no 3-day texts, and the gate shows "No class today".</small>
+          </span>
+        </label>
+      </div>
+      {kind === 'substitute' && (
+        <label className="field">
+          <span>Substitute teacher</span>
+          <select className="input" value={teacherId} onChange={(e) => setTeacherId(e.target.value)}>
+            <option value="">Pick a teacher</option>
+            {choices.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      {clash && (
+        <p className="hint">
+          {pick.name} also teaches {clash.name} at the same time ({to12h(clash.schedule.startTime)} to {to12h(clash.schedule.endTime)}). Fine if the two
+          classes are combined; otherwise pick someone else.
+        </p>
+      )}
+      <label className="field">
+        <span>Note (optional), e.g. "sick leave", "seminar"</span>
+        <input className="input" value={note} onChange={(e) => setNote(e.target.value)} />
+      </label>
+      <p className="muted small">Weekends, holidays and days already confirmed are skipped. Everything is written in the audit log.</p>
+      {error && <p className="error">{error}</p>}
+    </Modal>
+  );
+}
+
 function SectionDetail({ section, sections, teachers, rows, onClose, onEditSection, flash }) {
   const [student, setStudent] = useState(null);
   const [leaving, setLeaving] = useState(null);
   const [teacher, setTeacher] = useState(null);
+  const [away, setAway] = useState(false); // the "Teacher absent" window
   const [q, setQ] = useState('');
   const t = teachers.find((x) => x.id === section.teacherId);
   const list = rows.filter((r) => r.enrollment?.status === 'active' && r.enrollment.sectionId === section.id);
@@ -1142,7 +1346,7 @@ function SectionDetail({ section, sections, teachers, rows, onClose, onEditSecti
   );
   const live = sections.filter((s) => !s.archived);
   const also = t ? live.filter((s) => s.teacherId === t.id && s.id !== section.id) : [];
-  const busy = !!(student || leaving || teacher);
+  const busy = !!(student || leaving || teacher || away);
   return (
     <>
       {!busy && (
@@ -1195,6 +1399,7 @@ function SectionDetail({ section, sections, teachers, rows, onClose, onEditSecti
               </button>
             </p>
           )}
+          <TeacherAwayList section={section} onAdd={() => setAway(true)} flash={flash} />
 
           <div className="sd-students-head">
             <h4 className="form-sub">
@@ -1234,6 +1439,18 @@ function SectionDetail({ section, sections, teachers, rows, onClose, onEditSecti
             </ul>
           )}
         </Modal>
+      )}
+      {away && (
+        <TeacherAwayModal
+          section={section}
+          teachers={teachers}
+          sections={live}
+          onClose={() => setAway(false)}
+          onSaved={(m) => {
+            setAway(false);
+            flash(m);
+          }}
+        />
       )}
       {student && (
         <StudentModal
@@ -2550,7 +2767,7 @@ export function AdminSettings() {
                 const n = normalizePhMobile(testTo);
                 if (!n) return flash('Enter a valid mobile number');
                 await repo.sendTestSms(n);
-                flash('Test SMS sent (see the SMS Simulator)');
+                flash(s.smsProvider === 'semaphore' ? 'Test SMS queued: check the phone and the SMS Messages page' : 'Test SMS saved (simulated, see SMS Messages)');
               }}
             >
               <Send size={16} /> Send test
@@ -2559,9 +2776,33 @@ export function AdminSettings() {
           <p className="muted small">
             {repo.mode === 'demo' ? (
               <>Demo mode: texts are simulated.</>
+            ) : s.smsProvider === 'semaphore' ? (
+              <>Real texts: the sendSms Cloud Function sends each one through Semaphore (see functions/README.md). Save changes, then send a test.</>
             ) : (
-              <>Texts are recorded in the SMS Messages page. A real SMS provider (e.g. Semaphore) plugs in with the SMS sender service.</>
+              <>Simulated: texts are only recorded in the SMS Messages page. Choose Semaphore below for real texts.</>
             )}
+          </p>
+        </Card>
+        <Card title="How texts are sent">
+          <label className="field">
+            <span>SMS service</span>
+            <select className="input" value={s.smsProvider ?? 'simulated'} onChange={(e) => setS({ ...s, smsProvider: e.target.value })}>
+              <option value="simulated">Simulated (for demos: nothing is sent)</option>
+              <option value="semaphore">Semaphore (real SMS, uses credits)</option>
+            </select>
+          </label>
+          <label className="field">
+            <span>Sender name (as approved in Semaphore; leave empty for your account's default)</span>
+            <input
+              className="input"
+              value={s.senderName ?? ''}
+              maxLength={11}
+              placeholder="e.g. SUNNYSIDE"
+              onChange={(e) => setS({ ...s, senderName: e.target.value.trim() })}
+            />
+          </label>
+          <p className="muted small">
+            Semaphore needs the Cloud Functions set up once (Firebase Blaze plan and the API key saved as a secret). Until then, texts stay "Sending".
           </p>
         </Card>
       </div>

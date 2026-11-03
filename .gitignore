@@ -9,3 +9,6 @@ serviceAccount*.json
 
 # Android Studio / IntelliJ settings (per computer)
 .idea/
+
+# Firebase emulator logs
+*-debug.log
