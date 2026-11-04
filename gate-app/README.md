@@ -19,6 +19,22 @@ Written in Kotlin with Jetpack Compose. It uses the same Firebase project as the
    Or build an APK: Build → Generate App Bundles or APKs → Build APK, then copy it to the phone.
 4. On the phone: sign in with the gate account, allow the camera, put the phone on a stand at the gate.
 
+## Texting parents from the gate phone (free, no Blaze plan)
+
+The gate phone can also send the parent texts from its own SIM:
+
+1. Website → admin → **Settings & SMS** → **How texts are sent** → **Gate phone's SIM** → **Save changes**.
+2. Open Doorbell Gate on the phone. It asks once: **Allow Doorbell Gate to send and view SMS messages** → **Allow**.
+3. Put load on the SIM (an unlimited-texts promo is cheapest).
+4. Website → **Send a test SMS to** your number → the phone sends it within a few seconds, and
+   SMS Messages shows **Sent**.
+
+Every text (arrival, late, 3-day alert, test) is saved as `queued`; the app claims it, sends it, and
+saves `sent` or `failed` with the reason ("No signal", "Airplane mode is on", "The network refused it"...).
+A failed text can be sent again with **Resend** on the website. Texts only go out while the app is open;
+texts that waited more than 12 hours are not sent (press Resend). If Android shows "This app is sending a
+large number of messages", choose **Always allow**. Texts come from the phone's own number (no sender name).
+
 ## How a scan works
 
 | What the guard sees | Meaning |
@@ -49,6 +65,8 @@ Wi-Fi comes back. The barcode reader runs on the phone, so it needs no internet 
 | `ui/SignInScreen.kt` | The sign-in screen and the logo |
 | `ui/Theme.kt`, `ui/Squircle.kt` | Colors, font (Plus Jakarta Sans) and the Apple-style squircle corners |
 | `ui/Feedback.kt` | Beep and vibration after a scan |
+| `SmsGateway.kt` | "Gate phone's SIM" mode: sends the queued parent texts with Android's SmsManager |
+| `TimeSync.kt` | Uses internet time for scans when the phone's clock is wrong |
 
 ## Debugging tips
 

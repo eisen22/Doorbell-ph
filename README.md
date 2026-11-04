@@ -59,10 +59,12 @@ Admin → **Sections** → click the class → **Teacher absent** → pick the d
 or **no class for this section** (nobody is marked absent, no 3-day texts, the gate shows "No class today").
 The admin can also take any class's attendance under **Attendance** in the admin menu.
 
-## Real texts (Semaphore)
+## Real texts
 
-Texts are simulated until you set up the Cloud Functions: follow `functions/README.md`, then
-Admin → **Settings & SMS** → **How texts are sent** → **Semaphore**.
+Texts are simulated until you choose a way to send them: Admin → **Settings & SMS** → **How texts are sent**:
+
+* **Gate phone's SIM** (free, works on the Spark plan): the Doorbell Gate app sends them from the phone. See `gate-app/README.md`.
+* **Semaphore** (sender name, needs the Firebase Blaze plan): set up the Cloud Functions in `functions/README.md`.
 
 ## Publish on GitHub Pages
 

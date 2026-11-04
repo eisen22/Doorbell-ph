@@ -2767,7 +2767,7 @@ export function AdminSettings() {
                 const n = normalizePhMobile(testTo);
                 if (!n) return flash('Enter a valid mobile number');
                 await repo.sendTestSms(n);
-                flash(s.smsProvider === 'semaphore' ? 'Test SMS queued: check the phone and the SMS Messages page' : 'Test SMS saved (simulated, see SMS Messages)');
+                flash(s.smsProvider === 'simulated' || !s.smsProvider ? 'Test SMS saved (simulated, see SMS Messages)' : 'Test SMS queued: check the phone and the SMS Messages page');
               }}
             >
               <Send size={16} /> Send test
@@ -2778,6 +2778,8 @@ export function AdminSettings() {
               <>Demo mode: texts are simulated.</>
             ) : s.smsProvider === 'semaphore' ? (
               <>Real texts: the sendSms Cloud Function sends each one through Semaphore (see functions/README.md). Save changes, then send a test.</>
+            ) : s.smsProvider === 'phone' ? (
+              <>Real texts from the gate phone's SIM. Save changes, open Doorbell Gate on the phone, then send a test.</>
             ) : (
               <>Simulated: texts are only recorded in the SMS Messages page. Choose Semaphore below for real texts.</>
             )}
@@ -2788,9 +2790,17 @@ export function AdminSettings() {
             <span>SMS service</span>
             <select className="input" value={s.smsProvider ?? 'simulated'} onChange={(e) => setS({ ...s, smsProvider: e.target.value })}>
               <option value="simulated">Simulated (for demos: nothing is sent)</option>
-              <option value="semaphore">Semaphore (real SMS, uses credits)</option>
+              <option value="phone">Gate phone's SIM (the Doorbell Gate app sends them)</option>
+              <option value="semaphore">Semaphore (real SMS with a sender name, needs Firebase Blaze)</option>
             </select>
           </label>
+          {s.smsProvider === 'phone' && (
+            <p className="hint">
+              Texts go out from the gate phone's own number while the Doorbell Gate app is open. Keep load on that SIM (an unlimited-texts promo
+              is cheapest). If the app is closed, texts wait and go out when it opens; texts older than 12 hours are not sent (press Resend).
+            </p>
+          )}
+          {s.smsProvider === 'semaphore' && (
           <label className="field">
             <span>Sender name (as approved in Semaphore; leave empty for your account's default)</span>
             <input
@@ -2801,9 +2811,12 @@ export function AdminSettings() {
               onChange={(e) => setS({ ...s, senderName: e.target.value.trim() })}
             />
           </label>
-          <p className="muted small">
-            Semaphore needs the Cloud Functions set up once (Firebase Blaze plan and the API key saved as a secret). Until then, texts stay "Sending".
-          </p>
+          )}
+          {s.smsProvider === 'semaphore' && (
+            <p className="muted small">
+              Semaphore needs the Cloud Functions set up once (Firebase Blaze plan and the API key saved as a secret). Until then, texts stay "Sending".
+            </p>
+          )}
         </Card>
       </div>
       <Card title="Message templates">

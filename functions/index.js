@@ -52,6 +52,10 @@ export const sendSms = onDocumentWritten({ document: 'sms/{id}', secrets: [SEMAP
   if (!after || after.status !== 'queued') return; // only texts waiting to be sent
   const ref = event.data.after.ref;
 
+  // Only when the admin chose Semaphore (with "Gate phone (SIM)" the Doorbell Gate app sends them).
+  const settings = (await db.doc('meta/school').get()).get('settings') ?? {};
+  if (settings.smsProvider !== 'semaphore') return;
+
   // The same text saved again by a second device (same attempt number) was already sent: keep it 'sent'.
   if (before && (before.status === 'sent' || before.status === 'sending') && (after.attempts ?? 1) <= (before.attempts ?? 1)) {
     await ref.update({ status: before.status });
@@ -89,7 +93,6 @@ export const sendSms = onDocumentWritten({ document: 'sms/{id}', secrets: [SEMAP
   const number = toSemaphoreNumber(after.to);
   if (!number) return fail(`"${after.to}" is not a Philippine mobile number`);
 
-  const settings = (await db.doc('meta/school').get()).get('settings') ?? {};
   const form = new URLSearchParams({ apikey: SEMAPHORE_API_KEY.value(), number, message: after.body ?? '' });
   if (settings.senderName) form.set('sendername', settings.senderName);
 

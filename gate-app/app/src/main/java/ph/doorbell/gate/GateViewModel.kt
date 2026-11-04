@@ -1,6 +1,7 @@
 package ph.doorbell.gate
 
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
@@ -20,10 +21,12 @@ import kotlinx.coroutines.tasks.await
 //           the "Recent scans" list.
 // The ViewModel survives screen rotation, so a scan in progress is never lost.
 // =====================================================================
-class GateViewModel : ViewModel() {
+class GateViewModel(app: Application) : AndroidViewModel(app) {
     private val auth = FirebaseAuth.getInstance()
     private val db = FirebaseFirestore.getInstance()
     val repo = GateRepository(db)
+    // Sends the parent texts from this phone's SIM when the admin chose "Gate phone (SIM)".
+    val sms = SmsGateway(app, db)
 
     sealed class Screen {
         data object Loading : Screen()
@@ -85,6 +88,7 @@ class GateViewModel : ViewModel() {
             if (role == "gate" || role == "admin") {
                 startClockCheck()
                 repo.start()
+                sms.start(viewModelScope) { repo.phoneSendsTexts() }
                 _screen.value = Screen.Scanner
             } else {
                 auth.signOut()
@@ -117,6 +121,7 @@ class GateViewModel : ViewModel() {
 
     fun signOut() {
         clockJob?.cancel()
+        sms.stop()
         repo.stop()
         auth.signOut()
         _result.value = null
@@ -170,6 +175,7 @@ class GateViewModel : ViewModel() {
     }
 
     override fun onCleared() {
+        sms.stop()
         repo.stop()
     }
 }

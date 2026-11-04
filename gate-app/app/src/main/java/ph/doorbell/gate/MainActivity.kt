@@ -43,6 +43,7 @@ import ph.doorbell.gate.ui.Logo
 import ph.doorbell.gate.ui.Radii
 import ph.doorbell.gate.ui.ScannerScreen
 import ph.doorbell.gate.ui.SignInScreen
+import ph.doorbell.gate.ui.SmsRow
 
 // =====================================================================
 // MainActivity.kt — WHERE THE APP STARTS
@@ -79,12 +80,20 @@ private fun DoorbellGateApp(vm: GateViewModel = viewModel()) {
             val recent by vm.recent.collectAsStateWithLifecycle()
             val error by vm.repo.saveError.collectAsStateWithLifecycle()
             val clockWarning by vm.clockWarning.collectAsStateWithLifecycle()
+            // Gate phone SMS mode: permission to send texts, and the counts.
+            val phoneSms by vm.repo.phoneSms.collectAsStateWithLifecycle()
+            val waiting by vm.sms.waiting.collectAsStateWithLifecycle()
+            val sentToday by vm.sms.sentToday.collectAsStateWithLifecycle()
+            var smsAllowed by remember { mutableStateOf(vm.sms.hasPermission()) }
+            val askSms = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { smsAllowed = it }
+            LaunchedEffect(phoneSms) { if (phoneSms && !smsAllowed) askSms.launch(Manifest.permission.SEND_SMS) }
             ScannerScreen(
                 status = status,
                 result = result,
                 recent = recent,
                 error = error,
                 clockWarning = clockWarning,
+                smsPanel = { if (phoneSms) SmsRow(waiting, sentToday, smsAllowed) { askSms.launch(Manifest.permission.SEND_SMS) } },
                 onCode = { code -> vm.onCode(code)?.let(feedback::play) },
                 onDismissError = vm::clearError,
                 onSignOut = vm::signOut,

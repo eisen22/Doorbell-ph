@@ -81,6 +81,7 @@ fun ScannerScreen(
     recent: List<RecentScan>,
     error: String?,
     clockWarning: String?,
+    smsPanel: @Composable () -> Unit = {}, // the "texts sent from this phone" row (only in Gate phone SMS mode)
     onCode: (String) -> Unit,
     onDismissError: () -> Unit,
     onSignOut: () -> Unit,
@@ -133,6 +134,8 @@ fun ScannerScreen(
                 Text(" of ${status.expected}", style = MaterialTheme.typography.bodyLarge, color = Doorbell.muted)
             }
         }
+
+        smsPanel()
 
         if (clockWarning != null) {
             Text(
@@ -274,5 +277,27 @@ private fun RecentRow(r: RecentScan) {
             Text(r.detail, style = MaterialTheme.typography.bodyMedium, color = Doorbell.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         Text(r.at, style = MaterialTheme.typography.bodyMedium, color = Doorbell.muted)
+    }
+}
+
+// The row that shows the phone is texting parents from its SIM, and asks for permission once.
+@Composable
+fun SmsRow(waiting: Int, sentToday: Int, permitted: Boolean, onAllow: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(Radii.md)
+            .background(if (permitted) Doorbell.surface else Doorbell.lateBg)
+            .padding(start = 14.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            if (permitted) "Texts go out from this phone's SIM · $sentToday sent" + (if (waiting > 0) " · $waiting waiting" else "")
+            else "Doorbell texts parents from this phone. Allow it to send SMS.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (permitted) Doorbell.muted else Doorbell.late,
+            modifier = Modifier.weight(1f).padding(vertical = 6.dp),
+        )
+        if (!permitted) TextButton(onClick = onAllow) { Text("Allow", color = Doorbell.late) }
     }
 }

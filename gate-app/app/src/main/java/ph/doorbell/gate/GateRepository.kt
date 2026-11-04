@@ -46,6 +46,11 @@ class GateRepository(private val db: FirebaseFirestore = FirebaseFirestore.getIn
     val status: StateFlow<GateStatus> = _status
     private val _saveError = MutableStateFlow<String?>(null)
     val saveError: StateFlow<String?> = _saveError // shown in red when Firestore refuses a save
+    private val _phoneSms = MutableStateFlow(false)
+    val phoneSms: StateFlow<Boolean> = _phoneSms // the screen shows the SMS row and asks for permission when true
+
+    /** True when the admin chose "Gate phone (SIM)": this app sends the queued texts (SmsGateway.kt). */
+    fun phoneSendsTexts() = settings.smsProvider == "phone"
 
     /** Opens all listeners. Call once after signing in. */
     fun start() {
@@ -79,6 +84,7 @@ class GateRepository(private val db: FirebaseFirestore = FirebaseFirestore.getIn
             if (err != null) return@addSnapshotListener onListenError(err)
             settings = SchoolSettings.from(snap?.data)
             refreshStatus()
+            _phoneSms.value = phoneSendsTexts()
         }
         schoolListeners += db.collection("meta").document("calendar").addSnapshotListener { snap, err ->
             if (err != null) return@addSnapshotListener onListenError(err)

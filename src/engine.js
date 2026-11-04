@@ -310,6 +310,8 @@ export class Engine {
   //   Settings -> "How texts are sent" = Simulated: status 'sent' at once (nothing really goes out)
   //   Settings -> "How texts are sent" = Semaphore: status 'queued'; the sendSms Cloud Function
   //     (functions/index.js) sends it and changes it to 'sent' or 'failed'
+  //   Settings -> "How texts are sent" = Gate phone (SIM): status 'queued'; the Doorbell Gate app
+  //     (gate-app/.../SmsGateway.kt) sends it from the phone's SIM and changes it to 'sent' or 'failed'
   // A number the office marked as failed is saved as 'failed' straight away.
   // No text is sent when the guardian did not give SMS consent, or when arrival texts are turned off.
   //   kind: 'arrival' | 'late' | 'streak'
@@ -662,9 +664,10 @@ export class Engine {
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
       .slice(0, limit);
   }
-  // 'queued' when real texts are on (the Cloud Function sends it), 'sent' in simulated mode.
+  // 'queued' when real texts are on (sent by the Cloud Function through Semaphore, or by the
+  // Doorbell Gate app from the gate phone's SIM), 'sent' in simulated mode.
   newSmsStatus() {
-    return this.settings.smsProvider === 'semaphore' ? 'queued' : 'sent';
+    return ['semaphore', 'phone'].includes(this.settings.smsProvider) ? 'queued' : 'sent';
   }
   // Tries a failed text again (still fails if the number is marked failed).
   async resendSms(id) {
@@ -673,6 +676,7 @@ export class Engine {
     const g = m.guardianId ? this.s.guardians.get(m.guardianId) : undefined;
     m.attempts += 1;
     m.status = g?.numberStatus === 'failed' ? 'failed' : this.newSmsStatus();
+    m.queuedAt = this.nowIso(); // the gate phone does not send texts that waited over 12 hours: this restarts the clock
     delete m.error;
     this.put('sms', id, m);
     await this.logAudit('sms.resend', m.to, m.status);
@@ -1223,7 +1227,8 @@ export const settings = {
   contactNumber: '0917 555 0123',
   arrivalSmsEnabled: true,
   streakDays: 3,
-  // How texts are sent: 'simulated' (saved only, for demos) or 'semaphore' (real SMS, see functions/README.md)
+  // How texts are sent: 'simulated' (saved only, for demos), 'phone' (the gate phone's SIM, see gate-app/README.md)
+  // or 'semaphore' (real SMS through Semaphore, needs the Blaze plan, see functions/README.md)
   smsProvider: 'simulated',
   senderName: '', // Semaphore sender name; empty = the default sender name of the Semaphore account
   templates: {

@@ -96,11 +96,15 @@ data class SchoolSettings(
     val schoolName: String = "Doorbell",
     val contactNumber: String = "",
     val arrivalSmsEnabled: Boolean = true,
-    val realSms: Boolean = false, // Settings -> How texts are sent = Semaphore: save texts as 'queued' for the Cloud Function
+    // Settings -> How texts are sent: 'simulated', 'semaphore' (Cloud Function) or 'phone' (this app sends them, SmsGateway.kt)
+    val smsProvider: String = "simulated",
     val templates: Map<String, Map<String, String>> = emptyMap(), // language -> kind -> text
     val yearStart: String = "2000-01-01",
     val yearEnd: String = "2100-12-31",
 ) {
+    /** Real texts: saved as 'queued' and sent by Semaphore or by the gate phone. */
+    val realSms get() = smsProvider == "semaphore" || smsProvider == "phone"
+
     /** The SMS text for a language and kind ("arrival" or "late"), English if missing. */
     fun template(language: String, kind: String): String =
         templates[language]?.get(kind) ?: templates["en"]?.get(kind)
@@ -118,7 +122,7 @@ data class SchoolSettings(
                 schoolName = s["schoolName"] as? String ?: "Doorbell",
                 contactNumber = s["contactNumber"] as? String ?: "",
                 arrivalSmsEnabled = s["arrivalSmsEnabled"] != false,
-                realSms = s["smsProvider"] == "semaphore",
+                smsProvider = s["smsProvider"] as? String ?: "simulated",
                 templates = tpl,
                 yearStart = y["start"] as? String ?: "2000-01-01",
                 yearEnd = y["end"] as? String ?: "2100-12-31",
