@@ -24,9 +24,8 @@ Press `Ctrl + C` in the terminal to stop it. `npm run build` makes the finished 
 | `src/engine.js` | **The engine**: holds the school's data and does every action (scan, confirm, alerts, texts, sections, students...). Also the sample school |
 | `src/firebase.js` | Connection to Firebase (sign-in and database), first-time setup, "Load sample school". **`MODE`** here switches cloud / demo |
 | `src/ui.jsx` | Shared pieces: cards, pop-ups, status chips, date picker, year calendar, class switcher |
-| `src/teacher.jsx` | Teacher screens: Dashboard, Attendance, My Students, Calendar, Reports, Alerts, SMS Messages, Settings |
+| `src/teacher.jsx` | Teacher screens: Dashboard, Attendance, My Students, Absence Watch (shared with the admin), Calendar, Alerts, SMS Messages, Settings |
 | `src/admin.jsx` | Admin screens: Overview, Absence Watch, School Calendar, Sections, Teachers, Students, ID Cards, Settings & SMS, Audit Log |
-| `src/files.js` | Excel: attendance report download and student import |
 | `src/style.css` | How everything looks (colors at the top) |
 | `firestore.rules` | Who may read and write what in the database |
 | `worker/` | Free Cloudflare Worker: real SMS through Semaphore and the scheduled auto-confirm, every minute (see `worker/README.md`) |

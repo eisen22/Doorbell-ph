@@ -16,7 +16,6 @@ import {
   LayoutGrid,
   ClipboardCheck,
   Users,
-  FileSpreadsheet,
   Bell,
   Settings as SettingsIcon,
   Search,
@@ -33,7 +32,7 @@ import {
 } from 'lucide-react';
 import { useRepo, Logo, Skeleton, useLive, RepoProvider } from './ui';
 import ReactDOM from 'react-dom/client';
-import { Dashboard, Attendance, Students, CalendarPage, Reports, Notifications, SettingsPage, SmsMessages } from './teacher';
+import { Dashboard, Attendance, Students, CalendarPage, Notifications, SettingsPage, SmsMessages } from './teacher';
 import { AdminDashboard, AdminCalendar, Sections, Teachers, AdminStudents, QrCards, AdminSettings, AuditLog, AbsenceWatch } from './admin';
 
 /** One sign-in page for teachers and admins; the account's role decides which portal opens. */
@@ -243,9 +242,9 @@ export function Login() {
 const TEACHER_NAV = [
   { to: '/', label: 'Dashboard', Icon: LayoutGrid, end: true },
   { to: '/attendance', label: 'Attendance', Icon: ClipboardCheck },
+  { to: '/absences', label: 'Absence Watch', Icon: UserX, badge: 'watch' },
   { to: '/students', label: 'My Students', Icon: Users },
   { to: '/calendar', label: 'Calendar', Icon: CalendarDays },
-  { to: '/reports', label: 'Reports', Icon: FileSpreadsheet },
   { to: '/notifications', label: 'Alerts', Icon: Bell, badge: 'alerts' },
   { to: '/sms', label: 'SMS Messages', Icon: MessageSquareText },
   { to: '/settings', label: 'Settings', Icon: SettingsIcon },
@@ -279,7 +278,8 @@ export function Shell() {
     const s = await r.getSession();
     if (!s) return { alerts: 0, watch: 0 };
     const alerts = (await r.listNotifications()).filter((n) => !n.read).length;
-    const watch = s.role === 'admin' ? (await r.listAttention(3)).length : 0;
+    // Red badge on Absence Watch: children at the streak limit (the teacher sees only their own classes).
+    const watch = (await r.listAttention((await r.getSettings()).streakDays)).length;
     return { alerts, watch };
   });
   const isAdmin = session?.role === 'admin';
@@ -433,7 +433,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             <Route path="attendance" element={<Attendance />} />
             <Route path="students" element={<Students />} />
             <Route path="calendar" element={<CalendarPage />} />
-            <Route path="reports" element={<Reports />} />
+            <Route path="absences" element={<AbsenceWatch />} />
             <Route path="notifications" element={<Notifications />} />
             <Route path="settings" element={<SettingsPage />} />
             <Route path="sms" element={<SmsMessages />} />

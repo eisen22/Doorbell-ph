@@ -91,7 +91,6 @@
   .progress-track,
   .progress-fill,
   .delta,
-  .day b,
   .chip,
   .avatar,
   .streak,
@@ -132,7 +131,7 @@ a { color: inherit; }
 .sidebar { width: 236px; flex-shrink: 0; padding: 26px 18px 22px; border-right: 1px solid var(--line); display: flex; flex-direction: column; gap: 26px; background: var(--rail); position: sticky; top: 0; height: 100vh; overflow-y: auto; }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 20px; letter-spacing: -0.01em; padding-left: 6px; }
 nav { display: flex; flex-direction: column; gap: 4px; }
-.nav-item { display: flex; align-items: center; gap: 12px; padding: 11px 14px; border-radius: var(--r-sm); text-decoration: none; color: var(--ink-2); font-weight: 500; font-size: 15px; min-height: 44px; transition: background 0.15s ease; }
+.nav-item { display: flex; align-items: center; gap: 10px; padding: 11px 12px; white-space: nowrap; border-radius: var(--r-sm); text-decoration: none; color: var(--ink-2); font-weight: 500; font-size: 15px; min-height: 44px; transition: background 0.15s ease; }
 .nav-item:hover { background: var(--surface-2); color: var(--ink); }
 .nav-item.active { background: var(--lime); color: var(--lime-ink); font-weight: 700; }
 .nav-badge { margin-left: auto; background: var(--ink); color: #fff; font-size: 12px; font-weight: 700; min-width: 22px; height: 22px; border-radius: 999px; display: grid; place-items: center; padding: 0 6px; }
@@ -191,9 +190,6 @@ nav { display: flex; flex-direction: column; gap: 4px; }
 .tile .progress-fill { background: var(--ink); }
 
 /* ---------- weekly chart ---------- */
-.big-number { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px 10px; }
-.big-number strong { font-size: 34px; font-weight: 700; letter-spacing: -0.02em; }
-.big-number > span:first-of-type { font-weight: 600; color: var(--ink-2); margin-right: auto; }
 .delta { display: inline-flex; align-items: center; gap: 4px; font-size: 12.5px; font-weight: 700; padding: 4px 9px; border-radius: 999px; }
 .delta.up { background: var(--ok-bg); color: var(--ok); }
 .delta.down { background: var(--absent-bg); color: var(--absent); }
@@ -213,20 +209,9 @@ nav { display: flex; flex-direction: column; gap: 4px; }
 .stat strong { font-size: 24px; font-weight: 700; }
 
 /* ---------- arrivals ---------- */
-.date-strip { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
-.day { display: flex; flex-direction: column; align-items: center; gap: 6px; background: none; border: 0; cursor: pointer; font-size: 12px; color: var(--muted); font-weight: 600; }
-.day b { width: 44px; height: 44px; border-radius: 999px; display: grid; place-items: center; background: var(--surface); color: var(--ink); font-size: 15px; }
-.day-on { color: var(--ink); font-weight: 700; }
-.day-on b { background: var(--lime); color: var(--lime-ink); }
-.day:disabled { opacity: 0.35; cursor: default; }
 .chips { display: flex; gap: 8px; flex-wrap: wrap; }
 .fchip { min-height: 36px; padding: 0 12px; border-radius: var(--r-sm); border: 1px solid var(--line); background: var(--frame); cursor: pointer; font-weight: 600; font-size: 13.5px; transition: transform 0.16s var(--ease-out); }
 .fchip-on { background: var(--ink); color: #fff; border-color: var(--ink); }
-.feed { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; }
-.feed-row { display: flex; align-items: center; gap: 12px; padding: 11px 2px; border-bottom: 1px solid var(--line); animation: rise 0.3s var(--ease-out); }
-.feed-row:last-child { border-bottom: 0; }
-.feed-main { flex: 1; display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
-.feed-row time { font-weight: 700; font-size: 14px; }
 @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
 /* ---------- chips and avatars ---------- */
@@ -283,7 +268,7 @@ nav { display: flex; flex-direction: column; gap: 4px; }
 .table td { padding: 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
 .table tr:last-child td { border-bottom: 0; }
 .cell-person { display: flex; align-items: center; gap: 10px; }
-.cell-person > span { display: flex; flex-direction: column; }
+.cell-person > span:not(.avatar) { display: flex; flex-direction: column; }
 
 /* ---------- forms, modal, toast ---------- */
 .field { display: flex; flex-direction: column; gap: 6px; font-size: 14px; font-weight: 600; flex: 1; }
@@ -609,9 +594,6 @@ a.kpi:hover { background: var(--surface) !important; }
 .stat-link:hover { background: var(--surface); }
 .stat-link:first-child { border-radius: var(--r-md) 0 0 var(--r-md); }
 .stat-link:last-child { border-radius: 0 var(--r-md) var(--r-md) 0; }
-.feed-row { text-decoration: none; color: inherit; border-radius: var(--r-sm); }
-.feed-row:hover { background: var(--surface); }
-.feed li:last-child .feed-row { border-bottom: 0; }
 .chips .push { margin-left: auto; }
 .attention li { padding: 0; border: 0; display: block; }
 /* Attention cards: every card in a row is the same height (grid-auto-rows: 1fr), and each line has a
@@ -682,7 +664,7 @@ a.kpi:hover { background: var(--surface) !important; }
 .sort-pick .input { color: var(--ink); font-weight: 600; }
 .fchip.sm { min-height: 32px; font-size: 13px; }
 .watch-table .num { text-align: center; width: 92px; }
-.watch-table .cell-person > span { gap: 4px; align-items: flex-start; }
+.watch-table .cell-person > span:not(.avatar) { gap: 4px; align-items: flex-start; }
 .watch-table td.num b { display: inline-grid; place-items: center; min-width: 34px; height: 34px; border-radius: var(--r-xs); font-size: 16px; font-weight: 700; }
 .n-absent { background: var(--absent-bg); color: var(--absent); }
 .n-late { background: var(--late-bg); color: var(--late); }
@@ -765,22 +747,6 @@ a.kpi:hover { background: var(--surface) !important; }
 .cal-notice span { font-size: 13.5px; }
 
 /* Weekly P/L/A/E table */
-.week-table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 14px; }
-.week-table th, .week-table td { padding: 8px 6px; text-align: center; border-bottom: 1px solid var(--line); }
-.week-table thead th { font-size: 12px; color: var(--muted); font-weight: 700; }
-.week-table tbody th { text-align: left; font-weight: 500; white-space: nowrap; }
-.week-table tbody th b { display: inline-block; min-width: 34px; }
-.week-table tr.is-today { background: #f3f9e6; }
-.week-table tfoot th { text-align: left; }
-.week-table tfoot td, .week-table tfoot th { border-bottom: 0; padding-top: 10px; }
-.week-off { color: var(--muted); font-size: 13px; text-align: left !important; }
-.n-pill { display: inline-grid; place-items: center; min-width: 30px; height: 26px; padding: 0 6px; border-radius: var(--r-sm); font-weight: 700; }
-.n-pill.n-present { background: var(--ok-bg); color: var(--ok); }
-.n-pill.n-late { background: var(--late-bg); color: var(--late); }
-.n-pill.n-absent { background: var(--absent-bg); color: var(--absent); }
-.n-pill.n-excused { background: var(--excused-bg); color: var(--excused); }
-.n-pill.zero { background: transparent; color: #b9bdc3; font-weight: 600; }
-.week-key { margin-top: 10px; }
 
 /* ---------- Clickable names, section detail ---------- */
 .name-link { all: unset; font-weight: 700; cursor: pointer; color: var(--ink); border-bottom: 1px dashed rgba(17, 17, 17, 0.35); }
@@ -826,7 +792,7 @@ a.kpi:hover { background: var(--surface) !important; }
 .urgent li .btn { white-space: nowrap; flex-shrink: 0; }
 
 /* ---------- Student attendance calendar (click a name in Absence Watch / Attention needed) ---------- */
-button.attention-link, .name-btn { font: inherit; text-align: left; cursor: pointer; background: var(--frame); width: 100%; }
+.attention-link, .name-btn { color: inherit; text-decoration: none; font: inherit; text-align: left; cursor: pointer; background: var(--frame); width: 100%; }
 .name-btn { border: 0; padding: 0; background: none; color: inherit; }
 .name-btn:hover strong { text-decoration: underline; text-underline-offset: 3px; }
 .sa-counts { display: flex; flex-wrap: wrap; gap: 8px; }

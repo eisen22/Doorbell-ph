@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { format, parseISO } from 'date-fns';
 import {
@@ -16,8 +16,6 @@ import {
   AlertTriangle,
   BadgeCheck,
   HelpCircle,
-  FileSpreadsheet,
-  Download,
   ShieldAlert,
   UserX,
   Clock3,
@@ -33,12 +31,10 @@ import {
 } from 'lucide-react';
 import {
   addDays,
-  attendanceRate,
   autoFinalizeTime,
   describeStreak,
   emptyCounts,
   fromMinutes,
-  isoWeekday,
   isSchoolDay,
   to12h,
   toMinutes,
@@ -61,13 +57,11 @@ import {
   useClassParam,
   Avatar,
   Card,
-  CountUp,
   Empty,
   Skeleton,
   StatusChip,
   StreakChip,
   Modal,
-  StudentAttendanceModal,
   Toast,
   DatePicker,
   ClassSwitch,
@@ -75,42 +69,37 @@ import {
   YearCalendar,
   streakShort,
 } from './ui';
-import { exportAttendanceXlsx } from './files';
 
 // =====================================================================
 // teacher.jsx — EVERY SCREEN OF THE TEACHER PORTAL
 // ---------------------------------------------------------------------
-//  Dashboard      (/)              Reports        (/reports)
-//  Attendance     (/attendance)    Alerts         (/notifications)
-//  My Students    (/students)      SMS Messages   (/sms)
-//  Calendar       (/calendar)      Settings       (/settings)
+//  Dashboard      (/)              Alerts         (/notifications)
+//  Attendance     (/attendance)    SMS Messages   (/sms)
+//  My Students    (/students)      Settings       (/settings)
+//  Calendar       (/calendar)
+//  Absence Watch  (/absences) is the admin's page (admin.jsx), showing only the teacher's classes.
 // Every screen follows the same pattern:
 //   1. useLive(...) loads what it needs from the engine (and reloads on any change)
 //   2. while data is loading it shows <Skeleton> placeholders
 //   3. it returns the page as JSX (HTML-like code). Buttons call repo.something(...)
 // The page addresses are set in main.jsx. The looks are in style.css.
 // =====================================================================
-// Weekday names for the date strip and weekly table. wd() turns a date into 0 = Monday ... 6 = Sunday.
-const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-const wd = (d) => isoWeekday(d) - 1;
 // Words shown on each class card depending on the time (see classPhase in logic.js).
 const PHASE = { now: 'In session now', next: 'Later today', done: 'Done for today', off: 'No class today' };
 // ---------------------------------------------------------------------
 // DASHBOARD
 // Order: calendar notices from the admin -> my classes today -> attention needed
-// -> arrivals (class in session) and weekly attendance (P/L/A/E counts).
+// (each child opens Absence Watch with their attendance calendar).
 // ---------------------------------------------------------------------
 export function Dashboard() {
   const repo = useRepo();
   const [classId, setClass] = useClassParam();
-  const [openStudent, setOpenStudent] = useState(null); // "Attention needed" card clicked: its attendance calendar
   // Everything the dashboard needs, loaded together. The ?class= in the address bar (classId) picks the class; otherwise the class happening now.
   const { data } = useLive(
     async (r) => {
       const { session, today, classes, current, section } = await loadMyClasses(r, classId);
       const calendar = await r.getCalendar();
       const settings = await r.getSettings();
-      const monday = addDays(today.date, -wd(today.date));
       const perClass = await Promise.all(
         classes.map(async (c) => ({
           section: c,
@@ -118,62 +107,21 @@ export function Dashboard() {
           confirmation: await r.getConfirmation(c.id, today.date),
         })),
       );
-      const records = await r.getAttendanceRange(section.id, monday, addDays(monday, 6));
       const sms = (await r.listSms(500)).filter((m) => m.createdAt.startsWith(today.date));
       const notes = await r.listNotifications();
       const attention = await r.listAttention(2);
-      return { session, today, classes, current, section, calendar, settings, monday, perClass, records, sms, notes, attention };
+      return { session, today, classes, current, section, calendar, settings, perClass, sms, notes, attention };
     },
     [classId],
   );
-  // selected = the day picked in the Arrivals date strip; filter = All / On time / Late.
-  const [selected, setSelected] = useState(null);
-  const [filter, setFilter] = useState('all');
-  // Weekly table: present/late/absent/excused counts for Monday to Friday of this week. Today uses the live class list.
-  const week = useMemo(() => {
-    if (!data) return null;
-    const { records, monday, perClass, section, calendar, today } = data;
-    const focus = perClass.find((p) => p.section.id === section.id);
-    const days = Array.from({ length: 5 }, (_, i) => addDays(monday, i)).map((d) => {
-      const c = emptyCounts();
-      const recs = d === today.date ? focus.roster.map((r) => r.record).filter(Boolean) : records.filter((r) => r.date === d);
-      recs.forEach((r) => c[r.status]++);
-      return {
-        date: d,
-        label: DAYS[wd(d)],
-        school: isSchoolDay(d, section.schedule, calendar),
-        future: d > today.date,
-        counts: c,
-        entry: calendar.find((x) => x.date === d),
-      };
-    });
-    const total = emptyCounts();
-    days.forEach((d) => {
-      if (d.school && !d.future)
-        Object.keys(total).forEach((k) => {
-          total[k] += d.counts[k];
-        });
-    });
-    return { days, total, rate: attendanceRate(total) };
-  }, [data]);
-  if (!data || !week) return <DashboardSkeleton />;
-  // Values used below. `focus` = the class shown in Arrivals and Weekly attendance.
-  const { session, today, classes, section, perClass, calendar, settings, sms, notes, attention, records, monday } = data;
-  const focus = perClass.find((p) => p.section.id === section.id);
-  const day = selected ?? today.date;
-  const strip = Array.from({ length: 7 }, (_, i) => addDays(monday, i));
-  const feedSource = day === today.date ? focus.roster.map((r) => r.record).filter(Boolean) : records.filter((r) => r.date === day);
-  const nameOf = new Map(focus.roster.map((r) => [r.student.id, r.student]));
-  const feed = feedSource
-    .filter((r) => r.scannedAt && (filter === 'all' || r.status === filter))
-    .sort((a, b) => b.scannedAt.localeCompare(a.scannedAt));
+  if (!data) return <DashboardSkeleton />;
+  const { session, today, classes, section, perClass, calendar, settings, sms, notes, attention } = data;
   const failed = sms.filter((m) => m.status === 'failed').length;
   const unreadStreaks = notes.filter((n) => !n.read && n.kind === 'streak').length;
   const calendarNotes = notes.filter((n) => n.kind === 'calendar' && !n.read).slice(0, 3);
   const hour = Number(today.time.slice(0, 2));
   const greet = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
   const todayEntry = calendar.find((c) => c.date === today.date);
-  const focusPhase = classPhase(section, today.time, today.actualDate);
   const multi = classes.length > 1;
   return (
     <div className="page">
@@ -223,7 +171,7 @@ export function Dashboard() {
         </Link>
       )}
 
-      {/* One card per class (the class in session is marked). Clicking a card shows that class in the cards below. */}
+      {/* One card per class (the class in session is marked). */}
       <Card title={multi ? 'My classes today' : 'My class today'}>
         <div className="card-row">
           {perClass.map(({ section: c, roster, confirmation }) => {
@@ -288,8 +236,8 @@ export function Dashboard() {
           </>
         }
         action={
-          <Link className="link" to="/notifications?tab=streak">
-            All alerts <ArrowUpRight size={15} />
+          <Link className="link" to="/absences">
+            Absence Watch <ArrowUpRight size={15} />
           </Link>
         }
         className="attention-card"
@@ -300,8 +248,8 @@ export function Dashboard() {
           <ul className="attention">
             {attention.map((r) => (
               <li key={r.student.id}>
-                {/* Click a card: a calendar of this learner's absent and late days. */}
-                <button type="button" className="attention-link" onClick={() => setOpenStudent(r)} title="Show the attendance calendar">
+                {/* Click a card: Absence Watch opens, showing this learner's attendance calendar. */}
+                <Link to={`/absences?student=${r.student.id}`} className="attention-link" title="Open in Absence Watch">
                   <Avatar first={r.student.firstName} last={r.student.lastName} tone={r.section.color} />
                   <div>
                     <strong>
@@ -321,162 +269,13 @@ export function Dashboard() {
                         : 'Call parent (no SMS consent)'
                       : `Text at ${settings.streakDays}`}
                   </span>
-                </button>
+                </Link>
               </li>
             ))}
           </ul>
         )}
       </Card>
-      {openStudent && (
-        <StudentAttendanceModal student={openStudent.student} section={openStudent.section} onClose={() => setOpenStudent(null)} />
-      )}
 
-      <div className="grid-2">
-        {/* Live list of scans for the chosen day (newest first), for the class in focus. */}
-        <Card
-          title={
-            <>
-              Arrivals{' '}
-              <span className="card-sub">
-                {shortClassName(section.name)} · {to12h(section.schedule.startTime)} to {to12h(section.schedule.endTime)}
-                {focusPhase === 'now' ? ' · now' : ''}
-              </span>
-            </>
-          }
-        >
-          {multi && (
-            <div className="chips tight" role="group" aria-label="Choose a class">
-              {classes.map((c) => (
-                <button key={c.id} className={`fchip sm ${c.id === section.id ? 'fchip-on' : ''}`} onClick={() => setClass(c.id)}>
-                  <span className="sec-dot sm" style={{ background: c.color }} />
-                  {shortClassName(c.name)} · {to12h(c.schedule.startTime)}
-                </button>
-              ))}
-            </div>
-          )}
-          <div className="date-strip">
-            {strip.map((d) => (
-              <button key={d} className={`day ${d === day ? 'day-on' : ''}`} disabled={d > today.date} onClick={() => setSelected(d)}>
-                <span>{DAYS[wd(d)]}</span>
-                <b>{d.slice(8)}</b>
-              </button>
-            ))}
-          </div>
-          <div className="chips" role="group" aria-label="Filter arrivals">
-            {['all', 'present', 'late'].map((f) => (
-              <button key={f} className={`fchip ${filter === f ? 'fchip-on' : ''}`} onClick={() => setFilter(f)}>
-                {f === 'all' ? 'All' : f === 'present' ? 'On time' : 'Late'}
-              </button>
-            ))}
-            <Link className="link push" to={`/attendance?class=${section.id}&date=${day}`}>
-              Full list <ArrowUpRight size={14} />
-            </Link>
-          </div>
-          <ul className="feed">
-            {feed.length === 0 && (
-              <li>
-                <Empty title="No scans for this day" hint="Arrivals appear here the moment a card is scanned." />
-              </li>
-            )}
-            {feed.slice(0, 8).map((r) => {
-              const st = nameOf.get(r.studentId);
-              if (!st) return null;
-              return (
-                <li key={r.studentId}>
-                  <Link to={`/students?class=${section.id}&q=${encodeURIComponent(`${st.firstName} ${st.lastName}`)}`} className="feed-row">
-                    <Avatar first={st.firstName} last={st.lastName} tone={section.color} />
-                    <div className="feed-main">
-                      <strong>
-                        {st.firstName} {st.lastName}
-                      </strong>
-                      <StatusChip status={r.status} />
-                    </div>
-                    <time>{to12h(r.scannedAt)}</time>
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
-        </Card>
-
-        {/* Counts only. The calendar icon opens the Attendance page. */}
-        <Card
-          title={
-            <>
-              Weekly attendance <span className="card-sub">{shortClassName(section.name)}</span>
-            </>
-          }
-          action={
-            <Link to={`/attendance?class=${section.id}`} className="icon-badge" aria-label="Open attendance" title="Open attendance">
-              <CalendarDays size={17} />
-            </Link>
-          }
-        >
-          <div className="big-number">
-            <strong>
-              <CountUp value={week.rate} suffix="%" />
-            </strong>
-            <span>attendance this week</span>
-          </div>
-          <table className="week-table">
-            <thead>
-              <tr>
-                <th scope="col">Day</th>
-                <th scope="col" title="Present">
-                  P
-                </th>
-                <th scope="col" title="Late">
-                  L
-                </th>
-                <th scope="col" title="Absent">
-                  A
-                </th>
-                <th scope="col" title="Excused">
-                  E
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {week.days.map((d) => (
-                <tr key={d.date} className={d.date === today.date ? 'is-today' : ''}>
-                  <th scope="row">
-                    <b>{d.label}</b> <span className="muted">{format(parseISO(d.date), 'MMM d')}</span>
-                  </th>
-                  {!d.school ? (
-                    <td colSpan={4} className="week-off">
-                      {d.entry?.label ?? 'No class'}
-                    </td>
-                  ) : d.future ? (
-                    <td colSpan={4} className="week-off">
-                      Upcoming{d.entry ? ` · ${d.entry.label}` : ''}
-                    </td>
-                  ) : (
-                    ['present', 'late', 'absent', 'excused'].map((k) => (
-                      <td key={k}>
-                        <span className={`n-pill n-${k} ${d.counts[k] === 0 ? 'zero' : ''}`}>{d.counts[k]}</span>
-                      </td>
-                    ))
-                  )}
-                </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr>
-                <th scope="row">Week</th>
-                {['present', 'late', 'absent', 'excused'].map((k) => (
-                  <td key={k}>
-                    <strong>{week.total[k]}</strong>
-                  </td>
-                ))}
-              </tr>
-            </tfoot>
-          </table>
-          <p className="muted small week-key">
-            P present · L late · A absent · E excused
-            {!focus.confirmation && today.date === today.actualDate ? " · today's absences count after attendance is confirmed" : ''}
-          </p>
-        </Card>
-      </div>
     </div>
   );
 }
@@ -506,14 +305,6 @@ function DashboardSkeleton() {
       </div>
       <div className="card">
         <Skeleton h={160} />
-      </div>
-      <div className="grid-2">
-        <div className="card">
-          <Skeleton h={260} />
-        </div>
-        <div className="card">
-          <Skeleton h={260} />
-        </div>
       </div>
     </div>
   );
@@ -1081,219 +872,6 @@ export function CalendarPage() {
         Based on DepEd Order No. 009, s. 2026 (three-term calendar) plus Baguio Charter Day (RA 6710). Your school admin can change any day, for
         example to declare a suspension.
       </p>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------
-// REPORTS: download attendance as an Excel file (the work is done in files.js).
-// A privacy warning appears first, and each download is written in the audit log.
-// ---------------------------------------------------------------------
-export function Reports() {
-  const repo = useRepo();
-  const [from, setFrom] = useState(null);
-  const [to, setTo] = useState(null);
-  const [sheets, setSheets] = useState({ grid: true, summary: true, raw: true });
-  const [warnOpen, setWarnOpen] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [toast, setToast] = useState(null);
-  const [classId, setClass] = useClassParam();
-  const { data } = useLive(
-    async (r) => {
-      const { session, today, classes, section } = await loadMyClasses(r, classId);
-      return { session, today, classes, section, year: await r.getSchoolYear(), calendar: await r.getCalendar() };
-    },
-    [classId],
-  );
-  if (!data)
-    return (
-      <div className="page">
-        <Skeleton h={300} />
-      </div>
-    );
-  const start = from ?? `${data.today.date.slice(0, 8)}01`;
-  const end = to ?? data.today.date;
-  // Builds and downloads the .xlsx file for the chosen class and dates.
-  const run = async () => {
-    setWarnOpen(false);
-    setBusy(true);
-    try {
-      const [settings, calendar, roster, records] = await Promise.all([
-        repo.getSettings(),
-        repo.getCalendar(),
-        repo.getRoster(data.section.id, end),
-        repo.getAttendanceRange(data.section.id, start, end),
-      ]);
-      const filename = await exportAttendanceXlsx({
-        settings,
-        schoolYearName: data.year.name,
-        section: data.section,
-        teacherName: data.session.name,
-        students: roster.map((r) => r.student),
-        records,
-        calendar,
-        from: start,
-        to: end,
-        sheets,
-      });
-      await repo.logAudit('export.excel', data.section.id, `${filename} (${start} to ${end})`);
-      setToast(`Downloaded ${filename}`);
-    } finally {
-      setBusy(false);
-      setTimeout(() => setToast(null), 3000);
-    }
-  };
-  const presets = [
-    ['This month', `${data.today.date.slice(0, 8)}01`, data.today.date],
-    ['Last 7 days', addDays(data.today.date, -6), data.today.date],
-    ['School year to date', data.year.start, data.today.date],
-  ];
-  return (
-    <div className="page">
-      <div className="page-head">
-        <div>
-          <h1>Reports</h1>
-          <p className="page-sub">{data.section.name}</p>
-        </div>
-      </div>
-      <ClassSwitch classes={data.classes} value={data.section.id} onChange={setClass} />
-      <div className="grid-2">
-        <Card title="Export to Excel">
-          <div className="chips">
-            {presets.map(([label, a, b]) => (
-              <button
-                key={label}
-                className={`fchip ${start === a && end === b ? 'fchip-on' : ''}`}
-                onClick={() => {
-                  setFrom(a);
-                  setTo(b);
-                }}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-          <div className="form-row">
-            <div className="field">
-              <span>From</span>
-              <DatePicker
-                value={start}
-                min={data.year.start}
-                max={end}
-                calendar={data.calendar}
-                onChange={setFrom}
-                ariaLabel="From"
-                quick={[
-                  ['First day of classes', data.year.start],
-                  ['Start of month', `${data.today.date.slice(0, 8)}01`],
-                ]}
-              />
-            </div>
-            <div className="field">
-              <span>To</span>
-              <DatePicker
-                value={end}
-                min={start}
-                max={data.today.date}
-                calendar={data.calendar}
-                onChange={setTo}
-                ariaLabel="To"
-                quick={[['Today', data.today.date]]}
-              />
-            </div>
-          </div>
-          <fieldset className="checks">
-            <legend>Sheets</legend>
-            <label>
-              <input type="checkbox" checked={sheets.grid} onChange={(e) => setSheets({ ...sheets, grid: e.target.checked })} /> Daily grid (P / L / A
-              / E per day)
-            </label>
-            <label>
-              <input type="checkbox" checked={sheets.summary} onChange={(e) => setSheets({ ...sheets, summary: e.target.checked })} /> Summary with
-              attendance rate
-            </label>
-            <label>
-              <input type="checkbox" checked={sheets.raw} onChange={(e) => setSheets({ ...sheets, raw: e.target.checked })} /> Raw log with scan times
-              and edits
-            </label>
-          </fieldset>
-          <button className="btn btn-ink wide" disabled={busy || !(sheets.grid || sheets.summary || sheets.raw)} onClick={() => setWarnOpen(true)}>
-            <Download size={18} /> {busy ? 'Preparing…' : 'Download .xlsx'}
-          </button>
-        </Card>
-        <Card title="What you get">
-          <div className="xl-preview" aria-hidden="true">
-            <div className="xl-tabs">
-              <span className="on">Daily Grid</span>
-              <span>Summary</span>
-              <span>Raw Log</span>
-            </div>
-            <table>
-              <thead>
-                <tr>
-                  <th>Student</th>
-                  <th>10-26</th>
-                  <th>10-27</th>
-                  <th>10-28</th>
-                  <th>P</th>
-                  <th>A</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td>Dela Cruz, Juan</td>
-                  <td className="p">P</td>
-                  <td className="l">L</td>
-                  <td className="p">P</td>
-                  <td>2</td>
-                  <td>0</td>
-                </tr>
-                <tr>
-                  <td>Reyes, Bea</td>
-                  <td className="a">A</td>
-                  <td className="p">P</td>
-                  <td className="e">E</td>
-                  <td>1</td>
-                  <td>1</td>
-                </tr>
-                <tr>
-                  <td>Santos, Miguel</td>
-                  <td className="p">P</td>
-                  <td className="p">P</td>
-                  <td className="p">P</td>
-                  <td>3</td>
-                  <td>0</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          <p className="muted small">
-            <FileSpreadsheet size={14} /> Opens in Excel, Google Sheets or WPS. Header rows show the school, school year, section and teacher.
-          </p>
-        </Card>
-      </div>
-      {warnOpen && (
-        <Modal
-          title="This file contains learners' personal data"
-          onClose={() => setWarnOpen(false)}
-          footer={
-            <>
-              <button className="btn" onClick={() => setWarnOpen(false)}>
-                Cancel
-              </button>
-              <button className="btn btn-ink" onClick={run}>
-                <Download size={16} /> I understand, download
-              </button>
-            </>
-          }
-        >
-          <p className="warn-row">
-            <ShieldAlert size={20} /> Keep it on a school device, do not post it in group chats, and delete copies you no longer need. This download
-            is recorded in the audit log (Data Privacy Act of 2012).
-          </p>
-        </Modal>
-      )}
-      <Toast message={toast} />
     </div>
   );
 }

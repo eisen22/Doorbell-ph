@@ -10,7 +10,6 @@
   },
   "dependencies": {
     "date-fns": "^4.1.0",
-    "exceljs": "^4.4.0",
     "firebase": "^11.10.0",
     "jsbarcode": "^3.11.6",
     "lucide-react": "^0.460.0",

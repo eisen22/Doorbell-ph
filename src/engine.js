@@ -1138,15 +1138,6 @@ export class Engine {
     this.emit();
     return student;
   }
-  // Adds many children at once (Excel import).
-  async importStudents(inputs) {
-    await this.ready;
-    let linkedSiblings = 0;
-    for (const input of inputs) if (this.upsertStudent(input).sibling) linkedSiblings++;
-    await this.logAudit('student.import', `${inputs.length} students`, `${linkedSiblings} linked to an existing guardian`);
-    this.emit();
-    return { created: inputs.length, linkedSiblings };
-  }
   // Places many children at once (auto-assign or bulk move). Remembers the previous state for "Undo".
   async assignStudents(assignments, label) {
     await this.ready;

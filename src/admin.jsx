@@ -26,13 +26,10 @@ import {
   UserX,
   UserCheck,
   Info,
-  Upload,
   Wand2,
   Undo2,
   QrCode,
-  FileDown,
   AlertTriangle,
-  CheckCircle2,
   Printer,
   Search,
   Save,
@@ -79,7 +76,6 @@ import {
   smsSegments,
   isGsmPlain,
 } from './logic';
-import { downloadTemplate, readRows, validateRows } from './files';
 import { SAMPLE_TEACHER_PASSWORD } from './firebase';
 import QRCode from 'qrcode';
 import JsBarcode from 'jsbarcode';
@@ -368,17 +364,30 @@ export function AdminDashboard() {
 // Filter by section and kind, sort by days/section/name. Numbers instead of dates (hover for dates).
 // ---------------------------------------------------------------------
 /** Students absent or late several school days in a row, across all sections. */
+// Used by the admin (every section) and by teachers (/absences: only the classes they teach or cover,
+// because listAttention only returns the signed-in person's classes). ?student=<id> opens that child's
+// calendar right away (the teacher dashboard's "Attention needed" cards link here).
 export function AbsenceWatch() {
-  const [open, setOpen] = useState(null); // the learner whose attendance calendar is open
+  const [params, setParams] = useSearchParams();
+  const [picked, setOpen] = useState(null); // the learner whose attendance calendar is open
   const [kind, setKind] = useState('all');
   const [sectionId, setSectionId] = useState('all');
   const [sort, setSort] = useState('days');
-  const { data } = useLive(async (r) => ({
-    rows: await r.listAttention(2),
-    settings: await r.getSettings(),
-    today: await r.getToday(),
-    sections: (await r.listSections()).filter((s) => !s.archived),
-  }));
+  const { data } = useLive(async (r) => {
+    const rows = await r.listAttention(2);
+    const session = await r.getSession();
+    const mine = new Set(rows.map((x) => x.section.id));
+    const sections = (await r.listSections()).filter(
+      (s) => !s.archived && (session?.role === 'admin' || session?.sectionIds?.includes(s.id) || mine.has(s.id)),
+    );
+    return { rows, sections, settings: await r.getSettings(), today: await r.getToday() };
+  });
+  const fromLink = params.get('student');
+  const open = picked ?? (fromLink ? (data?.rows.find((x) => x.student.id === fromLink) ?? null) : null);
+  const close = () => {
+    setOpen(null);
+    if (fromLink) setParams({}, { replace: true });
+  };
   if (!data)
     return (
       <div className="page">
@@ -499,6 +508,7 @@ export function AbsenceWatch() {
           </select>
         </label>
       </div>
+      {data.sections.length > 1 && (
       <div className="chips">
         <button className={`fchip ${sectionId === 'all' ? 'fchip-on' : ''}`} onClick={() => setSectionId('all')}>
           All sections
@@ -511,6 +521,7 @@ export function AbsenceWatch() {
           </button>
         ))}
       </div>
+      )}
       <div className="chips">
         {[
           ['all', 'Absent or late'],
@@ -533,7 +544,7 @@ export function AbsenceWatch() {
         Click a name to see that learner's absent and late days on a calendar. Hover over "Days in a row" to see the dates. Excused days, weekends,
         holidays and suspensions do not count; a day present ends the streak.
       </p>
-      {open && <StudentAttendanceModal student={open.student} section={open.section} onClose={() => setOpen(null)} />}
+      {open && <StudentAttendanceModal student={open.student} section={open.section} onClose={close} />}
     </div>
   );
 }
@@ -1768,7 +1779,6 @@ export function AdminStudents() {
   const filter = params.get('filter') ?? 'all';
   const [selected, setSelected] = useState(new Set());
   const [edit, setEdit] = useState(null);
-  const [importOpen, setImportOpen] = useState(false);
   const [assignOpen, setAssignOpen] = useState(false);
   const [leave, setLeave] = useState(null);
   const [toast, setToast] = useState(null);
@@ -1837,9 +1847,6 @@ export function AdminStudents() {
             }}
           >
             <Undo2 size={17} /> Undo last move
-          </button>
-          <button className="btn" onClick={() => setImportOpen(true)}>
-            <Upload size={17} /> Import Excel
           </button>
           <button className="btn" onClick={() => setAssignOpen(true)} disabled={!unassigned}>
             <Wand2 size={17} /> Auto-assign{unassigned ? ` (${unassigned})` : ''}
@@ -2051,17 +2058,6 @@ export function AdminStudents() {
           }}
         />
       )}
-      {importOpen && (
-        <ImportModal
-          sections={data.sections}
-          existing={data.rows}
-          onClose={() => setImportOpen(false)}
-          onDone={(m) => {
-            setImportOpen(false);
-            flash(m);
-          }}
-        />
-      )}
       {assignOpen && (
         <AssignModal
           rows={data.rows}
@@ -2215,101 +2211,6 @@ export function StudentModal({ input, sections, onClose, onSaved }) {
       </label>
       <p className="muted small">Siblings: use the same mobile number and they will share one guardian record.</p>
       {error && <p className="error">{error}</p>}
-    </Modal>
-  );
-}
-// Excel import: download the template, fill it in, upload. Rows with problems are listed and skipped.
-function ImportModal({ sections, existing, onClose, onDone }) {
-  const repo = useRepo();
-  const [parsed, setParsed] = useState(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState(null);
-  const ok = parsed?.filter((p) => p.input) ?? [];
-  const bad = parsed?.filter((p) => !p.input) ?? [];
-  const onFile = async (file) => {
-    if (!file) return;
-    setError(null);
-    try {
-      setParsed(validateRows(await readRows(file), sections, existing));
-    } catch {
-      setError('Could not read that file. Use the template (.xlsx) or a .csv file.');
-    }
-  };
-  const run = async () => {
-    setBusy(true);
-    const res = await repo.importStudents(ok.map((p) => p.input));
-    onDone(
-      `Imported ${res.created} students${res.linkedSiblings ? `, ${res.linkedSiblings} linked as siblings` : ''}. QR cards were created automatically.`,
-    );
-  };
-  const errorReport = () => {
-    const csv = ['Line,Name,Problems', ...bad.map((b) => `${b.line},"${b.name}","${b.errors.join('; ')}"`)].join('\n');
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
-    a.download = 'import_errors.csv';
-    a.click();
-  };
-  return (
-    <Modal
-      title="Import students from Excel"
-      onClose={onClose}
-      footer={
-        <>
-          <button className="btn" onClick={onClose}>
-            Cancel
-          </button>
-          <button className="btn btn-ink" disabled={!ok.length || busy} onClick={run}>
-            {busy ? 'Importing…' : `Import ${ok.length} students`}
-          </button>
-        </>
-      }
-    >
-      <ol className="steps-list">
-        <li>
-          <button className="link-btn" onClick={() => downloadTemplate(sections)}>
-            <FileDown size={15} /> Download the template
-          </button>{' '}
-          and fill one row per child.
-        </li>
-        <li>Choose the filled file. Nothing is saved until you press Import.</li>
-      </ol>
-      <label className="dropzone">
-        <Upload size={22} />
-        <span>Choose .xlsx or .csv</span>
-        <input type="file" accept=".xlsx,.csv" onChange={(e) => onFile(e.target.files?.[0])} />
-      </label>
-      {error && <p className="error">{error}</p>}
-      {parsed && (
-        <>
-          <div className="import-summary">
-            <span className="tag tag-ok">
-              <CheckCircle2 size={14} /> {ok.length} ready
-            </span>
-            {bad.length > 0 && (
-              <span className="tag tag-bad">
-                <AlertTriangle size={14} /> {bad.length} with problems (skipped)
-              </span>
-            )}
-            {bad.length > 0 && (
-              <button className="link-btn" onClick={errorReport}>
-                Download error report
-              </button>
-            )}
-          </div>
-          <div className="preview-list">
-            {parsed.map((p) => (
-              <div key={p.line} className={`preview-row ${p.input ? '' : 'bad'}`}>
-                <span className="muted small">Row {p.line}</span>
-                <strong>{p.name}</strong>
-                <span className="small">
-                  {[...p.errors, ...p.warnings].join(' · ') ||
-                    (p.input?.sectionId ? sections.find((s) => s.id === p.input.sectionId)?.name : 'Not in a section yet')}
-                </span>
-              </div>
-            ))}
-          </div>
-        </>
-      )}
     </Modal>
   );
 }
