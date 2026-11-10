@@ -27,7 +27,7 @@ export default {
   },
 };
 
-export async function run(env, now = new Date(), fetchFn = fetch) {
+export async function run(env, now = new Date(), fetchFn = (...args) => fetch(...args)) {
   const db = new Firestore(env, fetchFn);
   const report = { sms: null, confirm: null };
   try {

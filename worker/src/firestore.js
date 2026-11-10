@@ -48,7 +48,8 @@ export function toFields(obj) {
 export class Firestore {
   constructor(env, fetchFn = fetch) {
     this.env = env;
-    this.fetch = fetchFn;
+    // Wrapped so Cloudflare's fetch is never called with the wrong `this` ("Illegal invocation").
+    this.fetch = (...args) => fetchFn(...args);
     this.root = `projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents`;
     this.base = `https://firestore.googleapis.com/v1/${this.root}`;
     this.token = null;
