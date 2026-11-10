@@ -2782,7 +2782,7 @@ export function AdminSettings() {
             {repo.mode === 'demo' ? (
               <>Demo mode: texts are simulated.</>
             ) : s.smsProvider === 'semaphore' ? (
-              <>Real texts: the sendSms Cloud Function sends each one through Semaphore (see functions/README.md). Save changes, then send a test.</>
+              <>Real texts: the free Cloudflare Worker sends each one through Semaphore within a minute (see worker/README.md). Save changes, then send a test.</>
             ) : s.smsProvider === 'phone' ? (
               <>Real texts from the gate phone's SIM. Save changes, open Doorbell Gate on the phone, then send a test.</>
             ) : (
@@ -2796,7 +2796,7 @@ export function AdminSettings() {
             <select className="input" value={s.smsProvider ?? 'simulated'} onChange={(e) => setS({ ...s, smsProvider: e.target.value })}>
               <option value="simulated">Simulated (for demos: nothing is sent)</option>
               <option value="phone">Gate phone's SIM (the Doorbell Gate app sends them)</option>
-              <option value="semaphore">Semaphore (real SMS with a sender name, needs Firebase Blaze)</option>
+              <option value="semaphore">Semaphore (real SMS with a sender name, sent by the Cloudflare Worker)</option>
             </select>
           </label>
           {s.smsProvider === 'phone' && (
@@ -2819,7 +2819,7 @@ export function AdminSettings() {
           )}
           {s.smsProvider === 'semaphore' && (
             <p className="muted small">
-              Semaphore needs the Cloud Functions set up once (Firebase Blaze plan and the API key saved as a secret). Until then, texts stay "Sending".
+              Semaphore needs the free Cloudflare Worker set up once (worker/README.md; the API key is saved in Cloudflare, never here). Until then, texts stay "Sending".
             </p>
           )}
         </Card>

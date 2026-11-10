@@ -75,7 +75,8 @@ service cloud.firestore {
     match /confirmations/{id} {
       allow read: if isStaff();
       allow create: if isAdmin() || teachesSection(request.resource.data.sectionId)
-        || coversSection(request.resource.data.sectionId, request.resource.data.date);
+        || coversSection(request.resource.data.sectionId, request.resource.data.date)
+        || isGate(); // the Cloudflare Worker (worker/) auto-confirms with a gate account
       allow update, delete: if isAdmin();
     }
 

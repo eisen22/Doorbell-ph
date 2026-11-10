@@ -1,0 +1,15 @@
+{
+  "name": "doorbell-worker",
+  "description": "Doorbell's free server on Cloudflare: real SMS through Semaphore and scheduled auto-confirm",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "logs": "wrangler tail",
+    "dev": "wrangler dev --test-scheduled",
+    "test": "node --import ./resolve-hook.mjs test.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "^4.40.0"
+  }
+}

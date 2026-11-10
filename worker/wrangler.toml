@@ -1,0 +1,16 @@
+# Cloudflare Worker settings (see README.md). Secrets are NOT here: they are saved with
+#   npx wrangler secret put GATE_EMAIL / GATE_PASSWORD / SEMAPHORE_API_KEY
+name = "doorbell-worker"
+main = "src/index.js"
+compatibility_date = "2025-09-01"
+
+# Runs every minute (Cloudflare's clock is UTC; the code works in Philippine time).
+[triggers]
+crons = ["* * * * *"]
+
+[vars]
+FIREBASE_PROJECT_ID = "doorbell-ph-f12d0"
+FIREBASE_API_KEY = "AIzaSyClVWQwsBbDPrIUqrASHSnowVWqVLowT4o"
+
+[observability]
+enabled = true

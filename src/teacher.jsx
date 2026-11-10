@@ -1535,7 +1535,7 @@ export function SmsMessages() {
                               {displayPhMobile(m.to)} · {format(new Date(m.createdAt), 'h:mm a')}
                             </span>
                           </span>
-                          {/* queued/sending = waiting for the sendSms Cloud Function (real texts through Semaphore) */}
+                          {/* queued/sending = waiting for the Cloudflare Worker (Semaphore) or the gate phone to send it */}
                           <span className={`tag ${m.status === 'failed' ? 'tag-bad' : m.status === 'queued' || m.status === 'sending' ? 'tag-warn' : 'tag-ok'}`}>
                             {m.status === 'failed' ? 'Failed' : m.status === 'queued' || m.status === 'sending' ? 'Sending' : 'Sent'}
                           </span>

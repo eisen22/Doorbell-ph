@@ -96,7 +96,7 @@ data class SchoolSettings(
     val schoolName: String = "Doorbell",
     val contactNumber: String = "",
     val arrivalSmsEnabled: Boolean = true,
-    // Settings -> How texts are sent: 'simulated', 'semaphore' (Cloud Function) or 'phone' (this app sends them, SmsGateway.kt)
+    // Settings -> How texts are sent: 'simulated', 'semaphore' (Cloudflare Worker, worker/) or 'phone' (this app sends them, SmsGateway.kt)
     val smsProvider: String = "simulated",
     val templates: Map<String, Map<String, String>> = emptyMap(), // language -> kind -> text
     val yearStart: String = "2000-01-01",

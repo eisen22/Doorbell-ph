@@ -29,7 +29,7 @@ Press `Ctrl + C` in the terminal to stop it. `npm run build` makes the finished 
 | `src/files.js` | Excel: attendance report download and student import |
 | `src/style.css` | How everything looks (colors at the top) |
 | `firestore.rules` | Who may read and write what in the database |
-| `functions/` | Cloud Functions: real SMS through Semaphore and the scheduled auto-confirm (see `functions/README.md`) |
+| `worker/` | Free Cloudflare Worker: real SMS through Semaphore and the scheduled auto-confirm, every minute (see `worker/README.md`) |
 | `gate-app/` | Doorbell Gate, the Android scanner app for the school gate (see `gate-app/README.md`) |
 | `index.html`, `vite.config.js`, `package.json` | Project setup |
 | `.github/workflows/deploy.yml` | Publishes the site to GitHub Pages on every push |
@@ -64,7 +64,7 @@ The admin can also take any class's attendance under **Attendance** in the admin
 Texts are simulated until you choose a way to send them: Admin → **Settings & SMS** → **How texts are sent**:
 
 * **Gate phone's SIM** (free, works on the Spark plan): the Doorbell Gate app sends them from the phone. See `gate-app/README.md`.
-* **Semaphore** (sender name, needs the Firebase Blaze plan): set up the Cloud Functions in `functions/README.md`.
+* **Semaphore** (sender name, no Blaze plan needed): set up the free Cloudflare Worker in `worker/README.md`.
 
 ## Publish on GitHub Pages
 

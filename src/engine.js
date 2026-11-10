@@ -308,8 +308,8 @@ export class Engine {
   // SMS AND ALERTS
   // queueSms builds a text to the child's guardian and saves it in the 'sms' collection:
   //   Settings -> "How texts are sent" = Simulated: status 'sent' at once (nothing really goes out)
-  //   Settings -> "How texts are sent" = Semaphore: status 'queued'; the sendSms Cloud Function
-  //     (functions/index.js) sends it and changes it to 'sent' or 'failed'
+  //   Settings -> "How texts are sent" = Semaphore: status 'queued'; the Cloudflare Worker
+  //     (worker/src/index.js) sends it and changes it to 'sent' or 'failed'
   //   Settings -> "How texts are sent" = Gate phone (SIM): status 'queued'; the Doorbell Gate app
   //     (gate-app/.../SmsGateway.kt) sends it from the phone's SIM and changes it to 'sent' or 'failed'
   // A number the office marked as failed is saved as 'failed' straight away.
@@ -341,6 +341,9 @@ export class Engine {
       kind,
       status: failed ? 'failed' : this.newSmsStatus(),
       createdAt: opts.createdAt ?? this.nowIso(opts.date),
+      // When it was really put in the queue. A day confirmed late (e.g. Thursday confirmed on Friday) makes
+      // texts with an old createdAt; the gate phone checks this time instead, so they are still sent.
+      queuedAt: new Date().toISOString(),
       attempts: 1,
     };
     this.s.sms.set(id, msg);
@@ -664,7 +667,7 @@ export class Engine {
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
       .slice(0, limit);
   }
-  // 'queued' when real texts are on (sent by the Cloud Function through Semaphore, or by the
+  // 'queued' when real texts are on (sent by the Cloudflare Worker through Semaphore, or by the
   // Doorbell Gate app from the gate phone's SIM), 'sent' in simulated mode.
   newSmsStatus() {
     return ['semaphore', 'phone'].includes(this.settings.smsProvider) ? 'queued' : 'sent';
@@ -1251,7 +1254,7 @@ export const settings = {
   arrivalSmsEnabled: true,
   streakDays: 3,
   // How texts are sent: 'simulated' (saved only, for demos), 'phone' (the gate phone's SIM, see gate-app/README.md)
-  // or 'semaphore' (real SMS through Semaphore, needs the Blaze plan, see functions/README.md)
+  // or 'semaphore' (real SMS through Semaphore, sent by the free Cloudflare Worker, see worker/README.md)
   smsProvider: 'simulated',
   senderName: '', // Semaphore sender name; empty = the default sender name of the Semaphore account
   templates: {
