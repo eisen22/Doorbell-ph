@@ -700,6 +700,29 @@ export class Engine {
     }
     return out.sort((a, b) => b.streak.count - a.streak.count || byName(a.student, b.student));
   }
+  // One learner's attendance for the school year, for the attendance calendar window
+  // (Absence Watch and the teacher's "Attention needed": click a name).
+  //   days:   { '2026-10-29': { status: 'absent', scannedAt: null }, ... }
+  //   streak: the current absent/late days in a row (their dates are outlined)
+  async getStudentAttendance(studentId, sectionId) {
+    await this.ready;
+    const days = {};
+    for (const day of this.s.attendance.values()) {
+      if (day.sectionId !== sectionId) continue;
+      const r = day.records[studentId];
+      if (r) days[day.date] = { status: r.status, scannedAt: r.scannedAt ?? null };
+    }
+    const section = this.s.sections.get(sectionId);
+    const today = this.clock.today();
+    return {
+      days,
+      today,
+      year: this.year,
+      calendar: [...this.s.calendar.values()],
+      schedule: section?.schedule,
+      streak: section ? this.streakFor(section, studentId, today) : null,
+    };
+  }
   /* ---------- admin ---------- */
   // =====================================================================
   // ADMIN ACTIONS

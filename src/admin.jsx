@@ -47,6 +47,7 @@ import {
   Avatar,
   Empty,
   StreakChip,
+  StudentAttendanceModal,
   useRepo,
   Modal,
   Toast,
@@ -368,6 +369,7 @@ export function AdminDashboard() {
 // ---------------------------------------------------------------------
 /** Students absent or late several school days in a row, across all sections. */
 export function AbsenceWatch() {
+  const [open, setOpen] = useState(null); // the learner whose attendance calendar is open
   const [kind, setKind] = useState('all');
   const [sectionId, setSectionId] = useState('all');
   const [sort, setSort] = useState('days');
@@ -425,7 +427,8 @@ export function AbsenceWatch() {
           {list.map((r) => (
             <tr key={r.student.id}>
               <td>
-                <Link to={`/admin/students?q=${encodeURIComponent(r.student.lastName)}`} className="cell-person">
+                {/* Click the name: a calendar of this learner's absent and late days. */}
+                <button type="button" className="cell-person name-btn" onClick={() => setOpen(r)} title="Show the attendance calendar">
                   <Avatar first={r.student.firstName} last={r.student.lastName} tone={r.section.color} />
                   <span>
                     <strong>
@@ -433,7 +436,7 @@ export function AbsenceWatch() {
                     </strong>
                     <StreakChip s={r.streak} threshold={t} />
                   </span>
-                </Link>
+                </button>
               </td>
               <td>
                 <span className="tag" style={{ background: r.section.color }}>
@@ -527,8 +530,10 @@ export function AbsenceWatch() {
         {watch.length ? table(watch) : <Empty title="No one on the watch list" />}
       </Card>
       <p className="muted small">
-        Hover over "Days in a row" to see the dates. Excused days, weekends, holidays and suspensions do not count; a day present ends the streak.
+        Click a name to see that learner's absent and late days on a calendar. Hover over "Days in a row" to see the dates. Excused days, weekends,
+        holidays and suspensions do not count; a day present ends the streak.
       </p>
+      {open && <StudentAttendanceModal student={open.student} section={open.section} onClose={() => setOpen(null)} />}
     </div>
   );
 }

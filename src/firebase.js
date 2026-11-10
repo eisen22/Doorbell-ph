@@ -12,8 +12,10 @@
 
 import { getApps, initializeApp } from 'firebase/app';
 import {
+  browserSessionPersistence,
   createUserWithEmailAndPassword,
   getAuth,
+  initializeAuth,
   onAuthStateChanged,
   sendPasswordResetEmail,
   signInWithEmailAndPassword,
@@ -63,7 +65,15 @@ export const SAMPLE_TEACHER_PASSWORD = 'Teacher-2026!';
 export function createCloudEngine() {
   // Start Firebase (only once, even if this runs twice during development).
   const app = getApps().find((a) => a.name === '[DEFAULT]') ?? initializeApp(firebaseConfig);
-  const auth = getAuth(app);
+  // Sign-in is kept PER BROWSER TAB (session persistence), so one tab can be the admin and
+  // another tab a teacher at the same time. Refreshing keeps you signed in; closing the tab
+  // signs you out. (Firebase's default would share ONE sign-in across every tab of the browser.)
+  let auth;
+  try {
+    auth = initializeAuth(app, { persistence: browserSessionPersistence });
+  } catch {
+    auth = getAuth(app); // already started (happens when Vite reloads this file during development)
+  }
   // ignoreUndefinedProperties: fields that are `undefined` are simply left out instead of causing an error.
   const db = initializeFirestore(app, { ignoreUndefinedProperties: true });
 

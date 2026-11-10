@@ -67,6 +67,7 @@ import {
   StatusChip,
   StreakChip,
   Modal,
+  StudentAttendanceModal,
   Toast,
   DatePicker,
   ClassSwitch,
@@ -102,6 +103,7 @@ const PHASE = { now: 'In session now', next: 'Later today', done: 'Done for toda
 export function Dashboard() {
   const repo = useRepo();
   const [classId, setClass] = useClassParam();
+  const [openStudent, setOpenStudent] = useState(null); // "Attention needed" card clicked: its attendance calendar
   // Everything the dashboard needs, loaded together. The ?class= in the address bar (classId) picks the class; otherwise the class happening now.
   const { data } = useLive(
     async (r) => {
@@ -298,10 +300,8 @@ export function Dashboard() {
           <ul className="attention">
             {attention.map((r) => (
               <li key={r.student.id}>
-                <Link
-                  to={`/students?class=${r.section.id}&q=${encodeURIComponent(`${r.student.firstName} ${r.student.lastName}`)}`}
-                  className="attention-link"
-                >
+                {/* Click a card: a calendar of this learner's absent and late days. */}
+                <button type="button" className="attention-link" onClick={() => setOpenStudent(r)} title="Show the attendance calendar">
                   <Avatar first={r.student.firstName} last={r.student.lastName} tone={r.section.color} />
                   <div>
                     <strong>
@@ -321,12 +321,15 @@ export function Dashboard() {
                         : 'Call parent (no SMS consent)'
                       : `Text at ${settings.streakDays}`}
                   </span>
-                </Link>
+                </button>
               </li>
             ))}
           </ul>
         )}
       </Card>
+      {openStudent && (
+        <StudentAttendanceModal student={openStudent.student} section={openStudent.section} onClose={() => setOpenStudent(null)} />
+      )}
 
       <div className="grid-2">
         {/* Live list of scans for the chosen day (newest first), for the class in focus. */}

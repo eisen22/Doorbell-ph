@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, useMemo } from 'react';
-import { manilaToday, addDays, isoWeekday, DAY_KIND_META, dayKind, classNow, classPhase, shortClassName, sortByStart, to12h } from './logic';
+import { manilaToday, addDays, isoWeekday, DAY_KIND_META, dayKind, classNow, classPhase, shortClassName, sortByStart, to12h, isSchoolDay } from './logic';
 import { DemoClock, Engine, noopPersistence, buildDemoState, demoAuth } from './engine';
 import { cloudConfigured, createCloudEngine } from './firebase';
 import { CheckCircle2, Clock3, XCircle, FileCheck2, CircleDashed, X, CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react';
@@ -562,6 +562,110 @@ export function YearCalendar({ year, calendar, today, selection, onDayClick }) {
     </div>
   );
 }
+// ---------------------------------------------------------------------
+// STUDENT ATTENDANCE CALENDAR (a pop-up window)
+// Opened by clicking a learner's name in Absence Watch (admin) or in "Attention needed" (teacher).
+// Shows every month of the school year up to today, newest first. Each class day is colored
+// by the learner's status: red absent, amber late, purple excused, green present.
+// Days of the current absent/late streak get a dark outline.
+// ---------------------------------------------------------------------
+const STATUS_CLASS = { absent: 's-absent', late: 's-late', excused: 's-excused', present: 's-present' };
+export function StudentAttendanceModal({ student, section, onClose }) {
+  const { data } = useLive((r) => r.getStudentAttendance(student.id, section.id), [student.id, section.id]);
+  const name = `${student.firstName} ${student.lastName}`;
+  if (!data)
+    return (
+      <Modal title={name} onClose={onClose} wide>
+        <p className="muted">Loading...</p>
+      </Modal>
+    );
+  const { days, today, year, calendar, schedule, streak } = data;
+  const last = today < year.end ? today : year.end;
+  // Months from the start of the school year to this month, newest first.
+  const months = [];
+  for (let m = `${year.start.slice(0, 7)}-01`; m <= last; ) {
+    months.push(m);
+    const [y, mo] = m.split('-').map(Number);
+    m = mo === 12 ? `${y + 1}-01-01` : `${y}-${String(mo + 1).padStart(2, '0')}-01`;
+  }
+  months.reverse();
+  const inStreak = new Set(streak?.dates ?? []);
+  const counts = { present: 0, late: 0, absent: 0, excused: 0 };
+  Object.values(days).forEach((d) => (counts[d.status] = (counts[d.status] ?? 0) + 1));
+  // What one day looks like.
+  const look = (d) => {
+    if (d < year.start || d > last) return { cls: 'sd-out', text: 'Outside the school days so far' };
+    const rec = days[d];
+    if (rec) {
+      const meta = STATUS_META[rec.status];
+      return { cls: STATUS_CLASS[rec.status] ?? '', text: `${meta?.label ?? rec.status}${rec.scannedAt ? ` · scanned ${to12h(rec.scannedAt)}` : ''}` };
+    }
+    if (!schedule || !isSchoolDay(d, schedule, calendar)) return { cls: 'sd-off', text: 'No class' };
+    return { cls: 'sd-none', text: 'No record' };
+  };
+  return (
+    <Modal title={`${name}: attendance`} onClose={onClose} wide>
+      <p className="muted small">
+        {section.name} · {format(parseISO(year.start), 'MMM d, yyyy')} to {format(parseISO(last), 'MMM d, yyyy')}
+        {streak?.count ? ` · now ${streak.count} school day${streak.count === 1 ? '' : 's'} absent or late in a row (outlined)` : ''}
+      </p>
+      <div className="sa-counts">
+        {['absent', 'late', 'excused', 'present'].map((k) => (
+          <span key={k} className={`sa-count ${STATUS_CLASS[k]}`}>
+            <b>{counts[k] ?? 0}</b> {STATUS_META[k].label}
+          </span>
+        ))}
+      </div>
+      <div className="sa-months">
+        {months.map((first) => {
+          const lead = isoWeekday(first) % 7; // Sunday-first grid
+          const list = [];
+          for (let d = first; d.slice(0, 7) === first.slice(0, 7); d = addDays(d, 1)) list.push(d);
+          return (
+            <section key={first} className="month">
+              <h3>{format(parseISO(first), 'MMMM yyyy')}</h3>
+              <div className="month-grid" role="grid" aria-label={format(parseISO(first), 'MMMM yyyy')}>
+                {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((w, i) => (
+                  <span key={i} className="wd" aria-hidden="true">
+                    {w}
+                  </span>
+                ))}
+                {Array.from({ length: lead }, (_, i) => (
+                  <span key={`pad${i}`} />
+                ))}
+                {list.map((d) => {
+                  const { cls, text } = look(d);
+                  const label = `${format(parseISO(d), 'EEE, MMM d')}: ${text}`;
+                  return (
+                    <span
+                      key={d}
+                      role="gridcell"
+                      title={label}
+                      aria-label={label}
+                      className={`cal-day sa-day ${cls} ${inStreak.has(d) ? 'sa-streak' : ''} ${d === today ? 'is-today' : ''}`}
+                    >
+                      {Number(d.slice(8))}
+                    </span>
+                  );
+                })}
+              </div>
+            </section>
+          );
+        })}
+      </div>
+      <div className="sa-key">
+        <span><i className="cal-day sa-day s-absent" /> Absent</span>
+        <span><i className="cal-day sa-day s-late" /> Late</span>
+        <span><i className="cal-day sa-day s-excused" /> Excused</span>
+        <span><i className="cal-day sa-day s-present" /> Present</span>
+        <span><i className="cal-day sa-day sd-none" /> No record</span>
+        <span><i className="cal-day sa-day sd-off" /> No class</span>
+        <span><i className="cal-day sa-day s-absent sa-streak" /> Days in a row now</span>
+      </div>
+    </Modal>
+  );
+}
+
 // The color key under the calendar.
 export function CalendarLegend({ counts }) {
   // The legend is split into what the colors MEAN: days with class, days without class, and marks
