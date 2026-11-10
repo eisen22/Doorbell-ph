@@ -24,8 +24,9 @@ Press `Ctrl + C` in the terminal to stop it. `npm run build` makes the finished 
 | `src/engine.js` | **The engine**: holds the school's data and does every action (scan, confirm, alerts, texts, sections, students...). Also the sample school |
 | `src/firebase.js` | Connection to Firebase (sign-in and database), first-time setup, "Load sample school". **`MODE`** here switches cloud / demo |
 | `src/ui.jsx` | Shared pieces: cards, pop-ups, status chips, date picker, year calendar, class switcher |
-| `src/teacher.jsx` | Teacher screens: Dashboard, Attendance, My Students, Absence Watch (shared with the admin), Calendar, Alerts, SMS Messages, Settings |
-| `src/admin.jsx` | Admin screens: Overview, Absence Watch, School Calendar, Sections, Teachers, Students, ID Cards, Settings & SMS, Audit Log |
+| `src/teacher/` | Teacher-only screens, one file each: `Dashboard`, `Students` (My Students), `SchoolCalendar`, `Alerts`, `Settings` |
+| `src/admin/` | Admin-only screens: `Overview`, `SchoolCalendar`, `Sections`, `Teachers`, `Students`, `IdCards`, `Settings` (& SMS), `AuditLog` |
+| `src/shared/` | Screens both portals use: `Attendance`, `AbsenceWatch`, `SmsMessages` |
 | `src/style.css` | How everything looks (colors at the top) |
 | `firestore.rules` | Who may read and write what in the database |
 | `worker/` | Free Cloudflare Worker: real SMS through Semaphore and the scheduled auto-confirm, every minute (see `worker/README.md`) |
@@ -36,7 +37,7 @@ Press `Ctrl + C` in the terminal to stop it. `npm run build` makes the finished 
 ### How a screen gets its data
 
 ```
-screen (teacher.jsx / admin.jsx)
+screen (teacher/, admin/, shared/)
    └─ useLive(r => r.getRoster(...))        ui.jsx: loads data and reloads on every change
         └─ Engine method (engine.js)         rules from logic.js, data in memory (engine.s)
              └─ persistence.put(...)         firebase.js: saves to Firestore (cloud mode)

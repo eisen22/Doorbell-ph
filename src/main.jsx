@@ -32,8 +32,23 @@ import {
 } from 'lucide-react';
 import { useRepo, Logo, Skeleton, useLive, RepoProvider } from './ui';
 import ReactDOM from 'react-dom/client';
-import { Dashboard, Attendance, Students, CalendarPage, Notifications, SettingsPage, SmsMessages } from './teacher';
-import { AdminDashboard, AdminCalendar, Sections, Teachers, AdminStudents, QrCards, AdminSettings, AuditLog, AbsenceWatch } from './admin';
+// One file per screen: teacher/ (teacher only), admin/ (admin only), shared/ (both portals).
+import { Dashboard } from './teacher/Dashboard';
+import { Students } from './teacher/Students';
+import { CalendarPage } from './teacher/SchoolCalendar';
+import { Notifications } from './teacher/Alerts';
+import { SettingsPage } from './teacher/Settings';
+import { Attendance } from './shared/Attendance';
+import { AbsenceWatch } from './shared/AbsenceWatch';
+import { SmsMessages } from './shared/SmsMessages';
+import { AdminDashboard } from './admin/Overview';
+import { AdminCalendar } from './admin/SchoolCalendar';
+import { Sections } from './admin/Sections';
+import { Teachers } from './admin/Teachers';
+import { AdminStudents } from './admin/Students';
+import { QrCards } from './admin/IdCards';
+import { AdminSettings } from './admin/Settings';
+import { AuditLog } from './admin/AuditLog';
 
 /** One sign-in page for teachers and admins; the account's role decides which portal opens. */
 // ---------------------------------------------------------------------
