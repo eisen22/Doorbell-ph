@@ -45,7 +45,7 @@ export function SettingsPage() {
       </div>
     );
   const { session, settings, classes } = data;
-  const sample = { count: 3, absent: 2, late: 1 };
+  const sample = { count: 3, absent: 3, late: 0 };
   return (
     <div className="page">
       <div className="page-head">
@@ -93,7 +93,7 @@ export function SettingsPage() {
               <dt>Auto-confirm</dt>
               <dd>{to12h(autoFinalizeTime(s))}</dd>
               <dt>Parents texted after</dt>
-              <dd>{settings.streakDays} school days absent or late in a row</dd>
+              <dd>{settings.streakDays} school days absent in a row</dd>
               <dt>Arrival SMS</dt>
               <dd>{settings.arrivalSmsEnabled ? 'On' : 'Off'}</dd>
             </dl>
@@ -127,7 +127,7 @@ export function SettingsPage() {
           ))}
         </div>
         <p className="muted small">
-          The 3-day alert always says exactly what happened: absent, late, or both (for example "absent 2 days and late 1 day").
+          The 3-day alert is sent after 3 school days absent in a row. A late or present day ends the count.
         </p>
       </Card>
     </div>

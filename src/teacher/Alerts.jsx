@@ -64,8 +64,9 @@ export function Notifications() {
     ['all', 'All'],
     ['missing', `Not in class ${count('missing')}`],
     ['absent', `Absent ${count('absent')}`],
-    ['late', `Late ${count('late')}`],
-    ['mixed', `Absent and late ${count('mixed')}`],
+    // Late and mixed streaks no longer happen (only absences count); their tabs show only for older alerts.
+    ...(count('late') ? [['late', `Late ${count('late')}`]] : []),
+    ...(count('mixed') ? [['mixed', `Absent and late ${count('mixed')}`]] : []),
     ['sms', `SMS problems ${count('sms')}`],
     ['calendar', `Calendar and substitutes ${count('calendar')}`],
   ];
@@ -93,7 +94,7 @@ export function Notifications() {
       </div>
       <Card>
         {list.length === 0 ? (
-          <Empty title="Nothing here" hint="Alerts appear when a child is absent or late 3 school days in a row, or a text fails." />
+          <Empty title="Nothing here" hint="Alerts appear when a child is absent 3 school days in a row, or a text fails." />
         ) : (
           <ul className="notes">
             {list.map((n) => {

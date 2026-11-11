@@ -15,22 +15,21 @@ import { displayPhMobile } from '../logic';
 
 // =====================================================================
 // ABSENCE WATCH (/admin/absences for the admin, /absences for teachers): children absent or
-// late several school days in a row, with their attendance calendar.
+// absent several school days in a row (a late or present day ends it), with their attendance calendar.
 // Pattern: useLive(...) loads data from the engine and reloads on any change; while loading,
 // <Skeleton> placeholders show; buttons call repo.something(...). Addresses are set in main.jsx.
 // =====================================================================
 // ---------------------------------------------------------------------
-// ABSENCE WATCH: children absent or late 2+ school days in a row in every section.
-// Filter by section and kind, sort by days/section/name. Numbers instead of dates (hover for dates).
+// ABSENCE WATCH: children absent 2+ school days in a row in every section.
+// Filter by section, sort by days/section/name. Numbers instead of dates (hover for dates).
 // ---------------------------------------------------------------------
-/** Students absent or late several school days in a row, across all sections. */
+/** Students absent several school days in a row, across all sections. */
 // Used by the admin (every section) and by teachers (/absences: only the classes they teach or cover,
 // because listAttention only returns the signed-in person's classes). ?student=<id> opens that child's
 // calendar right away (the teacher dashboard's "Attention needed" cards link here).
 export function AbsenceWatch() {
   const [params, setParams] = useSearchParams();
   const [picked, setOpen] = useState(null); // the learner whose attendance calendar is open
-  const [kind, setKind] = useState('all');
   const [sectionId, setSectionId] = useState('all');
   const [sort, setSort] = useState('days');
   const { data } = useLive(async (r) => {
@@ -56,9 +55,7 @@ export function AbsenceWatch() {
     );
   const t = data.settings.streakDays;
   const match = (r) =>
-    (sectionId === 'all' || r.section.id === sectionId) &&
-    (kind === 'all' ||
-      (kind === 'absent' ? r.streak.late === 0 : kind === 'late' ? r.streak.absent === 0 : r.streak.absent > 0 && r.streak.late > 0));
+    sectionId === 'all' || r.section.id === sectionId;
   const byName = (a, b) => a.student.lastName.localeCompare(b.student.lastName) || a.student.firstName.localeCompare(b.student.firstName);
   const sorter = (a, b) =>
     sort === 'section'
@@ -85,9 +82,7 @@ export function AbsenceWatch() {
           <tr>
             <th>Learner</th>
             <th>Section</th>
-            <th className="num">Absent</th>
-            <th className="num">Late</th>
-            <th className="num">Days in a row</th>
+            <th className="num">Days absent</th>
             <th>Guardian</th>
             <th>Parent SMS</th>
           </tr>
@@ -96,7 +91,7 @@ export function AbsenceWatch() {
           {list.map((r) => (
             <tr key={r.student.id}>
               <td>
-                {/* Click the name: a calendar of this learner's absent and late days. */}
+                {/* Click the name: a calendar of this learner's attendance. */}
                 <button type="button" className="cell-person name-btn" onClick={() => setOpen(r)} title="Show the attendance calendar">
                   <Avatar first={r.student.firstName} last={r.student.lastName} tone={r.section.color} />
                   <span>
@@ -112,14 +107,8 @@ export function AbsenceWatch() {
                   {r.section.name.replace('Kindergarten', 'Kinder')}
                 </span>
               </td>
-              <td className="num">
-                <b className={r.streak.absent ? 'n-absent' : 'n-zero'}>{r.streak.absent}</b>
-              </td>
-              <td className="num">
-                <b className={r.streak.late ? 'n-late' : 'n-zero'}>{r.streak.late}</b>
-              </td>
               <td className="num" title={range(r)}>
-                <b className="n-total">{r.streak.count}</b>
+                <b className="n-absent">{r.streak.count}</b>
               </td>
               <td>
                 {r.guardian ? (
@@ -182,27 +171,15 @@ export function AbsenceWatch() {
         ))}
       </div>
       )}
-      <div className="chips">
-        {[
-          ['all', 'Absent or late'],
-          ['absent', 'Absent only'],
-          ['late', 'Late only'],
-          ['mixed', 'Both'],
-        ].map(([k, l]) => (
-          <button key={k} className={`fchip sm ${kind === k ? 'fchip-on' : ''}`} onClick={() => setKind(k)}>
-            {l}
-          </button>
-        ))}
-      </div>
       <Card title={`${t} or more school days in a row (${hot.length})`}>
-        {hot.length ? table(hot) : <Empty title="No one right now" hint={`Children appear here after ${t} school days absent or late in a row.`} />}
+        {hot.length ? table(hot) : <Empty title="No one right now" hint={`Children appear here after ${t} school days absent in a row.`} />}
       </Card>
       <Card title={`Watch list: ${t - 1} days in a row (${watch.length})`}>
         {watch.length ? table(watch) : <Empty title="No one on the watch list" />}
       </Card>
       <p className="muted small">
-        Click a name to see that learner's absent and late days on a calendar. Hover over "Days in a row" to see the dates. Excused days, weekends,
-        holidays and suspensions do not count; a day present ends the streak.
+        Click a name to see that learner's attendance on a calendar. Hover over the number to see the dates. Only absences count: a day present
+        or late ends the streak. Excused days, weekends, holidays, breaks and suspensions are skipped.
       </p>
       {open && <StudentAttendanceModal student={open.student} section={open.section} onClose={close} />}
     </div>

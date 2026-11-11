@@ -567,7 +567,7 @@ export function YearCalendar({ year, calendar, today, selection, onDayClick }) {
 // Opened by clicking a learner's name in Absence Watch (admin) or in "Attention needed" (teacher).
 // Shows every month of the school year up to today, newest first. Each class day is colored
 // by the learner's status: red absent, amber late, purple excused, green present.
-// Days of the current absent/late streak get a dark outline.
+// Days of the current absence streak get a dark outline.
 // ---------------------------------------------------------------------
 const STATUS_CLASS = { absent: 's-absent', late: 's-late', excused: 's-excused', present: 's-present' };
 export function StudentAttendanceModal({ student, section, onClose }) {
@@ -608,7 +608,7 @@ export function StudentAttendanceModal({ student, section, onClose }) {
     <Modal title={`${name}: attendance`} onClose={onClose} wide>
       <p className="muted small">
         {section.name} · {format(parseISO(year.start), 'MMM d, yyyy')} to {format(parseISO(last), 'MMM d, yyyy')}
-        {streak?.count ? ` · now ${streak.count} school day${streak.count === 1 ? '' : 's'} absent or late in a row (outlined)` : ''}
+        {streak?.count ? ` · now ${streak.count} school day${streak.count === 1 ? '' : 's'} absent in a row (outlined)` : ''}
       </p>
       <div className="sa-counts">
         {['absent', 'late', 'excused', 'present'].map((k) => (

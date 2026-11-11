@@ -294,7 +294,7 @@ export class Engine {
     }
     return out;
   }
-  // The child's current absent/late streak (see streakInfo in logic.js).
+  // The child's current absence streak (see streakInfo in logic.js).
   streakFor(section, studentId, date) {
     return streakInfo(date, this.statusMap(section.id, studentId), section.schedule, this.s.calendar);
   }
@@ -723,7 +723,7 @@ export class Engine {
     await this.logAudit('sms.resend', m.to, m.status);
     this.emit();
   }
-  // Children absent or late `minDays` or more school days in a row, longest streak first (dashboard and Absence Watch).
+  // Children absent `minDays` or more school days in a row, longest streak first (dashboard and Absence Watch).
   async listAttention(minDays = 2) {
     const today = await this.getToday();
     const vis = this.visibleSectionIds();
@@ -744,7 +744,7 @@ export class Engine {
   // One learner's attendance for the school year, for the attendance calendar window
   // (Absence Watch and the teacher's "Attention needed": click a name).
   //   days:   { '2026-10-29': { status: 'absent', scannedAt: null }, ... }
-  //   streak: the current absent/late days in a row (their dates are outlined)
+  //   streak: the current absent days in a row (their dates are outlined)
   async getStudentAttendance(studentId, sectionId) {
     await this.ready;
     const section = this.s.sections.get(sectionId);

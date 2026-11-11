@@ -171,7 +171,7 @@ export function decideScan(args) {
 }
 
 /* =====================================================================
-   4. 3-DAY STREAKS (absent or late several school days in a row)
+   4. 3-DAY STREAKS (absent several school days in a row; a late day ends it)
    ===================================================================== */
 
 /** Just the number of days in the streak. */
@@ -180,13 +180,14 @@ export function computeStreak(date, statusByDate, schedule, calendar, lookback =
 }
 
 /**
- * Counts consecutive absent/late school days ending at `date`, going backwards.
+ * Counts consecutive absent school days ending at `date`, going backwards.
  *   statusByDate: { '2026-10-29': 'absent', '2026-10-28': 'late', ... } for ONE child
  * Rules:
  *   - excused days are skipped (they neither add to nor break the streak)
- *   - a present day ends the streak
+ *   - a present OR LATE day ends the streak (the child came to school): absent, late, absent is no streak
  *   - a day with no record (not yet enrolled, not confirmed) ends the streak
- * Returns { count, absent, late, dates } e.g. { count: 3, absent: 2, late: 1, dates: [...newest first] }.
+ * Returns { count, absent, late, dates } e.g. { count: 3, absent: 3, late: 0, dates: [...newest first] }
+ * (`late` is always 0 now; it stays for older alerts and screens).
  */
 export function streakInfo(date, statusByDate, schedule, calendar, lookback = 30) {
   const days = recentSchoolDays(date, lookback, schedule, calendar, lookback * 3);
@@ -195,11 +196,12 @@ export function streakInfo(date, statusByDate, schedule, calendar, lookback = 30
     const s = statusByDate[d];
     if (s === undefined) break; // no record: stop counting
     if (s === 'excused') continue; // skip, keep counting
-    if (s === 'present') break; // on time: the streak is over
+    // Present or late = the child came to school: the streak is over. Only absences count, so
+    // absent, late, absent is NOT a streak. (`late` stays in the result, always 0, for older screens.)
+    if (s !== 'absent') break;
     info.count++;
     info.dates.push(d);
-    if (s === 'absent') info.absent++;
-    else info.late++;
+    info.absent++;
   }
   return info;
 }

@@ -65,7 +65,7 @@ export function AdminSettings() {
     time: '7:42 AM',
     school: s.schoolName,
     contact: s.contactNumber,
-    streak: describeStreak({ count: 3, absent: 2, late: 1 }, lang),
+    streak: describeStreak({ count: 3, absent: 3, late: 0 }, lang),
   });
   const setTpl = (lang, k, v) => setS({ ...s, templates: { ...s.templates, [lang]: { ...s.templates[lang], [k]: v } } });
   return (
@@ -179,7 +179,7 @@ export function AdminSettings() {
         <p className="muted small">
           Parents are texted when the teacher confirms the class, not at the gate scan, so "in class" is only said once the teacher has
           seen the child. If nobody confirms, the auto-confirm text only says "arrived at school". Variables: {'{child}'} first name, {'{time}'}, {'{school}'}, {'{contact}'}, and in the 3-day alert {'{streak}'}, which becomes the exact
-          pattern, e.g. "absent for 3 school days in a row" or "absent 2 days and late 1 day". Keep each under 160 plain characters (no emoji or curly
+          pattern, e.g. "absent for 3 school days in a row" (only absences count; a late day ends it). Keep each under 160 plain characters (no emoji or curly
           quotes) so it costs one SMS.
         </p>
         <div className="templates">

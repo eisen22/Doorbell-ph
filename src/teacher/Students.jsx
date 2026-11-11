@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   MessageSquareOff,
@@ -5,6 +6,7 @@ import {
   AlertTriangle,
   BadgeCheck,
   HelpCircle,
+  CalendarDays,
 } from 'lucide-react';
 import { displayPhMobile } from '../logic';
 import {
@@ -18,6 +20,7 @@ import {
   StatusChip,
   StreakChip,
   ClassSwitch,
+  StudentAttendanceModal,
 } from '../ui';
 
 // =====================================================================
@@ -27,12 +30,14 @@ import {
 // =====================================================================
 // ---------------------------------------------------------------------
 // MY STUDENTS: the class list with guardian, mobile number status, SMS consent, streak and ID card.
+// "History" opens the child's attendance calendar for the whole school year.
 // Teachers can only view; the admin edits student details.
 // ---------------------------------------------------------------------
 export function Students() {
   const [params, setParams] = useSearchParams();
   const q = (params.get('q') ?? '').toLowerCase();
   const [classId, setClass] = useClassParam();
+  const [history, setHistory] = useState(null); // the child whose attendance history is open
   const { data } = useLive(
     async (r) => {
       const { today, classes, section } = await loadMyClasses(r, classId);
@@ -88,6 +93,7 @@ export function Students() {
                   <th>SMS</th>
                   <th>Streak</th>
                   <th>ID card</th>
+                  <th>Attendance</th>
                 </tr>
               </thead>
               <tbody>
@@ -143,6 +149,11 @@ export function Students() {
                         {student.qrStatus === 'active' ? 'Active' : 'Revoked'}
                       </span>
                     </td>
+                    <td>
+                      <button type="button" className="btn btn-sm" onClick={() => setHistory(student)}>
+                        <CalendarDays size={15} /> History
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -153,6 +164,7 @@ export function Students() {
       <p className="muted small">
         Student records, guardians and ID cards are managed by the school admin. Contact them to fix a number or reissue a lost card.
       </p>
+      {history && <StudentAttendanceModal student={history} section={data.section} onClose={() => setHistory(null)} />}
     </div>
   );
 }

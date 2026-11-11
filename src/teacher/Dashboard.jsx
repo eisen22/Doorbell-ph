@@ -178,7 +178,7 @@ export function Dashboard() {
         </div>
       </Card>
 
-      {/* Children absent or late 2+ school days in a row in any of my classes. At the streak limit (default 3) the parent is texted. */}
+      {/* Children absent 2+ school days in a row in any of my classes. At the streak limit (default 3) the parent is texted. */}
       <Card
         title={
           <>
@@ -194,7 +194,7 @@ export function Dashboard() {
         className="attention-card"
       >
         {attention.length === 0 ? (
-          <Empty title="Everyone is on track" hint="No child is absent or late two school days in a row." />
+          <Empty title="Everyone is on track" hint="No child is absent two school days in a row." />
         ) : (
           <ul className="attention">
             {attention.map((r) => (
