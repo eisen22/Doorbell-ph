@@ -20,6 +20,16 @@ import {
   smsSegments,
   isGsmPlain,
 } from '../logic';
+import { TEMPLATE_KINDS } from '../engine';
+
+// What each parent text is for (shown above each message).
+const KIND_LABELS = {
+  arrival: 'In class (teacher confirmed)',
+  late: 'Late, in class (teacher confirmed)',
+  arrivalAuto: 'Arrived (auto-confirmed, no teacher check)',
+  lateAuto: 'Late (auto-confirmed or after confirming)',
+  streak: '3-day alert',
+};
 
 // =====================================================================
 // SETTINGS & SMS (/admin/settings): school details, how texts are sent, message templates
@@ -167,7 +177,8 @@ export function AdminSettings() {
       </div>
       <Card title="Message templates">
         <p className="muted small">
-          Variables: {'{child}'} first name, {'{time}'}, {'{school}'}, {'{contact}'}, and in the 3-day alert {'{streak}'}, which becomes the exact
+          Parents are texted when the teacher confirms the class, not at the gate scan, so "in class" is only said once the teacher has
+          seen the child. If nobody confirms, the auto-confirm text only says "arrived at school". Variables: {'{child}'} first name, {'{time}'}, {'{school}'}, {'{contact}'}, and in the 3-day alert {'{streak}'}, which becomes the exact
           pattern, e.g. "absent for 3 school days in a row" or "absent 2 days and late 1 day". Keep each under 160 plain characters (no emoji or curly
           quotes) so it costs one SMS.
         </p>
@@ -175,12 +186,12 @@ export function AdminSettings() {
           {['en', 'fil'].map((lang) => (
             <div key={lang}>
               <h3>{lang === 'en' ? 'English' : 'Filipino'}</h3>
-              {['arrival', 'late', 'streak'].map((k) => {
+              {TEMPLATE_KINDS.map((k) => {
                 const preview = renderTemplate(s.templates[lang][k], varsFor(lang));
                 const plain = isGsmPlain(preview);
                 return (
                   <label key={k} className="tpl">
-                    <span className={`kind kind-${k}`}>{k}</span>
+                    <span className={`kind kind-${k.replace('Auto', '')}`}>{KIND_LABELS[k]}</span>
                     <textarea rows={3} value={s.templates[lang][k]} onChange={(e) => setTpl(lang, k, e.target.value)} />
                     <span className="muted small">Preview: {preview}</span>
                     <span className={`small ${preview.length > 160 || !plain ? 'over' : 'muted'}`}>

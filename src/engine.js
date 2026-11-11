@@ -236,8 +236,15 @@ export class Engine {
   actor() {
     return this.session?.name ?? 'System';
   }
+  // School settings. Saved settings from before the parent texts moved to "after the teacher confirms"
+  // get the new template kinds (arrivalAuto, lateAuto), and an untouched old default text is replaced
+  // by the new default; anything the admin wrote is kept.
   get settings() {
-    return this.s.meta.settings;
+    const saved = this.s.meta.settings;
+    if (!saved || saved === this._settingsIn) return this._settingsOut ?? saved;
+    this._settingsIn = saved;
+    this._settingsOut = withTemplateDefaults(saved);
+    return this._settingsOut;
   }
   get year() {
     return this.s.meta.schoolYear;
@@ -315,13 +322,20 @@ export class Engine {
   // A number the office marked as failed is saved as 'failed' straight away.
   // No text is sent when the guardian did not give SMS consent, or when arrival texts are turned off.
   //   kind: 'arrival' | 'late' | 'streak'
+  //   opts.auto: the class was auto-confirmed (no teacher checked), so the arrivalAuto / lateAuto wording
+  //   is used: "arrived at school", never "is in class".
+  // Arrival and late texts are sent when the class is CONFIRMED (finalize), not at the gate scan, so a
+  // parent is never told "in class" before the teacher has seen the child in the classroom.
   // =====================================================================
   queueSms(student, kind, opts) {
     const g = this.guardianOf(student.id);
     if (!g || !g.smsConsent) return null;
     if ((kind === 'arrival' || kind === 'late') && !this.settings.arrivalSmsEnabled) return null;
+    // One arrival/late text per child per day (confirming, then editing a status, does not text twice).
+    if (kind !== 'streak' && this.s.sms.has(`arr_${student.id}_${opts.date}`)) return null;
     const tpl = this.settings.templates[g.preferredLanguage] ?? this.settings.templates.en;
-    const body = renderTemplate(kind === 'streak' ? tpl.streak : kind === 'late' ? tpl.late : tpl.arrival, {
+    const key = kind === 'streak' ? 'streak' : `${kind}${opts.auto ? 'Auto' : ''}`;
+    const body = renderTemplate(tpl[key] ?? this.settings.templates.en[key], {
       child: student.firstName,
       time: opts.time ? to12h(opts.time) : '',
       school: this.settings.schoolName,
@@ -406,6 +420,19 @@ export class Engine {
     this.s.confirmations.set(id, conf);
     this.put('confirmations', id, conf);
     for (const stu of roster) this.checkStreak(section, stu, date, at);
+    // Parent texts for the children in class: sent now, after the class is confirmed.
+    const confirmedAt = at.slice(11, 16);
+    for (const stu of roster) {
+      const rec = day.records[stu.id];
+      if (rec?.status !== 'present' && rec?.status !== 'late') continue;
+      this.queueSms(stu, rec.status === 'late' ? 'late' : 'arrival', {
+        time: rec.scannedAt ?? confirmedAt,
+        date,
+        sectionId,
+        auto,
+        createdAt: at,
+      });
+    }
     return conf;
   }
   /** Auto-confirms past school days nobody confirmed, and today after the auto-confirm time. */
@@ -574,7 +601,9 @@ export class Engine {
       editedReason: locked ? 'Arrived after attendance was confirmed' : undefined,
     });
     if (locked) await this.logAudit('attendance.scan_after_lock', `${student.firstName} ${student.lastName}`, `absent -> late at ${time}`);
-    this.queueSms(student, status === 'late' ? 'late' : 'arrival', { time, date: today, sectionId: sec.id });
+    // No text at the gate: the parent is texted when the teacher confirms the class (finalize).
+    // A child who arrives AFTER the class was confirmed gets the "arrived late at school" text now.
+    if (locked) this.queueSms(student, 'late', { time, date: today, sectionId: sec.id, auto: true });
     this.emit();
     return { kind: 'recorded', student, status, time };
   }
@@ -601,6 +630,15 @@ export class Engine {
     );
     if (locked && stu && (input.status === 'absent' || input.status === 'late')) {
       this.checkStreak(this.s.sections.get(input.sectionId), stu, input.date, this.nowIso());
+    }
+    // After confirming, the teacher marks a child present or late: the parent gets the "in class" text
+    // (only once a day; queueSms skips it if a text was already made).
+    if (locked && stu && (input.status === 'present' || input.status === 'late')) {
+      this.queueSms(stu, input.status === 'late' ? 'late' : 'arrival', {
+        time: prev?.scannedAt ?? this.clock.peek(),
+        date: input.date,
+        sectionId: input.sectionId,
+      });
     }
     // CHILD SAFETY: scanned at the gate but marked absent in class = the child is in school but missing.
     if (stu && input.status === 'absent' && prev?.scannedAt) await this.alertMissing(stu, input.sectionId, input.date, prev.scannedAt);
@@ -1249,18 +1287,45 @@ export const settings = {
   smsProvider: 'simulated',
   senderName: '', // Semaphore sender name; empty = the default sender name of the Semaphore account
   templates: {
+    // arrival / late: sent when the TEACHER confirms the class, so they can say "in class".
+    // arrivalAuto / lateAuto: sent when the class was auto-confirmed (no teacher checked), or when the
+    // child arrived after the class was confirmed: they only say "arrived at school".
     en: {
-      arrival: 'Doorbell: {child} arrived at school at {time}. - {school}',
-      late: 'Doorbell: {child} arrived late at {time}. - {school}',
+      arrival: 'Doorbell: {child} is in class. Arrived at {time}, confirmed by the teacher. - {school}',
+      late: 'Doorbell: {child} arrived late at {time} and is in class, confirmed by the teacher. - {school}',
+      arrivalAuto: 'Doorbell: {child} arrived at school at {time}. - {school}',
+      lateAuto: 'Doorbell: {child} arrived late at school at {time}. - {school}',
       streak: '{school}: {child} has been {streak}. We hope all is well. Please call {contact}.',
     },
     fil: {
-      arrival: 'Doorbell: Nakarating na si {child} sa paaralan ng {time}. - {school}',
-      late: 'Doorbell: Nahuli si {child} ng dating, {time}. - {school}',
+      arrival: 'Doorbell: Nasa klase na si {child}. Dumating ng {time}, kinumpirma ng guro. - {school}',
+      late: 'Doorbell: Nahuli si {child} ng dating ({time}) at nasa klase na, kinumpirma ng guro. - {school}',
+      arrivalAuto: 'Doorbell: Nakarating na si {child} sa paaralan ng {time}. - {school}',
+      lateAuto: 'Doorbell: Nahuli si {child} ng dating sa paaralan, {time}. - {school}',
       streak: '{school}: Si {child} ay {streak}. Sana ay maayos siya. Pakitawagan ang {contact}.',
     },
   },
 };
+// The kinds of parent texts, in the order the Settings pages show them.
+export const TEMPLATE_KINDS = ['arrival', 'late', 'arrivalAuto', 'lateAuto', 'streak'];
+// The old default texts (sent at the gate scan). Saved settings that still have them get the new ones.
+const OLD_DEFAULTS = {
+  en: { arrival: 'Doorbell: {child} arrived at school at {time}. - {school}', late: 'Doorbell: {child} arrived late at {time}. - {school}' },
+  fil: { arrival: 'Doorbell: Nakarating na si {child} sa paaralan ng {time}. - {school}', late: 'Doorbell: Nahuli si {child} ng dating, {time}. - {school}' },
+};
+/** Settings with every template kind filled in (missing or untouched old defaults -> new defaults). */
+export function withTemplateDefaults(saved) {
+  const templates = {};
+  for (const lang of ['en', 'fil']) {
+    const mine = saved.templates?.[lang] ?? {};
+    templates[lang] = {};
+    for (const k of TEMPLATE_KINDS) {
+      const v = mine[k];
+      templates[lang][k] = v == null || v === OLD_DEFAULTS[lang][k] ? settings.templates[lang][k] : v;
+    }
+  }
+  return { ...saved, templates };
+}
 export const teachers = [
   { id: 't-maria', name: 'Maria Santos', email: 'maria.santos@sunnyside.edu.ph', active: true, uid: 'u-maria' },
   { id: 't-jose', name: 'Jose Ramirez', email: 'jose.ramirez@sunnyside.edu.ph', active: true, uid: 'u-jose' },
@@ -1574,19 +1639,6 @@ export function buildDemoState(today, clock) {
         };
       });
       state.attendance.set(id, day);
-    }
-  }
-  // Arrival texts for today, as the scanner would have sent them.
-  for (const day of state.attendance.values()) {
-    if (day.date !== today) continue;
-    for (const rec of Object.values(day.records)) {
-      const stu = state.students.get(rec.studentId);
-      engine.queueSms(stu, rec.status === 'late' ? 'late' : 'arrival', {
-        time: rec.scannedAt,
-        date: today,
-        sectionId: day.sectionId,
-        createdAt: `${today}T${rec.scannedAt}:00+08:00`,
-      });
     }
   }
   // Older alerts are already read.

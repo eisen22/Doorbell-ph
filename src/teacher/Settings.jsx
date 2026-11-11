@@ -10,6 +10,16 @@ import {
   renderTemplate,
 } from '../logic';
 import { useLive, useRepo, Card, Skeleton } from '../ui';
+import { TEMPLATE_KINDS } from '../engine';
+
+// What each parent text is for (shown above each message).
+const KIND_LABELS = {
+  arrival: 'In class (teacher confirmed)',
+  late: 'Late, in class (teacher confirmed)',
+  arrivalAuto: 'Arrived (auto-confirmed, no teacher check)',
+  lateAuto: 'Late (auto-confirmed or after confirming)',
+  streak: '3-day alert',
+};
 
 // =====================================================================
 // SETTINGS (/settings): my account and password, my class schedule, and the texts parents receive.
@@ -95,7 +105,7 @@ export function SettingsPage() {
           {['en', 'fil'].map((lang) => (
             <div key={lang}>
               <h3>{lang === 'en' ? 'English' : 'Filipino'}</h3>
-              {['arrival', 'late', 'streak'].map((k) => {
+              {TEMPLATE_KINDS.map((k) => {
                 const text = renderTemplate(settings.templates[lang][k], {
                   child: 'Juan',
                   time: '7:42 AM',
@@ -105,7 +115,7 @@ export function SettingsPage() {
                 });
                 return (
                   <div key={k} className="tpl">
-                    <span className={`kind kind-${k}`}>{k === 'streak' ? '3-day alert' : k}</span>
+                    <span className={`kind kind-${k.replace('Auto', '')}`}>{KIND_LABELS[k]}</span>
                     <p>{text}</p>
                     <span className={`muted small ${text.length > 160 ? 'over' : ''}`}>
                       {text.length}/160 · {smsSegments(text)} SMS

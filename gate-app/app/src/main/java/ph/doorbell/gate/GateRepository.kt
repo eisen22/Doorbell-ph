@@ -205,18 +205,19 @@ class GateRepository(private val db: FirebaseFirestore = FirebaseFirestore.getIn
         refreshStatus()
         if (confirmed) audit("attendance.scan_after_lock", student.fullName, "absent -> late at $time")
 
-        // 7. Text the parent: saved in 'sms' ('queued' = the Cloudflare Worker sends it through
-    //    Semaphore; 'sent' = simulated, like the website's demo setting).
-        val texted = queueSms(student, section, if (status == "late") "late" else "arrival", today, time)
+        // 7. No text at the gate: the parent is texted when the teacher confirms the class (website).
+        //    Only a child arriving AFTER the class was confirmed gets the "arrived late at school" text now.
+        val texted = confirmed && queueSms(student, section, "late", "lateAuto", today, time)
         return ScanResult.Recorded(student, section, status, time, texted)
     }
 
     // Same as queueSms() on the website. Returns true when a text was queued.
-    private fun queueSms(student: Student, section: Section, kind: String, date: String, time: String): Boolean {
+    // `template` is the kind of message ("lateAuto" = "arrived late at school", no teacher check).
+    private fun queueSms(student: Student, section: Section, kind: String, template: String, date: String, time: String): Boolean {
         val g = guardians.firstOrNull { student.id in it.studentIds } ?: return false
         if (!g.smsConsent || !settings.arrivalSmsEnabled) return false
         val body = Rules.renderTemplate(
-            settings.template(g.language, kind),
+            settings.template(g.language, template),
             mapOf("child" to student.firstName, "time" to Rules.to12h(time), "school" to settings.schoolName, "contact" to settings.contactNumber),
         )
         val id = "arr_${student.id}_$date" // same id as the website: never two arrival texts for one day
@@ -227,7 +228,7 @@ class GateRepository(private val db: FirebaseFirestore = FirebaseFirestore.getIn
                 "id" to id, "studentId" to student.id, "guardianId" to g.id, "sectionId" to section.id,
                 "to" to g.mobile, "body" to body, "kind" to kind,
                 "status" to if (g.numberFailed) "failed" else if (settings.realSms) "queued" else "sent",
-                "createdAt" to createdAt, "attempts" to 1,
+                "createdAt" to createdAt, "queuedAt" to java.time.Instant.now().toString(), "attempts" to 1,
             ),
         )
         if (g.numberFailed) {

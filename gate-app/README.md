@@ -49,7 +49,7 @@ large number of messages", choose **Always allow**. Texts come from the phone's 
 
 | What the guard sees | Meaning |
 |---|---|
-| Green, one beep | Arrived on time. Saved, parent texted |
+| Green, one beep | Arrived on time. Saved; the parent is texted once the teacher confirms the class |
 | Amber, two beeps | Late (after start + late cutoff), or the teacher already confirmed the day |
 | Blue | Already scanned today: the first scan is kept |
 | Grey | No class today for that section (weekend, holiday, suspension) |

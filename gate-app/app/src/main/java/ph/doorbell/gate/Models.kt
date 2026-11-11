@@ -105,10 +105,10 @@ data class SchoolSettings(
     /** Real texts: saved as 'queued' and sent by Semaphore or by the gate phone. */
     val realSms get() = smsProvider == "semaphore" || smsProvider == "phone"
 
-    /** The SMS text for a language and kind ("arrival" or "late"), English if missing. */
+    /** The SMS text for a language and kind (the gate app only uses "lateAuto"), English if missing. */
     fun template(language: String, kind: String): String =
         templates[language]?.get(kind) ?: templates["en"]?.get(kind)
-            ?: if (kind == "late") "Doorbell: {child} arrived late at {time}. - {school}" else "Doorbell: {child} arrived at school at {time}. - {school}"
+            ?: if (kind.startsWith("late")) "Doorbell: {child} arrived late at school at {time}. - {school}" else "Doorbell: {child} arrived at school at {time}. - {school}"
 
     companion object {
         @Suppress("UNCHECKED_CAST")
