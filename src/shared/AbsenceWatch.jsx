@@ -39,10 +39,10 @@ export function AbsenceWatch() {
     const sections = (await r.listSections()).filter(
       (s) => !s.archived && (session?.role === 'admin' || session?.sectionIds?.includes(s.id) || mine.has(s.id)),
     );
-    return { rows, sections, settings: await r.getSettings(), today: await r.getToday() };
+    return { rows, totals: await r.listTotals(), limits: r.limits, sections, settings: await r.getSettings(), today: await r.getToday() };
   });
   const fromLink = params.get('student');
-  const open = picked ?? (fromLink ? (data?.rows.find((x) => x.student.id === fromLink) ?? null) : null);
+  const open = picked ?? (fromLink ? (data?.rows.find((x) => x.student.id === fromLink) ?? data?.totals.find((x) => x.student.id === fromLink) ?? null) : null);
   const close = () => {
     setOpen(null);
     if (fromLink) setParams({}, { replace: true });
@@ -177,11 +177,96 @@ export function AbsenceWatch() {
       <Card title={`Watch list: ${t - 1} days in a row (${watch.length})`}>
         {watch.length ? table(watch) : <Empty title="No one on the watch list" />}
       </Card>
+      <Card title={`Totals this month and semester, not in a row (${data.totals.filter(match).length})`}>
+        {data.totals.filter(match).length ? (
+          <TotalsTable rows={data.totals.filter(match)} onOpen={setOpen} />
+        ) : (
+          <Empty title="Everyone is within the limits" />
+        )}
+        <p className="muted small">
+          Limits: absent {data.limits.absentMonth.watch} days a month (watch) or {data.limits.absentMonth.alert} (parent texted), {data.limits.absentSemester.watch}{' '}
+          a semester (watch), {data.limits.absentSemester.alert} (parent texted) or {data.limits.absentSemester.serious} (parent conference). Late{' '}
+          {data.limits.lateMonth.watch} times a month (watch) or {data.limits.lateMonth.alert} (parent texted), {data.limits.lateSemester.alert} a semester
+          (parent texted) or {data.limits.lateSemester.serious} (parent conference). Excused days count toward watch only. Change them in Settings.
+        </p>
+      </Card>
       <p className="muted small">
         Click a name to see that learner's attendance on a calendar. Hover over the number to see the dates. Only absences count: a day present
         or late ends the streak. Excused days, weekends, holidays, breaks and suspensions are skipped.
       </p>
       {open && <StudentAttendanceModal student={open.student} section={open.section} onClose={close} />}
+    </div>
+  );
+}
+
+// The Totals table: each child's absences and lates this month and this semester, with the limits reached.
+const LEVEL = {
+  watch: { cls: 'streak', word: 'Watch' },
+  alert: { cls: 'streak streak-hot', word: 'Parent texted' },
+  serious: { cls: 'streak streak-hot', word: 'Parent conference' },
+};
+const WHAT = { absentMonth: 'absent this month', absentSemester: 'absent this semester', lateMonth: 'late this month', lateSemester: 'late this semester' };
+function TotalsTable({ rows, onOpen }) {
+  return (
+    <div className="table-wrap">
+      <table className="table watch-table">
+        <thead>
+          <tr>
+            <th>Learner</th>
+            <th>Section</th>
+            <th>This month</th>
+            <th>This semester</th>
+            <th>Limits reached</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => {
+            const t = r.totals;
+            const n = { absentMonth: t.month.absent, absentSemester: t.semester.absent, lateMonth: t.month.late, lateSemester: t.semester.late };
+            return (
+              <tr key={r.student.id}>
+                <td>
+                  <button type="button" className="cell-person name-btn" onClick={() => onOpen(r)} title="Show the attendance calendar">
+                    <Avatar first={r.student.firstName} last={r.student.lastName} tone={r.section.color} />
+                    <span>
+                      <strong>
+                        {r.student.lastName}, {r.student.firstName}
+                      </strong>
+                      {r.guardian && <span className="muted small">{r.guardian.name}</span>}
+                    </span>
+                  </button>
+                </td>
+                <td>
+                  <span className="tag" style={{ background: r.section.color }}>
+                    {r.section.name.replace('Kindergarten', 'Kinder')}
+                  </span>
+                </td>
+                <td className="tot">
+                  <span className={t.month.absent ? 'tot-absent' : ''}>{t.month.absent} absent</span>
+                  {t.month.excused ? <span className="muted"> +{t.month.excused} excused</span> : null}
+                  <span className={`block ${t.month.late ? 'tot-late' : ''}`}>{t.month.late} late</span>
+                </td>
+                <td className="tot">
+                  <span className={t.semester.absent ? 'tot-absent' : ''}>{t.semester.absent} absent</span>
+                  {t.semester.excused ? <span className="muted"> +{t.semester.excused} excused</span> : null}
+                  <span className={`block ${t.semester.late ? 'tot-late' : ''}`}>{t.semester.late} late</span>
+                </td>
+                <td>
+                  <span className="chips-inline">
+                    {Object.entries(t.levels)
+                      .filter(([, l]) => l)
+                      .map(([k, l]) => (
+                        <span key={k} className={LEVEL[l].cls} title={`${n[k]} ${WHAT[k]}`}>
+                          {LEVEL[l].word}: {n[k]} {WHAT[k]}
+                        </span>
+                      ))}
+                  </span>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }

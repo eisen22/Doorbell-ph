@@ -700,3 +700,14 @@ a.kpi:hover { background: var(--surface) !important; }
 .sa-key i { display: inline-block; width: 16px; height: 16px; min-width: 0; aspect-ratio: auto; }
 .sa-key i.sd-off { border: 1px dashed #c9ccc2; }
 .modal.modal-wide:has(.sa-months) { width: min(920px, 100%); }
+
+/* Absence Watch totals + Settings limits */
+.chips-inline { display: flex; flex-wrap: wrap; gap: 6px; }
+.limits { display: grid; gap: 10px; margin: 6px 0 12px; }
+.limit-row { display: grid; grid-template-columns: 200px repeat(3, 140px); gap: 12px; align-items: end; }
+.tot { white-space: nowrap; font-size: 14px; }
+.tot .block { display: block; }
+.tot-absent { color: var(--absent); font-weight: 700; }
+.tot-late { color: var(--late); font-weight: 700; }
+.limit-row > span { font-weight: 600; padding-bottom: 12px; }
+@media (max-width: 560px) { .limit-row { grid-template-columns: 1fr 1fr; } .limit-row > span { grid-column: 1 / -1; padding-bottom: 0; } }

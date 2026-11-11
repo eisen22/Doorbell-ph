@@ -36,6 +36,8 @@ const kindOf = (n) =>
     ? 'calendar'
     : n.kind === 'sms_failed'
       ? 'sms'
+      : n.kind === 'total'
+      ? 'total'
       : !n.streak
         ? 'absent'
         : n.streak.late === 0
@@ -44,7 +46,7 @@ const kindOf = (n) =>
             ? 'late'
             : 'mixed';
 // The icon shown next to each kind of alert.
-const ICON = { missing: ShieldAlert, absent: UserX, late: Clock3, mixed: Shuffle, sms: MessageSquareWarning, calendar: CalendarClock, all: UserX };
+const ICON = { missing: ShieldAlert, absent: UserX, late: Clock3, mixed: Shuffle, total: CalendarClock, sms: MessageSquareWarning, calendar: CalendarClock, all: UserX };
 export function Notifications() {
   const repo = useRepo();
   const [params, setParams] = useSearchParams();
@@ -67,6 +69,7 @@ export function Notifications() {
     // Late and mixed streaks no longer happen (only absences count); their tabs show only for older alerts.
     ...(count('late') ? [['late', `Late ${count('late')}`]] : []),
     ...(count('mixed') ? [['mixed', `Absent and late ${count('mixed')}`]] : []),
+    ['total', `Totals ${count('total')}`],
     ['sms', `SMS problems ${count('sms')}`],
     ['calendar', `Calendar and substitutes ${count('calendar')}`],
   ];

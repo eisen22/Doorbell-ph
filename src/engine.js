@@ -19,6 +19,10 @@ import {
   DEPED_SY_2026_2027,
   eachDate,
   displayPhMobile,
+  DEFAULT_LIMITS,
+  attendanceTotals,
+  totalLevels,
+  describeTotal,
 } from './logic';
 
 // =====================================================================
@@ -332,18 +336,21 @@ export class Engine {
     if (!g || !g.smsConsent) return null;
     if ((kind === 'arrival' || kind === 'late') && !this.settings.arrivalSmsEnabled) return null;
     // One arrival/late text per child per day (confirming, then editing a status, does not text twice).
-    if (kind !== 'streak' && this.s.sms.has(`arr_${student.id}_${opts.date}`)) return null;
+    if ((kind === 'arrival' || kind === 'late') && this.s.sms.has(`arr_${student.id}_${opts.date}`)) return null;
+    // One total text per limit per month/semester (opts.id says which).
+    if (kind === 'total' && this.s.sms.has(opts.id)) return null;
     const tpl = this.settings.templates[g.preferredLanguage] ?? this.settings.templates.en;
-    const key = kind === 'streak' ? 'streak' : `${kind}${opts.auto ? 'Auto' : ''}`;
+    const key = kind === 'streak' || kind === 'total' ? kind : `${kind}${opts.auto ? 'Auto' : ''}`;
     const body = renderTemplate(tpl[key] ?? this.settings.templates.en[key], {
       child: student.firstName,
       time: opts.time ? to12h(opts.time) : '',
       school: this.settings.schoolName,
       contact: this.settings.contactNumber,
       streak: opts.streak ? describeStreak(opts.streak, g.preferredLanguage) : '',
+      summary: opts.metric ? describeTotal(opts.metric, opts.count, g.preferredLanguage) : '',
     });
     // Deterministic ids: two devices processing the same event write the same document once.
-    const id = kind === 'streak' ? `stk_${student.id}_${opts.date}` : `arr_${student.id}_${opts.date}`;
+    const id = kind === 'total' ? opts.id : kind === 'streak' ? `stk_${student.id}_${opts.date}` : `arr_${student.id}_${opts.date}`;
     const failed = g.numberStatus === 'failed';
     const msg = {
       id,
@@ -403,6 +410,73 @@ export class Engine {
     this.s.notifications.set(n.id, n);
     this.put('notifications', n.id, n);
   }
+  // The limits for totals (Settings -> Attendance limits), filled in with the defaults.
+  get limits() {
+    const mine = this.settings.limits ?? {};
+    const out = {};
+    for (const k of Object.keys(DEFAULT_LIMITS)) out[k] = { ...DEFAULT_LIMITS[k], ...(mine[k] ?? {}) };
+    return out;
+  }
+  // One child's absences and lates this month and this semester (not in a row), with their levels.
+  totalsFor(section, studentId, date) {
+    const t = attendanceTotals(date, this.statusMap(section.id, studentId), section.schedule, this.s.calendar, this.year, this.settings.semester2Start);
+    return { ...t, levels: totalLevels(t, this.limits) };
+  }
+  // =====================================================================
+  // TOTALS (not in a row): after a class is confirmed, each child's month and semester totals are
+  // checked. At "alert" the parent gets ONE text per limit per month/semester; at "serious" the
+  // teacher and admin are told to hold a parent conference. "watch" only shows in Absence Watch.
+  // =====================================================================
+  checkTotals(section, stu, date, at) {
+    const t = this.totalsFor(section, stu.id, date);
+    const g = this.guardianOf(stu.id);
+    for (const [metric, level] of Object.entries(t.levels)) {
+      if (level !== 'alert' && level !== 'serious') continue;
+      const month = metric.endsWith('Month');
+      const period = month ? t.monthKey : `${this.year.id ?? this.year.start}-${t.semesterKey}`;
+      const n = metric.startsWith('absent') ? (month ? t.month.absent : t.semester.absent) : month ? t.month.late : t.semester.late;
+      const id = `tot_${stu.id}_${metric}_${period}_${level}`;
+      if (this.s.notifications.has(id)) continue; // already handled for this period and level
+      const sms = level === 'alert' ? this.queueSms(stu, 'total', { id, metric, count: n, date, sectionId: section.id, createdAt: at }) : null;
+      const what = describeTotal(metric, n);
+      const n2 = {
+        id,
+        kind: 'total',
+        level,
+        studentId: stu.id,
+        sectionId: section.id,
+        createdAt: at,
+        read: false,
+        title: `${stu.firstName} ${stu.lastName} has been ${what}`,
+        body:
+          level === 'serious'
+            ? `This reaches the serious limit. Ask the admin to set a parent conference${g ? ` with ${g.name}` : ''}.`
+            : sms
+              ? `${g?.name ?? 'The guardian'} was sent an SMS.`
+              : 'No SMS sent (no consent on file). Please call the family.',
+      };
+      this.s.notifications.set(id, n2);
+      this.put('notifications', id, n2);
+    }
+  }
+  // Children at the watch level or higher for any total, worst first (Absence Watch -> Totals).
+  async listTotals() {
+    const today = await this.getToday();
+    const vis = this.visibleSectionIds();
+    const rank = { serious: 3, alert: 2, watch: 1 };
+    const out = [];
+    for (const section of this.s.sections.values()) {
+      if (section.archived || (vis && !vis.has(section.id))) continue;
+      for (const row of await this.getRoster(section.id, today.date)) {
+        const t = this.totalsFor(section, row.student.id, today.date);
+        const worst = Math.max(0, ...Object.values(t.levels).map((l) => rank[l] ?? 0));
+        if (!worst) continue;
+        const smsSent = [...this.s.sms.values()].some((m) => m.kind === 'total' && m.studentId === row.student.id && (m.id.includes(`_${t.monthKey}_`) || m.id.includes(`-${t.semesterKey}_`)));
+        out.push({ student: row.student, guardian: row.guardian, section, totals: t, worst, smsSent });
+      }
+    }
+    return out.sort((a, b) => b.worst - a.worst || b.totals.semester.absent - a.totals.semester.absent || byName(a.student, b.student));
+  }
   /** Marks unscanned children absent, locks the day, then applies the streak rule. Idempotent. */
   finalize(sectionId, date, by, auto, at = this.nowIso(date)) {
     const existing = this.s.confirmations.get(dayId(sectionId, date));
@@ -420,6 +494,7 @@ export class Engine {
     this.s.confirmations.set(id, conf);
     this.put('confirmations', id, conf);
     for (const stu of roster) this.checkStreak(section, stu, date, at);
+    for (const stu of roster) this.checkTotals(section, stu, date, at);
     // Parent texts for the children in class: sent now, after the class is confirmed.
     const confirmedAt = at.slice(11, 16);
     for (const stu of roster) {
@@ -630,6 +705,7 @@ export class Engine {
     );
     if (locked && stu && (input.status === 'absent' || input.status === 'late')) {
       this.checkStreak(this.s.sections.get(input.sectionId), stu, input.date, this.nowIso());
+      this.checkTotals(this.s.sections.get(input.sectionId), stu, input.date, this.nowIso());
     }
     // After confirming, the teacher marks a child present or late: the parent gets the "in class" text
     // (only once a day; queueSms skips it if a text was already made).
@@ -1285,6 +1361,10 @@ export const settings = {
   contactNumber: '0917 555 0123',
   arrivalSmsEnabled: true,
   streakDays: 3,
+  // Totals (not in a row): see DEFAULT_LIMITS in logic.js. Empty = the defaults.
+  limits: {},
+  // The day the 2nd semester starts ('' = halfway through the school year).
+  semester2Start: '',
   // How texts are sent: 'simulated' (saved only, for demos), 'phone' (the gate phone's SIM, see gate-app/README.md)
   // or 'semaphore' (real SMS through Semaphore, sent by the free Cloudflare Worker, see worker/README.md)
   smsProvider: 'simulated',
@@ -1299,6 +1379,7 @@ export const settings = {
       arrivalAuto: 'Doorbell: {child} arrived at school at {time}. - {school}',
       lateAuto: 'Doorbell: {child} arrived late at school at {time}. - {school}',
       streak: '{school}: {child} has been {streak}. We hope all is well. Please call {contact}.',
+      total: '{school}: {child} has been {summary}. We hope all is well. Please call {contact}.',
     },
     fil: {
       arrival: 'Doorbell: Nasa klase na si {child}. Dumating ng {time}, kinumpirma ng guro. - {school}',
@@ -1306,11 +1387,12 @@ export const settings = {
       arrivalAuto: 'Doorbell: Nakarating na si {child} sa paaralan ng {time}. - {school}',
       lateAuto: 'Doorbell: Nahuli si {child} ng dating sa paaralan, {time}. - {school}',
       streak: '{school}: Si {child} ay {streak}. Sana ay maayos siya. Pakitawagan ang {contact}.',
+      total: '{school}: Si {child} ay {summary}. Sana ay maayos siya. Pakitawagan ang {contact}.',
     },
   },
 };
 // The kinds of parent texts, in the order the Settings pages show them.
-export const TEMPLATE_KINDS = ['arrival', 'late', 'arrivalAuto', 'lateAuto', 'streak'];
+export const TEMPLATE_KINDS = ['arrival', 'late', 'arrivalAuto', 'lateAuto', 'streak', 'total'];
 // The old default texts (sent at the gate scan). Saved settings that still have them get the new ones.
 const OLD_DEFAULTS = {
   en: { arrival: 'Doorbell: {child} arrived at school at {time}. - {school}', late: 'Doorbell: {child} arrived late at {time}. - {school}' },
@@ -1324,7 +1406,7 @@ export function withTemplateDefaults(saved) {
     templates[lang] = {};
     for (const k of TEMPLATE_KINDS) {
       const v = mine[k];
-      templates[lang][k] = v == null || v === OLD_DEFAULTS[lang][k] ? settings.templates[lang][k] : v;
+      templates[lang][k] = v == null || v === OLD_DEFAULTS[lang]?.[k] ? settings.templates[lang][k] : v;
     }
   }
   return { ...saved, templates };

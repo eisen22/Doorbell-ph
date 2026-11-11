@@ -16,6 +16,8 @@ import { useState, useEffect } from 'react';
 import {
   normalizePhMobile,
   describeStreak,
+  describeTotal,
+  DEFAULT_LIMITS,
   renderTemplate,
   smsSegments,
   isGsmPlain,
@@ -29,6 +31,7 @@ const KIND_LABELS = {
   arrivalAuto: 'Arrived (auto-confirmed, no teacher check)',
   lateAuto: 'Late (auto-confirmed or after confirming)',
   streak: '3-day alert',
+  total: 'Monthly / semester total',
 };
 
 // =====================================================================
@@ -66,6 +69,7 @@ export function AdminSettings() {
     school: s.schoolName,
     contact: s.contactNumber,
     streak: describeStreak({ count: 3, absent: 3, late: 0 }, lang),
+    summary: describeTotal('absentMonth', 5, lang),
   });
   const setTpl = (lang, k, v) => setS({ ...s, templates: { ...s.templates, [lang]: { ...s.templates[lang], [k]: v } } });
   return (
@@ -102,7 +106,7 @@ export function AdminSettings() {
             when their child arrives (and when late)
           </label>
           <label className="field">
-            <span>Text parents after this many school days late or absent in a row</span>
+            <span>Text parents after this many school days absent in a row</span>
             <input
               type="number"
               className="input"
@@ -175,6 +179,7 @@ export function AdminSettings() {
           )}
         </Card>
       </div>
+      <LimitsCard s={s} setS={setS} />
       <Card title="Message templates">
         <p className="muted small">
           Parents are texted when the teacher confirms the class, not at the gate scan, so "in class" is only said once the teacher has
@@ -273,6 +278,45 @@ function GateAccountCard({ flash }) {
         </button>
       </form>
       {error && <p className="error">{error}</p>}
+    </Card>
+  );
+}
+
+// Attendance limits that are NOT in a row: per month and per semester (see DEFAULT_LIMITS in logic.js).
+// watch = shows in Absence Watch, alert = the parent is texted, serious = parent conference.
+const LIMIT_ROWS = [
+  ['absentMonth', 'Absences in a month', ['watch', 'alert']],
+  ['absentSemester', 'Absences in a semester', ['watch', 'alert', 'serious']],
+  ['lateMonth', 'Lates in a month', ['watch', 'alert']],
+  ['lateSemester', 'Lates in a semester', ['alert', 'serious']],
+];
+const LEVEL_WORD = { watch: 'Watch', alert: 'Text parent', serious: 'Conference' };
+function LimitsCard({ s, setS }) {
+  const lim = (k) => ({ ...DEFAULT_LIMITS[k], ...(s.limits?.[k] ?? {}) });
+  const set = (k, level, v) => setS({ ...s, limits: { ...s.limits, [k]: { ...lim(k), [level]: Number(v) } } });
+  return (
+    <Card title="Attendance limits (not in a row)">
+      <p className="muted small">
+        Totals for the month and the semester. Watch shows the child in Absence Watch (excused days count here), Text parent sends one SMS per
+        period, Conference tells the teacher and admin to meet the parent. DepEd may drop a learner absent more than 20% of school days.
+      </p>
+      <div className="limits">
+        {LIMIT_ROWS.map(([k, label, levels]) => (
+          <div key={k} className="limit-row">
+            <span>{label}</span>
+            {levels.map((level) => (
+              <label key={level} className="field">
+                <span className="small muted">{LEVEL_WORD[level]}</span>
+                <input type="number" className="input" min={1} max={60} value={lim(k)[level]} onChange={(e) => set(k, level, e.target.value)} />
+              </label>
+            ))}
+          </div>
+        ))}
+      </div>
+      <label className="field">
+        <span>Second semester starts (empty = halfway through the school year)</span>
+        <input type="date" className="input" value={s.semester2Start ?? ''} onChange={(e) => setS({ ...s, semester2Start: e.target.value })} />
+      </label>
     </Card>
   );
 }

@@ -12,7 +12,7 @@
 // =====================================================================
 import { Firestore } from './firestore.js';
 import { Engine, emptyState, realClock } from '../../src/engine.js';
-import { addDays, isSchoolDay, manilaTime, manilaToday, shouldAutoFinalize, autoFinalizeTime } from '../../src/logic.js';
+import { addDays, isSchoolDay, manilaTime, manilaToday, shouldAutoFinalize, autoFinalizeTime, semesterOf } from '../../src/logic.js';
 
 export default {
   // The schedule (wrangler.toml: every minute).
@@ -159,8 +159,11 @@ async function autoConfirm(db, now) {
   if (!todo.length) return { confirmed: 0 };
 
   // 2. Load what finalize() needs, only for the classes being confirmed (keeps the Worker fast):
-  //    children, guardians, placements, and the last 60 days of attendance (for 3-day texts).
-  const since = addDays(today, -60);
+  //    children, guardians, placements, and attendance since the semester started (at least the last
+  //    60 days), for the 3-day texts and the month / semester totals.
+  const semStart = semesterOf(today, meta.schoolYear, meta.settings?.semester2Start).from;
+  const since = semStart < addDays(today, -60) ? semStart : addDays(today, -60);
+  const span = Math.round((new Date(`${today}T00:00:00Z`) - new Date(`${since}T00:00:00Z`)) / 86400000);
   const ids = [...new Set(todo.map(({ sec }) => sec.id))];
   const bySection = async (col) => {
     const out = [];
@@ -173,7 +176,7 @@ async function autoConfirm(db, now) {
     bySection('enrollments'),
     // Attendance documents are named <section>_<date> (like the website), so they are fetched by
     // name: no Firestore index needed, and missing days are simply skipped.
-    db.getMany(ids.flatMap((id) => Array.from({ length: 61 }, (_, i) => `attendance/${id}_${addDays(since, i)}`))),
+    db.getMany(ids.flatMap((id) => Array.from({ length: span + 1 }, (_, i) => `attendance/${id}_${addDays(since, i)}`))),
   ]);
   const writes = new Map();
   const persistence = {

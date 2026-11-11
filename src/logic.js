@@ -234,6 +234,76 @@ export function shouldAlertStreak(streak, threshold = 3) {
 }
 
 /* =====================================================================
+   4b. TOTALS: absences and lates per month and per semester (NOT in a row)
+   ===================================================================== */
+
+/**
+ * Default limits. watch = the teacher sees it in Absence Watch; alert = the parent gets a text;
+ * serious = the admin should hold a parent conference (DepEd: more than 20% of school days absent
+ * can mean being dropped). Excused absences count toward "watch" only. Editable in Settings.
+ */
+export const DEFAULT_LIMITS = {
+  absentMonth: { watch: 3, alert: 5 },
+  absentSemester: { watch: 6, alert: 10, serious: 18 },
+  lateMonth: { watch: 3, alert: 5 },
+  lateSemester: { alert: 10, serious: 15 },
+};
+
+/** The semester a date is in: { key: 'S1'|'S2', from, to }. The 2nd starts on `secondStart` (default: halfway). */
+export function semesterOf(date, year, secondStart) {
+  let mid = secondStart;
+  if (!mid) {
+    const a = new Date(`${year.start}T00:00:00Z`).getTime();
+    const b = new Date(`${year.end}T00:00:00Z`).getTime();
+    mid = new Date(a + Math.round((b - a) / 2 / 86400000) * 86400000).toISOString().slice(0, 10);
+  }
+  return date < mid ? { key: 'S1', from: year.start, to: addDays(mid, -1) } : { key: 'S2', from: mid, to: year.end };
+}
+
+/**
+ * Counts one child's absences, excused days and lates this month and this semester, up to `date`,
+ * on class days only (a day later made a break or holiday is not counted).
+ */
+export function attendanceTotals(date, statusByDate, schedule, calendar, year, secondStart) {
+  const sem = semesterOf(date, year, secondStart);
+  const monthFrom = `${date.slice(0, 7)}-01`;
+  const out = {
+    monthKey: date.slice(0, 7),
+    semesterKey: sem.key,
+    month: { absent: 0, excused: 0, late: 0 },
+    semester: { absent: 0, excused: 0, late: 0 },
+  };
+  for (const [d, st] of Object.entries(statusByDate)) {
+    if (d > date || (d < sem.from && d < monthFrom) || !isSchoolDay(d, schedule, calendar)) continue;
+    if (st !== 'absent' && st !== 'excused' && st !== 'late') continue;
+    // The month and the semester are counted separately (a month can start in the other semester).
+    if (d >= sem.from) out.semester[st]++;
+    if (d >= monthFrom) out.month[st]++;
+  }
+  return out;
+}
+
+/** 'serious' | 'alert' | 'watch' | null for each limit. Watch counts excused absences too. */
+export function totalLevels(t, limits = DEFAULT_LIMITS) {
+  const level = (n, nAll, lim) =>
+    lim.serious && n >= lim.serious ? 'serious' : lim.alert && n >= lim.alert ? 'alert' : lim.watch && nAll >= lim.watch ? 'watch' : null;
+  return {
+    absentMonth: level(t.month.absent, t.month.absent + t.month.excused, limits.absentMonth),
+    absentSemester: level(t.semester.absent, t.semester.absent + t.semester.excused, limits.absentSemester),
+    lateMonth: level(t.month.late, t.month.late, limits.lateMonth),
+    lateSemester: level(t.semester.late, t.semester.late, limits.lateSemester),
+  };
+}
+
+/** Words for a total, for alerts and the parent text: "absent 5 days this month", "late 10 times this semester". */
+export function describeTotal(metric, n, lang = 'en') {
+  const absent = metric.startsWith('absent');
+  const month = metric.endsWith('Month');
+  if (lang === 'fil') return `${absent ? 'absent' : 'late'} nang ${n} ${absent ? 'araw' : 'beses'} ngayong ${month ? 'buwan' : 'semestre'}`;
+  return `${absent ? 'absent' : 'late'} ${n} ${absent ? (n === 1 ? 'day' : 'days') : n === 1 ? 'time' : 'times'} this ${month ? 'month' : 'semester'}`;
+}
+
+/* =====================================================================
    5. SMS TEXT
    ===================================================================== */
 

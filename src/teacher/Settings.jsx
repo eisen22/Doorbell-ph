@@ -3,6 +3,7 @@ import { KeyRound } from 'lucide-react';
 import {
   autoFinalizeTime,
   describeStreak,
+  describeTotal,
   fromMinutes,
   to12h,
   toMinutes,
@@ -19,6 +20,7 @@ const KIND_LABELS = {
   arrivalAuto: 'Arrived (auto-confirmed, no teacher check)',
   lateAuto: 'Late (auto-confirmed or after confirming)',
   streak: '3-day alert',
+  total: 'Monthly / semester total',
 };
 
 // =====================================================================
@@ -93,7 +95,7 @@ export function SettingsPage() {
               <dt>Auto-confirm</dt>
               <dd>{to12h(autoFinalizeTime(s))}</dd>
               <dt>Parents texted after</dt>
-              <dd>{settings.streakDays} school days absent in a row</dd>
+              <dd>{settings.streakDays} school days absent in a row, or too many absences or lates this month or semester (see Absence Watch)</dd>
               <dt>Arrival SMS</dt>
               <dd>{settings.arrivalSmsEnabled ? 'On' : 'Off'}</dd>
             </dl>
@@ -112,6 +114,7 @@ export function SettingsPage() {
                   school: settings.schoolName,
                   contact: settings.contactNumber,
                   streak: describeStreak(sample, lang),
+                  summary: describeTotal('absentMonth', 5, lang),
                 });
                 return (
                   <div key={k} className="tpl">
