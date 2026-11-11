@@ -13,135 +13,115 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 
 // =====================================================================
-// GateViewModel.kt — WHAT THE SCREENS SHOW, AND WHAT BUTTONS DO
+// GateViewModel.kt — WHAT THE SCREEN SHOWS, AND WHAT THE SCAN BUTTON DOES
 // ---------------------------------------------------------------------
-// Sign-in:  only accounts whose users/{uid} role is 'gate' (made by the admin in
-//           Settings & SMS -> Gate scanner phone) or 'admin' (for testing) may scan.
-// Scanning: the camera calls onCode(); the result is shown for a few seconds and added to
-//           the "Recent scans" list.
-// The ViewModel survives screen rotation, so a scan in progress is never lost.
+// This is a temporary gate app for showing the idea: it only scans ID cards and saves them
+// to the cloud, so they appear on the website.
+// Sign-in:  automatic, with the gate account in local.properties (see app/build.gradle.kts).
+//           firestore.rules still only accepts scans from a gate (or admin) account.
+// Scanning: the camera reads a card only after "Scan ID" is pressed: one card per press.
+// In the background: internet-time correction (so on time / late is right) and, when the admin
+// chose "Gate phone's SIM", sending the parent texts from this phone (SmsGateway.kt).
 // =====================================================================
 class GateViewModel(app: Application) : AndroidViewModel(app) {
     private val auth = FirebaseAuth.getInstance()
     private val db = FirebaseFirestore.getInstance()
     val repo = GateRepository(db)
-    // Sends the parent texts from this phone's SIM when the admin chose "Gate phone (SIM)".
     val sms = SmsGateway(app, db)
 
     sealed class Screen {
         data object Loading : Screen()
-        data object SignIn : Screen()
+        data class Problem(val message: String) : Screen()
         data object Scanner : Screen()
     }
 
     private val _screen = MutableStateFlow<Screen>(Screen.Loading)
     val screen: StateFlow<Screen> = _screen
 
-    private val _signInError = MutableStateFlow<String?>(null)
-    val signInError: StateFlow<String?> = _signInError
-    private val _busy = MutableStateFlow(false)
-    val busy: StateFlow<Boolean> = _busy
-
     private val _result = MutableStateFlow<ScanResult?>(null) // the big banner under the camera
     val result: StateFlow<ScanResult?> = _result
-    private val _recent = MutableStateFlow<List<RecentScan>>(emptyList())
-    val recent: StateFlow<List<RecentScan>> = _recent
+    private val _scanning = MutableStateFlow(false) // true after "Scan ID" is pressed, until a card is read
+    val scanning: StateFlow<Boolean> = _scanning
+    private val _hint = MutableStateFlow<String?>(null) // e.g. "No ID found"
+    val hint: StateFlow<String?> = _hint
 
-    // Shown in amber when the phone's clock is more than 2 minutes off (scans still use the right time).
-    private val _clockWarning = MutableStateFlow<String?>(null)
-    val clockWarning: StateFlow<String?> = _clockWarning
+    private var lastShown: ScanResult? = null
+    private var scanJob: Job? = null
+    private var clearJob: Job? = null
     private var clockJob: Job? = null
 
-    private var clearJob: Job? = null
-    private var lastShownAt = 0L
-
     init {
-        // Already signed in from last time? Check the account again, then open the scanner.
-        val user = auth.currentUser
-        if (user == null) _screen.value = Screen.SignIn
-        else viewModelScope.launch { openIfAllowed(user.uid) }
+        connect()
     }
 
-    fun signIn(email: String, password: String) {
-        if (email.isBlank() || password.isBlank()) {
-            _signInError.value = "Enter the gate account's email and password."
-            return
-        }
+    /** Signs in with the built-in gate account (or reuses last time's sign-in), then opens the scanner. */
+    fun connect() {
+        _screen.value = Screen.Loading
         viewModelScope.launch {
-            _busy.value = true
-            _signInError.value = null
             try {
-                val cred = auth.signInWithEmailAndPassword(email.trim(), password).await()
-                openIfAllowed(cred.user!!.uid)
+                val user = auth.currentUser ?: run {
+                    if (BuildConfig.GATE_EMAIL.isBlank() || BuildConfig.GATE_PASSWORD.isBlank()) {
+                        _screen.value = Screen.Problem("The gate account is not set in this app. Add gate.email and gate.password to gate-app/local.properties, then build the app again.")
+                        return@launch
+                    }
+                    auth.signInWithEmailAndPassword(BuildConfig.GATE_EMAIL.trim(), BuildConfig.GATE_PASSWORD).await().user!!
+                }
+                val role = db.collection("users").document(user.uid).get().await().getString("role")
+                if (role == "gate" || role == "admin") {
+                    startClockSync()
+                    repo.start()
+                    sms.start(viewModelScope) { repo.phoneSendsTexts() }
+                    _screen.value = Screen.Scanner
+                } else {
+                    auth.signOut()
+                    _screen.value = Screen.Problem("The account in local.properties is not a gate account. Make one in Doorbell: Settings & SMS -> Gate scanner phone.")
+                }
             } catch (e: Exception) {
-                _signInError.value = friendly(e)
-            } finally {
-                _busy.value = false
-            }
-        }
-    }
-
-    // Reads users/{uid} and checks the role.
-    private suspend fun openIfAllowed(uid: String) {
-        try {
-            val role = db.collection("users").document(uid).get().await().getString("role")
-            if (role == "gate" || role == "admin") {
-                startClockCheck()
-                repo.start()
-                sms.start(viewModelScope) { repo.phoneSendsTexts() }
-                _screen.value = Screen.Scanner
-            } else {
                 auth.signOut()
-                _signInError.value = if (role == null) "This account is not set up in Doorbell." else "Use the gate account. Teacher accounts sign in on the website."
-                _screen.value = Screen.SignIn
+                _screen.value = Screen.Problem(friendly(e))
             }
-        } catch (e: Exception) {
-            auth.signOut()
-            _signInError.value = friendly(e)
-            _screen.value = Screen.SignIn
         }
     }
 
-    // Checks the internet time now and every 30 minutes (see TimeSync.kt).
-    private fun startClockCheck() {
+    // Keeps the phone's time in line with internet time (checked now and every 30 minutes).
+    private fun startClockSync() {
         clockJob?.cancel()
         clockJob = viewModelScope.launch {
             while (true) {
                 val offset = TimeSync.sync()
-                _clockWarning.value = if (offset != null && kotlin.math.abs(offset) > 120_000) {
-                    val mins = kotlin.math.abs(offset) / 60_000
-                    "This phone's clock is $mins min ${if (offset > 0) "behind" else "ahead"}. Scans use internet time, but fix it: Settings > Date & time > Set automatically."
-                } else {
-                    null
-                }
                 delay(if (offset == null) 60_000 else 30 * 60_000) // offline: try again in a minute
             }
         }
     }
 
-    fun signOut() {
-        clockJob?.cancel()
-        sms.stop()
-        repo.stop()
-        auth.signOut()
+    /** "Scan ID" pressed: the camera looks for one card for up to 15 seconds. */
+    fun startScan() {
         _result.value = null
-        _recent.value = emptyList()
-        _screen.value = Screen.SignIn
+        _hint.value = null
+        _scanning.value = true
+        scanJob?.cancel()
+        scanJob = viewModelScope.launch {
+            delay(15_000)
+            if (_scanning.value) {
+                _scanning.value = false
+                _hint.value = "No ID found. Press Scan ID and hold the card inside the frame."
+            }
+        }
     }
 
-    /** Called by the camera for every code it reads (many times per second while a card is in view). */
+    /** Called by the camera with each code it reads. Only the first one after "Scan ID" counts. */
     fun onCode(code: String): ScanResult? {
-        val now = System.currentTimeMillis()
-        if (now - lastShownAt < 700) return null // give each result a moment on screen
-        val r = repo.scan(code)
-        if (r is ScanResult.Ignored) return null // the same card is still in front of the camera
-        lastShownAt = now
+        if (!_scanning.value) return null
+        _scanning.value = false
+        scanJob?.cancel()
+        var r = repo.scan(code)
+        // The same card again within a few seconds: it is already saved, so show its result again.
+        if (r is ScanResult.Ignored) r = lastShown ?: return null
+        lastShown = r
         _result.value = r
-        _recent.value = (listOf(toRecent(r)) + _recent.value).take(30)
-        // Clear the banner after a few seconds so the next child sees a fresh screen.
         clearJob?.cancel()
         clearJob = viewModelScope.launch {
-            delay(6000)
+            delay(8000)
             _result.value = null
         }
         return r
@@ -149,28 +129,16 @@ class GateViewModel(app: Application) : AndroidViewModel(app) {
 
     fun clearError() = repo.clearError()
 
-    private fun toRecent(r: ScanResult): RecentScan {
-        val at = Rules.to12h(Rules.timeNow())
-        return when (r) {
-            is ScanResult.Recorded -> RecentScan(r.student.fullName, if (r.status == "late") "Late · ${r.section.name}" else "Arrived · ${r.section.name}", if (r.status == "late") Tone.LATE else Tone.OK, at)
-            is ScanResult.AlreadyIn -> RecentScan(r.student.fullName, "Already in since ${Rules.to12h(r.firstScanAt)}", Tone.INFO, at)
-            is ScanResult.Unknown -> RecentScan("Unknown card", r.code.take(24), Tone.BAD, at)
-            is ScanResult.Revoked -> RecentScan(r.student.fullName, "Old card, replaced", Tone.BAD, at)
-            is ScanResult.NotEnrolled -> RecentScan(r.student.fullName, "Not in a section", Tone.BAD, at)
-            is ScanResult.NoClassToday -> RecentScan(r.student.fullName, "No class today", Tone.INFO, at)
-            ScanResult.Ignored -> RecentScan("", "", Tone.INFO, at)
-        }
-    }
-
     // Firebase error messages are technical; these are the common ones in plain words.
     private fun friendly(e: Exception): String {
         val m = e.message ?: ""
         return when {
-            "INVALID_LOGIN_CREDENTIALS" in m || "password is invalid" in m || "no user record" in m || "credential" in m.lowercase() -> "Wrong email or password."
-            "network" in m.lowercase() -> "No internet. Connect the phone to Wi-Fi or mobile data and try again."
+            "INVALID_LOGIN_CREDENTIALS" in m || "password is invalid" in m || "no user record" in m || "credential" in m.lowercase() ->
+                "The gate account's email or password in local.properties is wrong."
+            "network" in m.lowercase() -> "No internet. Connect the phone to Wi-Fi or mobile data, then press Try again."
             "PERMISSION_DENIED" in m -> "Doorbell refused the account. Publish the newest firestore.rules in Firebase console."
-            "blocked" in m.lowercase() || "too many" in m.lowercase() -> "Too many tries. Wait a minute and try again."
-            else -> m.ifBlank { "Something went wrong. Try again." }
+            "blocked" in m.lowercase() || "too many" in m.lowercase() -> "Too many tries. Wait a minute, then press Try again."
+            else -> m.ifBlank { "Something went wrong. Press Try again." }
         }
     }
 

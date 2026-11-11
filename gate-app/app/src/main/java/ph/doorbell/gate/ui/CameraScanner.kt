@@ -1,7 +1,6 @@
 package ph.doorbell.gate.ui
 
 import androidx.annotation.OptIn
-import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ExperimentalGetImage
 import androidx.camera.core.ImageAnalysis
@@ -10,12 +9,9 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
@@ -32,16 +28,17 @@ import java.util.concurrent.Executors
 // ---------------------------------------------------------------------
 // CameraX shows the back camera; every frame goes to ML Kit, which finds QR codes and
 // CODE-128 barcodes (the two kinds Doorbell prints on ID cards). It runs on the phone, so it
-// works without internet. onCode() is called with the text inside the code.
+// works without internet. Frames are only read while `active` is true (after "Scan ID" is
+// pressed); onCode() is called with the text inside the code.
 // =====================================================================
 @OptIn(ExperimentalGetImage::class)
 @Composable
-fun CameraScanner(torchOn: Boolean, onCode: (String) -> Unit, modifier: Modifier = Modifier) {
+fun CameraScanner(active: Boolean, onCode: (String) -> Unit, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val owner = LocalLifecycleOwner.current
     val previewView = remember { PreviewView(context).apply { scaleType = PreviewView.ScaleType.FILL_CENTER } }
     val latestOnCode by rememberUpdatedState(onCode)
-    var camera by remember { mutableStateOf<Camera?>(null) }
+    val isActive by rememberUpdatedState(active)
 
     DisposableEffect(owner) {
         val executor = Executors.newSingleThreadExecutor() // frames are read off the main thread
@@ -57,7 +54,7 @@ fun CameraScanner(torchOn: Boolean, onCode: (String) -> Unit, modifier: Modifier
                 .build()
             analysis.setAnalyzer(executor) { frame ->
                 val media = frame.image
-                if (media == null) {
+                if (media == null || !isActive) { // not scanning: skip the frame
                     frame.close()
                     return@setAnalyzer
                 }
@@ -67,7 +64,7 @@ fun CameraScanner(torchOn: Boolean, onCode: (String) -> Unit, modifier: Modifier
                     .addOnCompleteListener { frame.close() } // always release the frame, or the camera stops
             }
             provider.unbindAll()
-            camera = provider.bindToLifecycle(owner, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis)
+            provider.bindToLifecycle(owner, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis)
         }, ContextCompat.getMainExecutor(context))
 
         onDispose {
@@ -76,9 +73,6 @@ fun CameraScanner(torchOn: Boolean, onCode: (String) -> Unit, modifier: Modifier
             executor.shutdown()
         }
     }
-
-    // The flashlight button (useful early in the morning or under a dark gate roof).
-    LaunchedEffect(torchOn, camera) { camera?.cameraControl?.enableTorch(torchOn) }
 
     AndroidView(factory = { previewView }, modifier = modifier)
 }

@@ -148,8 +148,3 @@ sealed class ScanResult {
     /** The same card was scanned again within a few seconds: nothing to show. */
     data object Ignored : ScanResult()
 }
-
-/** One line in the "Recent scans" list. */
-data class RecentScan(val name: String, val detail: String, val tone: Tone, val at: String)
-
-enum class Tone { OK, LATE, INFO, BAD }

@@ -14,10 +14,20 @@ Written in Kotlin with Jetpack Compose. It uses the same Firebase project as the
    (They add the `gate` role.)
 2. **Make the gate account.** Website → sign in as admin → **Settings & SMS → Gate scanner phone** →
    enter an email (e.g. `gate@yourschool.edu.ph`) and a password → **Create gate account**.
-3. **Install the app.** Open this `gate-app` folder in Android Studio (File → Open), wait for Gradle
+3. **Put the gate account in the app.** Open `gate-app/local.properties` (Android Studio makes it;
+   it is never uploaded to GitHub) and add two lines:
+   ```
+   gate.email=gate@yourschool.edu.ph
+   gate.password=the gate account's password
+   ```
+   The app signs in by itself with this account, so there is no sign-in screen.
+4. **Install the app.** Open this `gate-app` folder in Android Studio (File → Open), wait for Gradle
    to finish, plug in the phone (USB debugging on) and press **Run ▶**.
    Or build an APK: Build → Generate App Bundles or APKs → Build APK, then copy it to the phone.
-4. On the phone: sign in with the gate account, allow the camera, put the phone on a stand at the gate.
+5. On the phone: allow the camera. Press **Scan ID** and hold the card in front of the camera: one card per press.
+   Each scan is saved to the cloud right away and shows on the website.
+
+This phone app is temporary, for showing the idea. A dedicated QR scanner will replace it.
 
 ## Texting parents from the gate phone (free, no Blaze plan)
 
@@ -45,7 +55,7 @@ large number of messages", choose **Always allow**. Texts come from the phone's 
 | Grey | No class today for that section (weekend, holiday, suspension) |
 | Red, low buzz | Unknown card, old replaced card, or the child is not in a section yet |
 
-The same card held in front of the camera again within 10 seconds is ignored (no double beeps).
+Scanning the same card again within 10 seconds shows its first result again (it is not saved twice).
 
 Scanning works offline for a while: Firestore keeps a copy on the phone and sends the saves when the
 Wi-Fi comes back. The barcode reader runs on the phone, so it needs no internet either.
@@ -58,11 +68,11 @@ Wi-Fi comes back. The barcode reader runs on the phone, so it needs no internet 
 | `Rules.kt` | **The rules**: present or late, school days, SMS text. A copy of the website's `src/logic.js`; tested in `app/src/test/.../RulesTest.kt` |
 | `Models.kt` | The data read from Firestore (students, sections, guardians, settings) and the scan results |
 | `GateRepository.kt` | Live listeners and `scan()`, the same steps as `recordScan()` in the website's `src/engine.js` |
-| `GateViewModel.kt` | Sign-in (gate or admin accounts only), and what happens after each scan |
+| `GateViewModel.kt` | Automatic sign-in with the account in `local.properties`, and the Scan ID button |
 | `MainActivity.kt` | Where the app starts; camera permission; keeps the screen on |
 | `ui/CameraScanner.kt` | CameraX preview + ML Kit reading QR codes and CODE-128 barcodes |
-| `ui/ScannerScreen.kt` | The scanner screen: counts, camera, result banner, recent scans |
-| `ui/SignInScreen.kt` | The sign-in screen and the logo |
+| `ui/ScannerScreen.kt` | The only screen: camera, result banner and the Scan ID button |
+| `ui/Logo.kt` | The Doorbell logo |
 | `ui/Theme.kt`, `ui/Squircle.kt` | Colors, font (Plus Jakarta Sans) and the Apple-style squircle corners |
 | `ui/Feedback.kt` | Beep and vibration after a scan |
 | `SmsGateway.kt` | "Gate phone's SIM" mode: sends the queued parent texts with Android's SmsManager |

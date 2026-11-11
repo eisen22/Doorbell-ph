@@ -17,36 +17,28 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.Logout
+import androidx.compose.material.icons.automirrored.rounded.HelpOutline
 import androidx.compose.material.icons.rounded.Block
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.EventBusy
-import androidx.compose.material.icons.rounded.FlashlightOff
-import androidx.compose.material.icons.rounded.FlashlightOn
-import androidx.compose.material.icons.automirrored.rounded.HelpOutline
 import androidx.compose.material.icons.rounded.QrCodeScanner
 import androidx.compose.material.icons.rounded.Replay
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.WarningAmber
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -54,105 +46,57 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import ph.doorbell.gate.GateStatus
-import ph.doorbell.gate.RecentScan
+import androidx.compose.ui.unit.sp
 import ph.doorbell.gate.Rules
 import ph.doorbell.gate.ScanResult
-import ph.doorbell.gate.Tone
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
 // =====================================================================
-// ScannerScreen.kt — THE SCREEN THE GUARD SEES ALL MORNING
+// ScannerScreen.kt — THE ONLY SCREEN: SCAN AN ID, SEE THE RESULT
 // ---------------------------------------------------------------------
-//  top:     school name, today's date, how many children are in, flashlight, sign out
-//  middle:  the camera; hold the ID card inside the frame
-//  banner:  the result of the last scan in big letters (green arrived, amber late,
-//           grey already in / no class, red problem with the card)
-//  bottom:  the most recent scans
+//  top:     school name and today's date
+//  middle:  the camera; it reads a card only after "Scan ID" is pressed
+//  banner:  the result (green arrived, amber late, grey already in / no class, red card problem)
+//  bottom:  the "Scan ID" button
+// Every scan is saved to the cloud right away and shows on the website.
 // =====================================================================
 @Composable
 fun ScannerScreen(
-    status: GateStatus,
+    schoolName: String,
     result: ScanResult?,
-    recent: List<RecentScan>,
+    scanning: Boolean,
+    hint: String?,
     error: String?,
-    clockWarning: String?,
-    smsPanel: @Composable () -> Unit = {}, // the "texts sent from this phone" row (only in Gate phone SMS mode)
+    onScan: () -> Unit,
     onCode: (String) -> Unit,
     onDismissError: () -> Unit,
-    onSignOut: () -> Unit,
 ) {
-    var torch by remember { mutableStateOf(false) }
-    var askSignOut by remember { mutableStateOf(false) }
-
     Column(
         Modifier
             .fillMaxSize()
             .background(Doorbell.canvas)
             .safeDrawingPadding()
-            .padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         // ----- top bar -----
-        Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Logo(40)
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
-                Text(status.schoolName.ifBlank { "Doorbell Gate" }, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(schoolName.ifBlank { "Doorbell Gate" }, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(LocalDate.parse(Rules.today()).format(DateTimeFormatter.ofPattern("EEEE, MMMM d")), style = MaterialTheme.typography.bodyMedium, color = Doorbell.muted)
             }
-            IconButton(onClick = { torch = !torch }) {
-                Icon(if (torch) Icons.Rounded.FlashlightOn else Icons.Rounded.FlashlightOff, contentDescription = if (torch) "Turn off flashlight" else "Turn on flashlight")
-            }
-            IconButton(onClick = { askSignOut = true }) {
-                Icon(Icons.AutoMirrored.Rounded.Logout, contentDescription = "Sign out")
-            }
         }
 
-        // ----- arrivals today -----
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .clip(Radii.md)
-                .background(Doorbell.frame)
-                .border(1.dp, Doorbell.line, Radii.md)
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                if (status.classToday) "Arrived today" else "No class today",
-                style = MaterialTheme.typography.bodyLarge,
-                color = Doorbell.muted,
-                modifier = Modifier.weight(1f),
-            )
-            if (status.classToday) {
-                Text("${status.arrived}", style = MaterialTheme.typography.titleLarge)
-                Text(" of ${status.expected}", style = MaterialTheme.typography.bodyLarge, color = Doorbell.muted)
-            }
-        }
-
-        smsPanel()
-
-        if (clockWarning != null) {
-            Text(
-                clockWarning,
-                color = Doorbell.late,
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.fillMaxWidth().clip(Radii.md).background(Doorbell.lateBg).padding(horizontal = 14.dp, vertical = 10.dp),
-            )
-        }
-
+        // A save that failed (for example, the database refused it).
         if (error != null) {
             Row(
-                Modifier
-                    .fillMaxWidth()
-                    .clip(Radii.md)
-                    .background(Doorbell.badBg)
-                    .padding(start = 14.dp, top = 6.dp, bottom = 6.dp),
+                Modifier.fillMaxWidth().clip(Radii.md).background(Doorbell.badBg).padding(start = 14.dp, top = 6.dp, bottom = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(error, color = Doorbell.bad, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
@@ -162,40 +106,37 @@ fun ScannerScreen(
 
         // ----- camera -----
         Box(
-            Modifier
-                .fillMaxWidth()
-                .aspectRatio(1.15f)
-                .clip(Radii.lg)
-                .background(Doorbell.ink),
+            Modifier.fillMaxWidth().aspectRatio(1f).clip(Radii.lg).background(Doorbell.ink),
+            contentAlignment = Alignment.Center,
         ) {
-            CameraScanner(torchOn = torch, onCode = onCode, modifier = Modifier.fillMaxSize())
-            ScanFrame(Modifier.fillMaxSize().padding(36.dp))
-        }
-
-        // ----- result of the last scan -----
-        ResultBanner(result)
-
-        // ----- recent scans -----
-        Text("Recent scans", style = MaterialTheme.typography.labelMedium, color = Doorbell.muted)
-        LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
-            itemsIndexed(recent) { i, r ->
-                RecentRow(r)
-                if (i < recent.lastIndex) Box(Modifier.fillMaxWidth().padding(start = 22.dp).heightIn(min = 1.dp).background(Doorbell.line))
+            CameraScanner(active = scanning, onCode = onCode, modifier = Modifier.fillMaxSize())
+            if (scanning) {
+                ScanFrame(Modifier.fillMaxSize().padding(36.dp))
+            } else {
+                // Dimmed while waiting for the button, so it is clear the camera is not reading.
+                Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.55f)), contentAlignment = Alignment.Center) {
+                    Text("Press Scan ID", color = Color.White, style = MaterialTheme.typography.titleMedium)
+                }
             }
         }
-    }
 
-    if (askSignOut) {
-        // Asked first, so a child pressing the button cannot stop the scanner by accident.
-        AlertDialog(
-            onDismissRequest = { askSignOut = false },
-            title = { Text("Sign out the gate phone?") },
-            text = { Text("Scanning stops until someone signs in again with the gate account.") },
-            confirmButton = { TextButton(onClick = { askSignOut = false; onSignOut() }) { Text("Sign out", color = Doorbell.bad) } },
-            dismissButton = { TextButton(onClick = { askSignOut = false }) { Text("Keep scanning") } },
-            shape = Radii.lg,
-            containerColor = Doorbell.frame,
-        )
+        // ----- result of the scan -----
+        ResultBanner(result, scanning, hint)
+
+        Spacer(Modifier.weight(1f))
+
+        // ----- the scan button -----
+        Button(
+            onClick = onScan,
+            enabled = !scanning,
+            shape = Radii.md,
+            colors = ButtonDefaults.buttonColors(containerColor = Doorbell.ink, disabledContainerColor = Doorbell.surface, disabledContentColor = Doorbell.muted),
+            modifier = Modifier.fillMaxWidth().height(64.dp),
+        ) {
+            Icon(Icons.Rounded.QrCodeScanner, contentDescription = null, modifier = Modifier.size(26.dp))
+            Spacer(Modifier.width(10.dp))
+            Text(if (scanning) "Scanning… hold the card in the frame" else "Scan ID", fontSize = if (scanning) 16.sp else 20.sp, textAlign = TextAlign.Center)
+        }
     }
 }
 
@@ -218,86 +159,50 @@ private fun ScanFrame(modifier: Modifier) {
 // What each result looks like: colors, icon, big line and small line.
 private data class BannerLook(val bg: Color, val fg: Color, val icon: ImageVector, val title: String, val detail: String)
 
-private fun lookOf(r: ScanResult?): BannerLook = when (r) {
-    null -> BannerLook(Doorbell.frame, Doorbell.ink, Icons.Rounded.QrCodeScanner, "Ready to scan", "Hold the ID card inside the frame.")
+private fun lookOf(r: ScanResult?, scanning: Boolean, hint: String?): BannerLook = when (r) {
+    null -> when {
+        scanning -> BannerLook(Doorbell.frame, Doorbell.ink, Icons.Rounded.QrCodeScanner, "Scanning…", "Hold the ID card inside the frame.")
+        hint != null -> BannerLook(Doorbell.lateBg, Doorbell.late, Icons.Rounded.WarningAmber, "No ID found", hint)
+        else -> BannerLook(Doorbell.frame, Doorbell.ink, Icons.Rounded.QrCodeScanner, "Ready", "Press Scan ID, then hold the card in front of the camera.")
+    }
     is ScanResult.Recorded -> if (r.status == "late") {
-        BannerLook(Doorbell.lateBg, Doorbell.late, Icons.Rounded.Schedule, r.student.fullName, "Late · ${Rules.to12h(r.time)} · ${r.section.name}${if (r.parentTexted) " · parent texted" else ""}")
+        BannerLook(Doorbell.lateBg, Doorbell.late, Icons.Rounded.Schedule, r.student.fullName, "Late · ${Rules.to12h(r.time)} · ${r.section.name}")
     } else {
-        BannerLook(Doorbell.okBg, Doorbell.ok, Icons.Rounded.CheckCircle, r.student.fullName, "Arrived ${Rules.to12h(r.time)} · ${r.section.name}${if (r.parentTexted) " · parent texted" else ""}")
+        BannerLook(Doorbell.okBg, Doorbell.ok, Icons.Rounded.CheckCircle, r.student.fullName, "Arrived ${Rules.to12h(r.time)} · ${r.section.name}")
     }
     is ScanResult.AlreadyIn -> BannerLook(Doorbell.infoBg, Doorbell.info, Icons.Rounded.Replay, r.student.fullName, "Already in since ${Rules.to12h(r.firstScanAt)}")
     is ScanResult.NoClassToday -> BannerLook(Doorbell.surface, Doorbell.muted, Icons.Rounded.EventBusy, r.student.fullName, "No class today for ${r.section.name}")
-    is ScanResult.Unknown -> BannerLook(Doorbell.badBg, Doorbell.bad, Icons.AutoMirrored.Rounded.HelpOutline, "Card not recognized", "This is not a Doorbell ID. Send the child to the office.")
-    is ScanResult.Revoked -> BannerLook(Doorbell.badBg, Doorbell.bad, Icons.Rounded.Block, r.student.fullName, "Old card that was replaced. Ask the office for the new card.")
-    is ScanResult.NotEnrolled -> BannerLook(Doorbell.badBg, Doorbell.bad, Icons.Rounded.WarningAmber, r.student.fullName, "Not in a section yet. Ask the office.")
-    ScanResult.Ignored -> lookOf(null)
+    is ScanResult.Unknown -> BannerLook(Doorbell.badBg, Doorbell.bad, Icons.AutoMirrored.Rounded.HelpOutline, "Card not recognized", "This is not a Doorbell ID.")
+    is ScanResult.Revoked -> BannerLook(Doorbell.badBg, Doorbell.bad, Icons.Rounded.Block, r.student.fullName, "Old card that was replaced.")
+    is ScanResult.NotEnrolled -> BannerLook(Doorbell.badBg, Doorbell.bad, Icons.Rounded.WarningAmber, r.student.fullName, "Not in a section yet.")
+    ScanResult.Ignored -> lookOf(null, scanning, hint)
 }
 
 @Composable
-private fun ResultBanner(result: ScanResult?) {
+private fun ResultBanner(result: ScanResult?, scanning: Boolean, hint: String?) {
+    val look = lookOf(result, scanning, hint)
     AnimatedContent(
-        targetState = result,
+        targetState = look,
         transitionSpec = { (fadeIn(tween(160)) + scaleIn(tween(200), initialScale = 0.97f)) togetherWith fadeOut(tween(120)) },
         label = "result",
-    ) { r ->
-        val look = lookOf(r)
+    ) { l ->
+        val plain = l.bg == Doorbell.frame
         Row(
             Modifier
                 .fillMaxWidth()
                 .heightIn(min = 96.dp)
                 .clip(Radii.md)
-                .background(look.bg)
-                .then(if (r == null) Modifier.border(1.dp, Doorbell.line, Radii.md) else Modifier)
+                .background(l.bg)
+                .then(if (plain) Modifier.border(1.dp, Doorbell.line, Radii.md) else Modifier)
                 .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(look.icon, contentDescription = null, tint = look.fg, modifier = Modifier.size(40.dp))
+            Icon(l.icon, contentDescription = null, tint = l.fg, modifier = Modifier.size(40.dp))
             Spacer(Modifier.width(14.dp))
             Column {
-                Text(look.title, style = MaterialTheme.typography.titleLarge, color = if (r == null) Doorbell.ink else look.fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(look.detail, style = MaterialTheme.typography.bodyLarge, color = if (r == null) Doorbell.muted else look.fg)
+                Text(l.title, style = MaterialTheme.typography.titleLarge, color = l.fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(l.detail, style = MaterialTheme.typography.bodyLarge, color = if (plain) Doorbell.muted else l.fg)
             }
         }
-    }
-}
-
-@Composable
-private fun RecentRow(r: RecentScan) {
-    val dot = when (r.tone) {
-        Tone.OK -> Doorbell.ok
-        Tone.LATE -> Doorbell.late
-        Tone.INFO -> Doorbell.info
-        Tone.BAD -> Doorbell.bad
-    }
-    Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(10.dp).clip(androidx.compose.foundation.shape.CircleShape).background(dot))
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            Text(r.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(r.detail, style = MaterialTheme.typography.bodyMedium, color = Doorbell.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-        Text(r.at, style = MaterialTheme.typography.bodyMedium, color = Doorbell.muted)
-    }
-}
-
-// The row that shows the phone is texting parents from its SIM, and asks for permission once.
-@Composable
-fun SmsRow(waiting: Int, sentToday: Int, permitted: Boolean, onAllow: () -> Unit) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clip(Radii.md)
-            .background(if (permitted) Doorbell.surface else Doorbell.lateBg)
-            .padding(start = 14.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            if (permitted) "Texts go out from this phone's SIM · $sentToday sent" + (if (waiting > 0) " · $waiting waiting" else "")
-            else "Doorbell texts parents from this phone. Allow it to send SMS.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = if (permitted) Doorbell.muted else Doorbell.late,
-            modifier = Modifier.weight(1f).padding(vertical = 6.dp),
-        )
-        if (!permitted) TextButton(onClick = onAllow) { Text("Allow", color = Doorbell.late) }
     }
 }
