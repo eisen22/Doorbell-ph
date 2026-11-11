@@ -595,12 +595,13 @@ export function StudentAttendanceModal({ student, section, onClose }) {
   // What one day looks like.
   const look = (d) => {
     if (d < year.start || d > last) return { cls: 'sd-out', text: 'Outside the school days so far' };
+    // No class that day (weekend, holiday, suspension, break): shown as No class even if an old record exists.
+    if (!schedule || !isSchoolDay(d, schedule, calendar)) return { cls: 'sd-off', text: 'No class' };
     const rec = days[d];
     if (rec) {
       const meta = STATUS_META[rec.status];
       return { cls: STATUS_CLASS[rec.status] ?? '', text: `${meta?.label ?? rec.status}${rec.scannedAt ? ` · scanned ${to12h(rec.scannedAt)}` : ''}` };
     }
-    if (!schedule || !isSchoolDay(d, schedule, calendar)) return { cls: 'sd-off', text: 'No class' };
     return { cls: 'sd-none', text: 'No record' };
   };
   return (

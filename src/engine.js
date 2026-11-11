@@ -747,13 +747,16 @@ export class Engine {
   //   streak: the current absent/late days in a row (their dates are outlined)
   async getStudentAttendance(studentId, sectionId) {
     await this.ready;
+    const section = this.s.sections.get(sectionId);
     const days = {};
     for (const day of this.s.attendance.values()) {
       if (day.sectionId !== sectionId) continue;
+      // A day the admin later made a break, holiday or suspension is not a class day anymore: its old
+      // records (e.g. auto-confirmed absences) are not shown or counted, like in Absence Watch.
+      if (section && !isSchoolDay(day.date, section.schedule, this.s.calendar)) continue;
       const r = day.records[studentId];
       if (r) days[day.date] = { status: r.status, scannedAt: r.scannedAt ?? null };
     }
-    const section = this.s.sections.get(sectionId);
     const today = this.clock.today();
     return {
       days,
