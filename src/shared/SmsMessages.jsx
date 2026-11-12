@@ -33,6 +33,8 @@ const KINDS = [
   { k: 'arrival', label: 'Arrived' },
   { k: 'late', label: 'Arrived late' },
   { k: 'streak', label: '3-day alerts' },
+  { k: 'total', label: 'Totals' },
+  { k: 'missing', label: 'Not in class' },
   { k: 'failed', label: 'Failed' },
   { k: 'test', label: 'Tests' },
 ];

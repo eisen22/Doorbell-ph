@@ -337,10 +337,10 @@ export class Engine {
     if ((kind === 'arrival' || kind === 'late') && !this.settings.arrivalSmsEnabled) return null;
     // One arrival/late text per child per day (confirming, then editing a status, does not text twice).
     if ((kind === 'arrival' || kind === 'late') && this.s.sms.has(`arr_${student.id}_${opts.date}`)) return null;
-    // One total text per limit per month/semester (opts.id says which).
-    if (kind === 'total' && this.s.sms.has(opts.id)) return null;
+    // One total text per limit per month/semester, one "not in class" text per day (opts.id says which).
+    if ((kind === 'total' || kind === 'missing') && this.s.sms.has(opts.id)) return null;
     const tpl = this.settings.templates[g.preferredLanguage] ?? this.settings.templates.en;
-    const key = kind === 'streak' || kind === 'total' ? kind : `${kind}${opts.auto ? 'Auto' : ''}`;
+    const key = kind === 'streak' || kind === 'total' || kind === 'missing' ? kind : `${kind}${opts.auto ? 'Auto' : ''}`;
     const body = renderTemplate(tpl[key] ?? this.settings.templates.en[key], {
       child: student.firstName,
       time: opts.time ? to12h(opts.time) : '',
@@ -350,7 +350,7 @@ export class Engine {
       summary: opts.metric ? describeTotal(opts.metric, opts.count, g.preferredLanguage) : '',
     });
     // Deterministic ids: two devices processing the same event write the same document once.
-    const id = kind === 'total' ? opts.id : kind === 'streak' ? `stk_${student.id}_${opts.date}` : `arr_${student.id}_${opts.date}`;
+    const id = kind === 'total' || kind === 'missing' ? opts.id : kind === 'streak' ? `stk_${student.id}_${opts.date}` : `arr_${student.id}_${opts.date}`;
     const failed = g.numberStatus === 'failed';
     const msg = {
       id,
@@ -734,10 +734,15 @@ export class Engine {
       title: `${stu.firstName} ${stu.lastName} was scanned at the gate at ${to12h(scannedAt)} but is not in class`,
       body: `Marked absent in ${sec?.name ?? 'class'} by ${this.actor()}. Look for the child now (gate, office, comfort rooms, other rooms)${
         g ? `, then call ${g.name} at ${displayPhMobile(g.mobile)}` : ''
-      }. The parent was told the child arrived.`,
+      }. ${sec?.textParentIfMissing ? 'The parent was sent a text that the child is not in class.' : 'The parent has not been told the child is in class.'}`,
     };
     this.s.notifications.set(n.id, n);
     this.put('notifications', n.id, n);
+    // Older learners (the section's setting): the parent is texted too, since the child may be cutting class.
+    // Young learners: staff only, so the school can find the child first.
+    if (sec?.textParentIfMissing) {
+      this.queueSms(stu, 'missing', { id: `mis_${stu.id}_${date}`, time: scannedAt, date, sectionId, createdAt: this.nowIso(date) });
+    }
     await this.logAudit('attendance.missing_after_scan', `${stu.firstName} ${stu.lastName}`, `scanned ${scannedAt}, marked absent`);
   }
   // The teacher presses "Confirm attendance" (same as finalize, plus an audit entry).
@@ -1053,6 +1058,8 @@ export class Engine {
           color: input.color,
           capacity: input.capacity,
           teacherId: input.teacherId,
+          gradeLevel: input.gradeLevel ?? existing.gradeLevel ?? 'K',
+          textParentIfMissing: !!input.textParentIfMissing,
           // keep the teacher-away days when the admin edits the class hours
           schedule: { ...input.schedule, teacherAway: existing.schedule?.teacherAway ?? input.schedule.teacherAway },
         }
@@ -1380,6 +1387,7 @@ export const settings = {
       lateAuto: 'Doorbell: {child} arrived late at school at {time}. - {school}',
       streak: '{school}: {child} has been {streak}. We hope all is well. Please call {contact}.',
       total: '{school}: {child} has been {summary}. We hope all is well. Please call {contact}.',
+      missing: '{school}: {child} entered the school at {time} but is not in class. The school is looking for {child} now. Please call {contact}.',
     },
     fil: {
       arrival: 'Doorbell: Nasa klase na si {child}. Dumating ng {time}, kinumpirma ng guro. - {school}',
@@ -1388,11 +1396,12 @@ export const settings = {
       lateAuto: 'Doorbell: Nahuli si {child} ng dating sa paaralan, {time}. - {school}',
       streak: '{school}: Si {child} ay {streak}. Sana ay maayos siya. Pakitawagan ang {contact}.',
       total: '{school}: Si {child} ay {summary}. Sana ay maayos siya. Pakitawagan ang {contact}.',
+      missing: '{school}: Pumasok si {child} sa paaralan ng {time} pero wala sa klase. Hinahanap na siya ng paaralan. Pakitawagan ang {contact}.',
     },
   },
 };
 // The kinds of parent texts, in the order the Settings pages show them.
-export const TEMPLATE_KINDS = ['arrival', 'late', 'arrivalAuto', 'lateAuto', 'streak', 'total'];
+export const TEMPLATE_KINDS = ['arrival', 'late', 'arrivalAuto', 'lateAuto', 'streak', 'total', 'missing'];
 // The old default texts (sent at the gate scan). Saved settings that still have them get the new ones.
 const OLD_DEFAULTS = {
   en: { arrival: 'Doorbell: {child} arrived at school at {time}. - {school}', late: 'Doorbell: {child} arrived late at {time}. - {school}' },

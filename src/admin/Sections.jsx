@@ -40,9 +40,15 @@ import { toTeacherInput, TeacherModal } from './Teachers';
 // ---------------------------------------------------------------------
 // Colors offered for sections. Add any hex color here to offer it.
 export const SECTION_COLORS = ['#FFD9A8', '#D8F5A2', '#E4D6FA', '#CDE8F7', '#FBD3E0', '#FFF0A8', '#C9F0E4', '#F2D9C4'];
-// Default values for a new section (a morning kindergarten class).
+// Grade levels the school can have: Kindergarten to Grade 10 (Junior High School).
+export const GRADE_LEVELS = ['K', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10'];
+export const gradeName = (g) => (g === 'K' || !g ? 'Kindergarten' : `Grade ${g}`);
+// Default values for a new section (a morning class).
 const blank = () => ({
-  name: 'Kindergarten I - ',
+  name: '',
+  gradeLevel: 'K',
+  // Older learners: text the parent when the child entered the gate but is not in class (may be cutting class).
+  textParentIfMissing: false,
   color: SECTION_COLORS[3],
   capacity: 25,
   teacherId: null,
@@ -237,7 +243,13 @@ export function Sections() {
         >
           <label className="field">
             <span>Section name</span>
-            <input className="input" value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} autoFocus />
+            <input
+              className="input"
+              value={edit.name}
+              placeholder="e.g. Kindergarten I - Apple, Grade 5 - Rizal"
+              onChange={(e) => setEdit({ ...edit, name: e.target.value })}
+              autoFocus
+            />
           </label>
           <div className="field">
             <span>Color</span>
@@ -330,6 +342,34 @@ export function Sections() {
               />
             </label>
           </div>
+          <label className="field">
+            <span>Grade level</span>
+            <select
+              className="input"
+              value={edit.gradeLevel ?? 'K'}
+              onChange={(e) => {
+                const g = e.target.value;
+                // New section, Grade 4 and up: suggest texting the parent (older learners may cut class).
+                setEdit({ ...edit, gradeLevel: g, textParentIfMissing: edit.id ? edit.textParentIfMissing : g !== 'K' && Number(g) >= 4 });
+              }}
+            >
+              {GRADE_LEVELS.map((g) => (
+                <option key={g} value={g}>
+                  {gradeName(g)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="check">
+            <input type="checkbox" checked={!!edit.textParentIfMissing} onChange={(e) => setEdit({ ...edit, textParentIfMissing: e.target.checked })} />
+            <span>
+              Text the parent if a learner was scanned at the gate but is not in class
+              <span className="muted small block">
+                Suggested for Grade 4 and up, where learners may cut class. For younger learners, leave it off: only the teacher and admin are
+                alerted, so the school can find the child first.
+              </span>
+            </span>
+          </label>
           <label className="field">
             <span>Capacity</span>
             <input

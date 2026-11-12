@@ -129,7 +129,7 @@ export function TeacherModal({ input, sections, teachers, onClose, onSaved }) {
           );
         })}
         <p className="muted small">
-          A teacher can handle several classes as long as the class times do not overlap, for example a morning and an afternoon kindergarten class.
+          A teacher can handle several classes as long as the class times do not overlap, for example a morning and an afternoon class.
         </p>
       </fieldset>
       {error && <p className="error">{error}</p>}

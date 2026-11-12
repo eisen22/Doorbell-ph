@@ -32,6 +32,7 @@ const KIND_LABELS = {
   lateAuto: 'Late (auto-confirmed or after confirming)',
   streak: '3-day alert',
   total: 'Monthly / semester total',
+  missing: 'In school but not in class (if on for the section)',
 };
 
 // =====================================================================
