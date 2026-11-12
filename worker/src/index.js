@@ -179,7 +179,7 @@ async function autoConfirm(db, now) {
     db.getMany(ids.flatMap((id) => Array.from({ length: span + 1 }, (_, i) => `attendance/${id}_${addDays(since, i)}`))),
     // For the parent portal months (teacher's name) and the excuses the teacher already approved.
     db.query('teachers'),
-    db.query('excuses', [['status', 'EQUAL', 'approved']]),
+    db.query('excuses', [['status', 'EQUAL', 'approved']]).catch(() => []), // none if the rules are older than the portal
   ]);
   const writes = new Map();
   const persistence = {

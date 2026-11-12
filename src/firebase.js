@@ -243,7 +243,8 @@ export function createCloudEngine() {
         all('users'),
         all('attendance'),
         all('confirmations'),
-        all('excuses'), // excuse requests from the parent portal
+        // Excuse requests from the parent portal (if firestore.rules is older than the portal, skip them).
+        all('excuses').catch((e) => console.warn('Excuse requests not loaded: publish the new firestore.rules', e)),
         listen('sms', query(collection(db, 'sms'), orderBy('createdAt', 'desc'), limit(400))),
         listen('notifications', query(collection(db, 'notifications'), orderBy('createdAt', 'desc'), limit(300))),
         listen('audit', query(collection(db, 'audit'), orderBy('at', 'desc'), limit(300))),
@@ -288,7 +289,8 @@ export function createCloudEngine() {
         listen('attendance', mine('attendance')),
         listen('confirmations', mine('confirmations')),
         listen('sms', query(collection(db, 'sms'), where('sectionId', 'in', ids))),
-        listen('excuses', mine('excuses')), // excuse requests from parents of this class
+        // Excuse requests from parents of this class (skipped if firestore.rules is older than the portal).
+        listen('excuses', mine('excuses')).catch((e) => console.warn('Excuse requests not loaded: publish the new firestore.rules', e)),
       );
     }
     classUnsubs = unsubs.splice(before); // keep these separate so they can be restarted alone
