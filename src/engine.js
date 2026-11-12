@@ -18,11 +18,16 @@ import {
   fromMinutes,
   DEPED_SY_2026_2027,
   eachDate,
+  isoWeekday,
   displayPhMobile,
   DEFAULT_LIMITS,
   attendanceTotals,
   totalLevels,
   describeTotal,
+  parentKeyOf,
+  defaultParentPassword,
+  eldestChild,
+  sha256Hex,
 } from './logic';
 
 // =====================================================================
@@ -92,6 +97,7 @@ export function emptyState(meta, calendar = []) {
     sms: new Map(),
     notifications: new Map(),
     audit: new Map(),
+    excuses: new Map(), // excuse requests from the parent portal
   };
 }
 // Attendance and confirmation documents are named '<sectionId>_<date>', e.g. 'sec-apple_2026-10-29'.
@@ -486,7 +492,12 @@ export class Engine {
     const id = dayId(sectionId, date);
     const day = this.s.attendance.get(id) ?? { id, sectionId, date, records: {} };
     for (const stu of roster) {
-      if (!day.records[stu.id]) day.records[stu.id] = { date, studentId: stu.id, sectionId, status: 'absent', source: 'auto' };
+      if (day.records[stu.id]) continue;
+      // The teacher already approved a parent's excuse for this day (Parent portal): excused, not absent.
+      const ex = this.approvedExcuse(stu.id, date);
+      day.records[stu.id] = ex
+        ? { date, studentId: stu.id, sectionId, status: 'excused', source: 'excuse', excusedNote: `Parent: ${ex.reason}` }
+        : { date, studentId: stu.id, sectionId, status: 'absent', source: 'auto' };
     }
     this.s.attendance.set(id, day);
     this.put('attendance', id, day);
@@ -508,6 +519,8 @@ export class Engine {
         createdAt: at,
       });
     }
+    // The parent portal now shows this day (it only shows days the class has confirmed).
+    this.syncParentDays(roster.map((x) => x.id), [date.slice(0, 7)]);
     return conf;
   }
   /** Auto-confirms past school days nobody confirmed, and today after the auto-confirm time. */
@@ -718,6 +731,8 @@ export class Engine {
     }
     // CHILD SAFETY: scanned at the gate but marked absent in class = the child is in school but missing.
     if (stu && input.status === 'absent' && prev?.scannedAt) await this.alertMissing(stu, input.sectionId, input.date, prev.scannedAt);
+    // A change to a confirmed day (or a past day) also changes what the parent portal shows.
+    if (locked || input.date < this.clock.today()) this.syncParentDays([input.studentId], [input.date.slice(0, 7)]);
     this.emit();
   }
   // Raises an urgent alert (admin Overview + the teacher's Alerts): the gate saw the child, the classroom did not.
@@ -848,6 +863,155 @@ export class Engine {
       streak: section ? this.streakFor(section, studentId, today) : null,
     };
   }
+  /* ---------- parent portal ---------- */
+  // =====================================================================
+  // PARENT PORTAL (src/parent/): parents sign in with their mobile number and see their children's
+  // CONFIRMED attendance, and can ask the teacher to excuse a day. The portal cannot read the class
+  // attendance documents (those hold every classmate), so the engine keeps two small copies for it:
+  //   parentKeys/{09XXXXXXXXX} = which children belong to that number + the default password's hash
+  //   parentDays/{studentId}_{YYYY-MM} = one child's days for one month, the "no class" days and totals
+  // They are rewritten when a class is confirmed, a status changes, the calendar changes, or the admin
+  // presses Settings -> Parent portal -> "Update parent portal".
+  // =====================================================================
+  // An approved excuse from the parent portal that covers this child on this day, if any.
+  approvedExcuse(studentId, date) {
+    for (const ex of this.s.excuses.values()) if (ex.status === 'approved' && ex.studentId === studentId && ex.dates?.includes(date)) return ex;
+    return undefined;
+  }
+  // Saves the portal key for one guardian's mobile number. The default password is stored only as a
+  // SHA-256 hash; firestore.rules checks it when a parent signs in for the first time.
+  async syncParentKey(g) {
+    const key = parentKeyOf(g?.mobile);
+    if (!key) return;
+    const kids = g.studentIds.map((id) => this.s.students.get(id)).filter(Boolean);
+    const eldest = eldestChild(kids);
+    const code = defaultParentPassword(eldest);
+    const doc = {
+      id: key,
+      guardianId: g.id,
+      guardianName: g.name,
+      studentIds: kids.map((k) => k.id),
+      children: kids.map((k) => ({ id: k.id, firstName: k.firstName, lastName: k.lastName, sectionId: this.activeEnrollment(k.id)?.sectionId ?? null })),
+      codeHash: code ? await sha256Hex(code) : null,
+      defaultFrom: eldest ? `${eldest.firstName} ${eldest.lastName}` : null,
+      updatedAt: new Date().toISOString(),
+    };
+    this.put('parentKeys', key, doc);
+  }
+  // What the parent portal shows for one child in one month ('2026-11').
+  parentMonthDoc(studentId, month) {
+    const stu = this.s.students.get(studentId);
+    if (!stu) return null;
+    const today = this.clock.today();
+    const enr = this.activeEnrollment(studentId);
+    const section = enr ? this.s.sections.get(enr.sectionId) : undefined;
+    const days = {};
+    for (const day of this.s.attendance.values()) {
+      if (!day.date.startsWith(month)) continue;
+      const r = day.records[studentId];
+      if (!r) continue;
+      const sec = this.s.sections.get(day.sectionId);
+      // Not a class day anymore (made a holiday or break later): not shown, like in Absence Watch.
+      if (sec && !isSchoolDay(day.date, sec.schedule, this.s.calendar)) continue;
+      // Today only after the class is confirmed (the parent is never shown a gate scan as "in class").
+      if (day.date >= today && !this.s.confirmations.has(dayId(day.sectionId, day.date))) continue;
+      days[day.date] = { s: r.status, t: r.scannedAt ?? null };
+    }
+    // Class days with no class (holidays, breaks, suspensions, teacher absent), with their names.
+    const noClass = {};
+    if (section) {
+      for (let d = `${month}-01`; d.startsWith(month); d = addDays(d, 1)) {
+        if (d < this.year.start || d > this.year.end) continue;
+        const usual = section.schedule.classDays.includes(isoWeekday(d));
+        if (usual && !isSchoolDay(d, section.schedule, this.s.calendar)) {
+          noClass[d] = this.s.calendar.get(d)?.label ?? 'No class';
+        }
+      }
+    }
+    let totals = null;
+    if (section) {
+      const [y, m] = month.split('-').map(Number);
+      const monthEnd = addDays(m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, '0')}-01`, -1);
+      const asOf = today < monthEnd ? today : monthEnd;
+      const t = this.totalsFor(section, studentId, asOf);
+      totals = { asOf, month: t.month, semester: t.semester, semesterKey: t.semesterKey, levels: t.levels };
+    }
+    return {
+      id: `${studentId}_${month}`,
+      studentId,
+      month,
+      firstName: stu.firstName,
+      lastName: stu.lastName,
+      sectionId: section?.id ?? null,
+      sectionName: section?.name ?? null,
+      gradeLevel: section?.gradeLevel ?? null,
+      teacherName: (section && this.s.teachers.get(section.teacherId)?.name) ?? null,
+      schoolName: this.settings.schoolName ?? null,
+      days,
+      noClass,
+      totals,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+  // Rewrites the parent portal months. studentIds null = every child.
+  syncParentDays(studentIds, months) {
+    const ids = studentIds ?? [...this.s.students.keys()];
+    for (const month of new Set(months)) {
+      for (const id of ids) {
+        const doc = this.parentMonthDoc(id, month);
+        if (doc) this.put('parentDays', doc.id, doc);
+      }
+    }
+  }
+  // Admin: Settings -> Parent portal -> "Update parent portal": every key and every month so far.
+  async syncParentPortal() {
+    await this.ready;
+    for (const g of this.s.guardians.values()) await this.syncParentKey(g);
+    const months = [];
+    const end = this.clock.today() < this.year.end ? this.clock.today() : this.year.end;
+    for (let d = `${this.year.start.slice(0, 7)}-01`; d <= end; d = addDays(d, 1)) if (d.endsWith('-01')) months.push(d.slice(0, 7));
+    this.syncParentDays(null, months);
+    await this.logAudit('parent_portal.sync', `${this.s.guardians.size} parents`, `${months.length} months`);
+    this.emit();
+    return { parents: this.s.guardians.size, months: months.length };
+  }
+  // Parents who cannot sign in yet because no child of theirs has a birthday (no default password).
+  parentsWithoutPassword() {
+    return [...this.s.guardians.values()].filter((g) => g.studentIds.length && !defaultParentPassword(eldestChild(g.studentIds.map((id) => this.s.students.get(id)).filter(Boolean))));
+  }
+  // Excuse requests the signed-in person may see (a teacher: their classes), newest first.
+  async listExcuses() {
+    await this.ready;
+    const vis = this.visibleSectionIds();
+    return [...this.s.excuses.values()]
+      .filter((x) => !vis || vis.has(x.sectionId))
+      .map((x) => ({ ...x, student: this.s.students.get(x.studentId), section: this.s.sections.get(x.sectionId) }))
+      // Waiting requests first, then newest first.
+      .sort((a, b) => (b.status === 'pending') - (a.status === 'pending') || b.createdAt.localeCompare(a.createdAt));
+  }
+  // The teacher approves or declines a parent's excuse request. Approved: the days that already
+  // happened become Excused (unless the child came to school); later days are excused when the
+  // class is confirmed (finalize).
+  async decideExcuse(id, decision, note) {
+    await this.ready;
+    const ex = this.s.excuses.get(id);
+    if (!ex || ex.status !== 'pending') return;
+    Object.assign(ex, { status: decision, decidedBy: this.actor(), decidedAt: new Date().toISOString(), teacherNote: note || null });
+    this.put('excuses', id, ex);
+    const stu = this.s.students.get(ex.studentId);
+    const sec = this.s.sections.get(ex.sectionId);
+    if (decision === 'approved' && sec) {
+      const today = this.clock.today();
+      for (const date of ex.dates) {
+        if (date > today || !isSchoolDay(date, sec.schedule, this.s.calendar)) continue;
+        const rec = this.record(ex.sectionId, date, ex.studentId);
+        if (rec && rec.status !== 'absent') continue; // the child came (present or late) or already excused
+        await this.setStatus({ studentId: ex.studentId, sectionId: ex.sectionId, date, status: 'excused', note: `Parent: ${ex.reason}`, reason: 'Parent excuse approved' });
+      }
+    }
+    await this.logAudit(`excuse.${decision}`, stu ? `${stu.firstName} ${stu.lastName}` : ex.studentId, `${ex.dates.join(', ')}: ${ex.reason}`);
+    this.emit();
+  }
   /* ---------- admin ---------- */
   // =====================================================================
   // ADMIN ACTIONS
@@ -931,6 +1095,7 @@ export class Engine {
       `${first.label}.${noClass ? ' Attendance is not taken and these days do not count in absence streaks.' : ''}`,
       first.date,
     );
+    this.syncParentDays(null, days.map((d) => d.date.slice(0, 7)));
     this.emit();
   }
   // Makes days regular class days again (and alerts teachers).
@@ -946,6 +1111,7 @@ export class Engine {
       `${sorted.length === 1 ? 'This day is' : 'These days are'} back to the regular class schedule.`,
       sorted[0],
     );
+    this.syncParentDays(null, sorted.map((d) => d.slice(0, 7)));
     this.emit();
   }
   // Replaces the whole calendar with the DepEd template.
@@ -1221,12 +1387,14 @@ export class Engine {
     }
     this.put('students', student.id, student);
     let sibling = false;
+    const touched = []; // guardians whose parent portal key must be updated
     let g = [...this.s.guardians.values()].find((x) => x.mobile === input.guardianMobile);
     if (!g) {
       for (const other of this.s.guardians.values()) {
         if (other.studentIds.includes(student.id)) {
           other.studentIds = other.studentIds.filter((id) => id !== student.id);
           this.put('guardians', other.id, other);
+          touched.push(other);
         }
       }
       g = {
@@ -1252,12 +1420,14 @@ export class Engine {
       preferredLanguage: input.preferredLanguage,
     });
     this.put('guardians', g.id, g);
+    touched.push(g);
     if (input.sectionId !== undefined) this.placeStudent(student.id, input.sectionId);
-    return { student, sibling };
+    return { student, sibling, touched };
   }
   async saveStudent(input) {
     await this.ready;
-    const { student } = this.upsertStudent(input);
+    const { student, touched } = this.upsertStudent(input);
+    for (const g of touched) await this.syncParentKey(g);
     await this.logAudit(input.id ? 'student.update' : 'student.create', `${student.firstName} ${student.lastName}`);
     this.emit();
     return student;

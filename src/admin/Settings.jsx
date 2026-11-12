@@ -1,4 +1,5 @@
 import {
+  RefreshCw,
   Trash2,
   Plus,
   QrCode,
@@ -211,6 +212,7 @@ export function AdminSettings() {
         </div>
       </Card>
       <GateAccountCard flash={flash} />
+      <ParentPortalCard flash={flash} />
       <Toast message={toast} />
     </div>
   );
@@ -279,6 +281,58 @@ function GateAccountCard({ flash }) {
         </button>
       </form>
       {error && <p className="error">{error}</p>}
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------
+// PARENT PORTAL: what parents use to sign in, the "Update parent portal" button (rebuilds every
+// parent's key and every month; also needed once after "Load sample school"), and how to reset
+// a parent's password.
+// ---------------------------------------------------------------------
+function ParentPortalCard({ flash }) {
+  const repo = useRepo();
+  const { data: missing } = useLive(async (r) => r.parentsWithoutPassword());
+  const [busy, setBusy] = useState(false);
+  const url = `${window.location.origin}${import.meta.env.BASE_URL}parent`;
+  return (
+    <Card title="Parent portal">
+      <p className="muted small">
+        Parents open <a href={url}>{url.replace(/^https?:\/\//, '')}</a> and sign in with the mobile number on file. The default password is the
+        child's initials (first, middle, last) and birthday as MMDDYY, e.g. Alice Pati Garcia, born Aug 13, 2021 = <code>apg081321</code> (the eldest
+        child's, for siblings). Parents are reminded to change it, but are not forced to. Announce the portal at the parent orientation: Doorbell
+        texts never contain links.
+      </p>
+      <button
+        className="btn"
+        disabled={busy}
+        onClick={async () => {
+          setBusy(true);
+          try {
+            const res = await repo.syncParentPortal();
+            flash(`Parent portal updated: ${res.parents} parents, ${res.months} months.`);
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <RefreshCw size={16} aria-hidden="true" /> {busy ? 'Updating…' : 'Update parent portal'}
+      </button>
+      <p className="muted small">Press this once after loading the sample school or adding many students. Normal changes update the portal by themselves.</p>
+      {missing?.length > 0 && (
+        <p className="error small">
+          {missing.length} parent{missing.length > 1 ? 's' : ''} cannot sign in yet because no child has a birthday on file:{' '}
+          {missing
+            .slice(0, 5)
+            .map((g) => g.name)
+            .join(', ')}
+          {missing.length > 5 ? '…' : ''}. Add the birthday in Students.
+        </p>
+      )}
+      <p className="muted small">
+        <b>Forgot password:</b> open Firebase console → Authentication → Users, search the parent's number (e.g. p09171234567), and delete that
+        user. The parent can then sign in again with the default password.
+      </p>
     </Card>
   );
 }

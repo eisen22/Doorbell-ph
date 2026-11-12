@@ -170,13 +170,16 @@ async function autoConfirm(db, now) {
     for (let i = 0; i < ids.length; i += 30) out.push(...(await db.query(col, [['sectionId', 'IN', ids.slice(i, i + 30)]])));
     return out;
   };
-  const [students, guardians, enrollments, attendance] = await Promise.all([
+  const [students, guardians, enrollments, attendance, teachers, excuses] = await Promise.all([
     db.query('students'),
     db.query('guardians'),
     bySection('enrollments'),
     // Attendance documents are named <section>_<date> (like the website), so they are fetched by
     // name: no Firestore index needed, and missing days are simply skipped.
     db.getMany(ids.flatMap((id) => Array.from({ length: span + 1 }, (_, i) => `attendance/${id}_${addDays(since, i)}`))),
+    // For the parent portal months (teacher's name) and the excuses the teacher already approved.
+    db.query('teachers'),
+    db.query('excuses', [['status', 'EQUAL', 'approved']]),
   ]);
   const writes = new Map();
   const persistence = {
@@ -189,6 +192,8 @@ async function autoConfirm(db, now) {
     [engine.s.students, students],
     [engine.s.guardians, guardians],
     [engine.s.enrollments, enrollments],
+    [engine.s.teachers, teachers],
+    [engine.s.excuses, excuses],
   ])
     rows.forEach((r) => map.set(r.id, { ...r.data, id: r.data.id ?? r.id }));
   for (const [path, data] of attendance) engine.s.attendance.set(path.split('/')[1], { ...data, id: path.split('/')[1] });

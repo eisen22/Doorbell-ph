@@ -626,3 +626,47 @@ export function autoAssign(students, sections, method, keepSiblings) {
   }
   return { assignments, unplaced };
 }
+
+/* =====================================================================
+   PARENT PORTAL
+   Parents sign in at /parent with their mobile number and a password.
+   The first password (the "default password") is the child's initials + birthday (MMDDYY):
+     Alice Pati Garcia, born 2021-08-13  ->  apt081321
+   With two or more children, the ELDEST child's initials and birthday are used.
+   Behind the scenes the mobile number becomes a Firebase sign-in email (parentEmail).
+   ===================================================================== */
+
+// The part after the @ in a parent's sign-in email (no email is ever sent there).
+export const PARENT_EMAIL_DOMAIN = 'parents.doorbell-ph-f12d0.firebaseapp.com';
+
+/** Any way of typing a PH mobile -> '09171234567' (the id of the parent's portal key), or null. */
+export function parentKeyOf(mobile) {
+  const n = normalizePhMobile(String(mobile ?? ''));
+  return n ? `0${n.slice(3)}` : null;
+}
+
+/** '09171234567' -> 'p09171234567@parents.doorbell-ph-f12d0.firebaseapp.com' */
+export const parentEmail = (key) => `p${key}@${PARENT_EMAIL_DOMAIN}`;
+
+/** The default password for one child: initials (first, middle, last) + birthday MMDDYY. null without a birthday. */
+export function defaultParentPassword(student) {
+  if (!student?.birthdate || !/^\d{4}-\d{2}-\d{2}$/.test(student.birthdate)) return null;
+  const first = (s) => (s ?? '').trim().normalize('NFD').replace(/[^A-Za-z]/g, '').charAt(0).toLowerCase();
+  const initials = first(student.firstName) + first(student.middleName) + first(student.lastName);
+  const [y, m, d] = student.birthdate.split('-');
+  return `${initials}${m}${d}${y.slice(2)}`;
+}
+
+/** The child whose initials and birthday make the default password: the eldest one with a birthday. */
+export function eldestChild(students) {
+  return [...students].filter((s) => s?.birthdate).sort((a, b) => a.birthdate.localeCompare(b.birthdate))[0] ?? null;
+}
+
+/** SHA-256 of a text as lowercase hex (the default password is saved only as this, never in plain text). */
+export async function sha256Hex(text) {
+  const bytes = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)));
+  return [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+// Reasons a parent can pick when asking the teacher to excuse their child.
+export const EXCUSE_REASONS = ['Sick', 'Doctor or dental appointment', 'Family emergency', 'Death in the family', 'Bad weather or flood', 'Other'];

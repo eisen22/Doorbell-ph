@@ -53,6 +53,7 @@ function looksRight(col, d) {
   if (col === 'attendance') return typeof d.sectionId === 'string' && !!d.records;
   if (col === 'sms' || col === 'notifications') return typeof d.createdAt === 'string';
   if (col === 'audit') return typeof d.at === 'string';
+  if (col === 'excuses') return typeof d.studentId === 'string' && Array.isArray(d.dates) && typeof d.createdAt === 'string';
   return true;
 }
 
@@ -242,6 +243,7 @@ export function createCloudEngine() {
         all('users'),
         all('attendance'),
         all('confirmations'),
+        all('excuses'), // excuse requests from the parent portal
         listen('sms', query(collection(db, 'sms'), orderBy('createdAt', 'desc'), limit(400))),
         listen('notifications', query(collection(db, 'notifications'), orderBy('createdAt', 'desc'), limit(300))),
         listen('audit', query(collection(db, 'audit'), orderBy('at', 'desc'), limit(300))),
@@ -286,6 +288,7 @@ export function createCloudEngine() {
         listen('attendance', mine('attendance')),
         listen('confirmations', mine('confirmations')),
         listen('sms', query(collection(db, 'sms'), where('sectionId', 'in', ids))),
+        listen('excuses', mine('excuses')), // excuse requests from parents of this class
       );
     }
     classUnsubs = unsubs.splice(before); // keep these separate so they can be restarted alone

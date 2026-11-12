@@ -29,6 +29,7 @@ import {
   LogOut,
   MessageSquareText,
   UserX,
+  FileText,
 } from 'lucide-react';
 import { useRepo, Logo, Skeleton, useLive, RepoProvider } from './ui';
 import ReactDOM from 'react-dom/client';
@@ -49,6 +50,9 @@ import { AdminStudents } from './admin/Students';
 import { QrCards } from './admin/IdCards';
 import { AdminSettings } from './admin/Settings';
 import { AuditLog } from './admin/AuditLog';
+import { ExcuseRequests } from './shared/ExcuseRequests';
+// The parent portal (/parent) has its own sign-in and does not use the staff frame (Shell).
+import { ParentPortal } from './parent/ParentPortal';
 
 /** One sign-in page for teachers and admins; the account's role decides which portal opens. */
 // ---------------------------------------------------------------------
@@ -218,6 +222,9 @@ export function Login() {
                 <KeyRound size={14} /> Forgot password?
               </button>
             </form>
+            <p className="muted small center-text">
+              Parent? <a href={`${import.meta.env.BASE_URL}parent`}>Open the parent portal</a>
+            </p>
             {demo.length > 0 && (
               <div className="demo-box">
                 <p>
@@ -261,6 +268,7 @@ const TEACHER_NAV = [
   { to: '/students', label: 'My Students', Icon: Users },
   { to: '/calendar', label: 'Calendar', Icon: CalendarDays },
   { to: '/notifications', label: 'Alerts', Icon: Bell, badge: 'alerts' },
+  { to: '/excuses', label: 'Excuse requests', Icon: FileText, badge: 'excuses' },
   { to: '/sms', label: 'SMS Messages', Icon: MessageSquareText },
   { to: '/settings', label: 'Settings', Icon: SettingsIcon },
 ];
@@ -269,6 +277,7 @@ const ADMIN_NAV = [
   { to: '/admin/absences', label: 'Absence Watch', Icon: UserX, badge: 'watch' },
   // The same Attendance page as teachers, with every class: for a day when a teacher is absent.
   { to: '/admin/attendance', label: 'Attendance', Icon: ClipboardCheck },
+  { to: '/admin/excuses', label: 'Excuse requests', Icon: FileText, badge: 'excuses' },
   { to: '/admin/calendar', label: 'School Calendar', Icon: CalendarDays },
   { to: '/admin/sections', label: 'Sections', Icon: Shapes },
   { to: '/admin/teachers', label: 'Teachers', Icon: GraduationCap },
@@ -291,11 +300,13 @@ export function Shell() {
   const { data: session, loading } = useLive((r) => r.getSession());
   const { data: counts } = useLive(async (r) => {
     const s = await r.getSession();
-    if (!s) return { alerts: 0, watch: 0 };
+    if (!s) return { alerts: 0, watch: 0, excuses: 0 };
     const alerts = (await r.listNotifications()).filter((n) => !n.read).length;
     // Red badge on Absence Watch: children at the streak limit (the teacher sees only their own classes).
     const watch = (await r.listAttention((await r.getSettings()).streakDays)).length;
-    return { alerts, watch };
+    // Excuse requests from parents that nobody has answered yet.
+    const excuses = (await r.listExcuses()).filter((x) => x.status === 'pending').length;
+    return { alerts, watch, excuses };
   });
   const isAdmin = session?.role === 'admin';
   const nav = isAdmin ? ADMIN_NAV : TEACHER_NAV;
@@ -443,6 +454,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
       <BrowserRouter basename={import.meta.env.BASE_URL.replace(/\/$/, '')}>
         <Routes>
           <Route path="login" element={<Login />} />
+          <Route path="parent" element={<ParentPortal />} />
           <Route element={<Shell />}>
             <Route index element={<Dashboard />} />
             <Route path="attendance" element={<Attendance />} />
@@ -452,6 +464,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             <Route path="notifications" element={<Notifications />} />
             <Route path="settings" element={<SettingsPage />} />
             <Route path="sms" element={<SmsMessages />} />
+            <Route path="excuses" element={<ExcuseRequests />} />
+            <Route path="admin/excuses" element={<ExcuseRequests />} />
             <Route path="admin/sms" element={<SmsMessages />} />
             <Route path="admin/absences" element={<AbsenceWatch />} />
             <Route path="admin/attendance" element={<Attendance />} />

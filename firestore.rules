@@ -4,7 +4,8 @@ rules_version = '2';
 // firestore.rules — WHO MAY READ AND WRITE WHAT
 // ---------------------------------------------------------------------
 // Paste this into Firebase console -> Firestore Database -> Rules -> Publish.
-// - Only signed-in staff (people with a users/{uid} profile) can read data.
+// - Only signed-in staff (people with a users/{uid} profile) can read school data.
+// - Parents (parents/{uid}) read only their own children's months and their own excuse requests.
 // - The admin manages the school; a teacher writes attendance only for their own classes.
 // - The audit log can be added to but never edited or deleted.
 // If the app shows "Missing or insufficient permissions", one of these rules said no.
@@ -32,6 +33,15 @@ service cloud.firestore {
       return isStaff() && account().role == 'teacher'
         && get(/databases/$(database)/documents/sections/$(sectionId)).data.teacherId == account().teacherId;
     }
+
+    // ----- parent portal (src/parent/) -----
+    // A parent signs in with an account whose email is p<09XXXXXXXXX>@parents.doorbell-ph-f12d0.firebaseapp.com
+    // and has a parents/{uid} profile. parentKeys/{09XXXXXXXXX} lists that number's children.
+    function parentEmailFor(mobile) { return 'p' + mobile + '@parents.doorbell-ph-f12d0.firebaseapp.com'; }
+    function parentProfile() { return get(/databases/$(database)/documents/parents/$(request.auth.uid)).data; }
+    function isParent() { return signedIn() && exists(/databases/$(database)/documents/parents/$(request.auth.uid)); }
+    function parentKey() { return get(/databases/$(database)/documents/parentKeys/$(parentProfile().mobile)).data; }
+    function parentOf(studentId) { return isParent() && studentId in parentKey().studentIds; }
 
     // First-time setup flag. Anyone can read it (the sign-in page checks if setup is needed).
     // It can be created only once, together with the first admin profile.
@@ -89,6 +99,51 @@ service cloud.firestore {
     match /notifications/{id} {
       allow read: if isStaff();
       allow create, update: if isStaff();
+      allow delete: if isAdmin();
+    }
+
+    // ----- PARENT PORTAL -----
+    // Which children belong to a mobile number, and the hash of the default password. Written by the admin
+    // (engine.syncParentKey); a parent can read only the key of their own number.
+    match /parentKeys/{mobile} {
+      allow read: if isStaff() || (isParent() && parentProfile().mobile == mobile);
+      allow write: if isAdmin();
+    }
+    // A parent's profile. Created on the first sign-in ONLY when the password typed (proof) matches the
+    // default password's hash for that number, so a stranger cannot take over a parent's number.
+    // Afterwards the parent may only remove the proof and clear the "default password" warning.
+    match /parents/{uid} {
+      allow read: if (signedIn() && request.auth.uid == uid) || isStaff();
+      allow create: if signedIn() && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['mobile', 'proof', 'defaultPassword', 'createdAt'])
+        && request.resource.data.mobile is string && request.resource.data.mobile.matches('09[0-9]{9}')
+        && request.auth.token.email == parentEmailFor(request.resource.data.mobile)
+        && request.resource.data.defaultPassword == true
+        && exists(/databases/$(database)/documents/parentKeys/$(request.resource.data.mobile))
+        && get(/databases/$(database)/documents/parentKeys/$(request.resource.data.mobile)).data.codeHash
+           == hashing.sha256(request.resource.data.proof).toHexString().lower();
+      allow update: if signedIn() && request.auth.uid == uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['proof', 'defaultPassword'])
+        && !('proof' in request.resource.data);
+      allow delete: if isAdmin();
+    }
+    // One child's month as the parent sees it (confirmed days only). Written by staff and the Worker.
+    match /parentDays/{id} {
+      allow read: if isStaff() || parentOf(resource.data.studentId);
+      allow write: if isStaff();
+    }
+    // Excuse requests: the parent asks, the class teacher (or admin) approves or declines.
+    match /excuses/{id} {
+      allow read: if isStaff() || (isParent() && resource.data.parentUid == request.auth.uid);
+      allow create: if isParent()
+        && request.resource.data.parentUid == request.auth.uid
+        && parentOf(request.resource.data.studentId)
+        && request.resource.data.status == 'pending'
+        && request.resource.data.dates is list && request.resource.data.dates.size() > 0 && request.resource.data.dates.size() <= 10
+        && request.resource.data.reason is string && request.resource.data.reason.size() <= 60
+        && request.resource.data.get('note', '').size() <= 500
+        && request.resource.data.keys().hasOnly(['id', 'studentId', 'sectionId', 'parentUid', 'studentName', 'guardianName', 'dates', 'reason', 'note', 'status', 'createdAt']);
+      allow update: if isAdmin() || teachesSection(resource.data.sectionId);
       allow delete: if isAdmin();
     }
 

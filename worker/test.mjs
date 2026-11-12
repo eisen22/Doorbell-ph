@@ -81,6 +81,15 @@ const env = { FIREBASE_PROJECT_ID: 'demo', FIREBASE_API_KEY: 'k', GATE_EMAIL: 'w
 // A run at 11:00 AM Manila on a school day (minute 0, so auto-confirm runs too).
 const at = new Date(`${today}T03:00:00Z`);
 const day = new Date(`${today}T12:00:00+08:00`).getUTCDay();
+// Parent portal: a parent's excuse for today, approved by the teacher before the class is confirmed.
+const exEnr = [...state.enrollments.values()].find((e) => e.status === 'active');
+const exDay = `attendance/${exEnr.sectionId}_${today}`;
+if (db.has(exDay)) {
+  const d = db.get(exDay).data;
+  delete d.records[exEnr.studentId];
+  put(exDay, d);
+}
+put('excuses/ex1', { id: 'ex1', studentId: exEnr.studentId, sectionId: exEnr.sectionId, dates: [today], reason: 'Sick', status: 'approved', createdAt: new Date().toISOString() });
 const report = await run(env, at, fakeFetch);
 console.log('report:', JSON.stringify(report));
 
@@ -94,6 +103,10 @@ if (day >= 1 && day <= 5) {
   ok(confs.every((k) => db.get(k).data.auto === true && db.get(k).data.confirmedAt.startsWith(`${today}T`)), 'stamped with each class auto-confirm time');
   const att = [...db.keys()].filter((k) => k.startsWith('attendance/') && k.endsWith(today));
   ok(att.some((k) => Object.values(db.get(k).data.records).some((r) => r.status === 'absent')), 'unscanned children marked absent');
+  const exRec = db.get(exDay)?.data.records[exEnr.studentId];
+  ok(exRec?.status === 'excused' && exRec.source === 'excuse', 'approved parent excuse -> excused, not absent');
+  const pd = db.get(`parentDays/${exEnr.studentId}_${today.slice(0, 7)}`)?.data;
+  ok(pd?.days?.[today]?.s === 'excused' && pd.totals && pd.sectionName, 'parent portal month written (today, totals, class name)');
   // A second run does nothing new.
   const before = db.size;
   await run(env, at, fakeFetch);
