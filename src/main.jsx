@@ -33,6 +33,8 @@ import {
 } from 'lucide-react';
 import { useRepo, Logo, Skeleton, useLive, RepoProvider } from './ui';
 import { parentKeyOf } from './logic';
+// Parents sign in on this same page with their mobile number (parent/parentCloud.js), then /parent opens.
+import { signInParent } from './parent/parentCloud';
 import ReactDOM from 'react-dom/client';
 // One file per screen: teacher/ (teacher only), admin/ (admin only), shared/ (both portals).
 import { Dashboard } from './teacher/Dashboard';
@@ -109,10 +111,20 @@ export function Login() {
     e?.preventDefault();
     setError(null);
     setNotice(null);
-    if (!email || !password) return setError('Enter your email and password.');
-    // A mobile number instead of an email = a parent on the wrong page: open the parent portal with the number filled in.
-    const key = !email.includes('@') && parentKeyOf(email);
-    if (key) return navigate(`/parent?m=${key}`);
+    if (!email || !password) return setError('Enter your email or mobile number, and your password.');
+    // A mobile number (no @) = a parent: sign in to the parent portal.
+    if (!email.includes('@')) {
+      if (!parentKeyOf(email)) return setError('Enter an email address, or a mobile number like 0917 123 4567.');
+      setBusy(true);
+      try {
+        await signInParent(email, password);
+        navigate('/parent', { replace: true });
+      } catch (err) {
+        setError(err.message);
+        setBusy(false);
+      }
+      return;
+    }
     setBusy(true);
     try {
       const s = await repo.signIn(email, password);
@@ -183,10 +195,10 @@ export function Login() {
         ) : (
           <section className="login-form">
             <h1>Sign in</h1>
-            <p className="muted">For teachers and school admins. Use the account given by your school.</p>
+            <p className="muted">For teachers, school admins and parents. Parents: use your mobile number.</p>
             <form onSubmit={submit}>
               <label className="field">
-                <span>Email</span>
+                <span>Email or mobile number</span>
                 <input className="input" type="text" inputMode="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} autoFocus />
               </label>
               <label className="field">
@@ -226,9 +238,14 @@ export function Login() {
                 <KeyRound size={14} /> Forgot password?
               </button>
             </form>
-            <a className="btn wide parent-portal-link" href={`${import.meta.env.BASE_URL}parent`}>
-              Parent? Open the parent portal
-            </a>
+            <details className="parent-help">
+              <summary>Parent signing in for the first time?</summary>
+              <p>
+                Use the mobile number the school has on file. Your default password is your child's initials (first, middle, last name) and birthday
+                (MMDDYY), in small letters. Example: Alice Pati Garcia, born Aug 13, 2021 → <code>apg081321</code>. Two or more children? Use the eldest
+                child's. Forgot it? Ask the teacher or the school office.
+              </p>
+            </details>
             {demo.length > 0 && (
               <div className="demo-box">
                 <p>

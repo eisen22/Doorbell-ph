@@ -3,15 +3,16 @@
 // ---------------------------------------------------------------------
 // A phone-first page for parents: sign in with the mobile number + password, then see each child's
 // CONFIRMED attendance (calendar, month and semester totals) and send an excuse request to the teacher.
-// Screens: SignIn -> Home (one tab per child) -> ExcuseForm / ChangePassword.
+// Parents sign in on the shared sign-in page (/login, main.jsx) with their mobile number.
+// Screens: Home (one tab per child) -> ExcuseForm / ChangePassword. Signed out -> back to /login.
 // The data comes from parentCloud.js (not from the engine: parents never load the whole school).
 // =====================================================================
 import React, { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { AlertTriangle, ChevronLeft, ChevronRight, Eye, EyeOff, FileText, KeyRound, LogIn, LogOut, Send } from 'lucide-react';
+import { Navigate } from 'react-router-dom';
+import { AlertTriangle, ChevronLeft, ChevronRight, FileText, KeyRound, LogOut, Send } from 'lucide-react';
 import { Logo, StatusChip, DatePicker, longDate } from '../ui';
 import { addDays, isoWeekday, manilaToday, to12h, EXCUSE_REASONS } from '../logic';
-import { changeParentPassword, portalAvailable, sendExcuse, signInParent, signOutParent, watchParent } from './parentCloud';
+import { changeParentPassword, portalAvailable, sendExcuse, signOutParent, watchParent } from './parentCloud';
 
 const STATUS_WORD = { present: 'Present', late: 'Late', absent: 'Absent', excused: 'Excused' };
 const monthName = (m) => new Date(`${m}-01T00:00:00`).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
@@ -47,7 +48,7 @@ export function ParentPortal() {
           </p>
         </Shell>
       )}
-      {st.status === 'signedOut' && <SignIn />}
+      {st.status === 'signedOut' && <Navigate to="/login" replace />}
       {st.status === 'ready' && <Home st={st} />}
     </div>
   );
@@ -70,86 +71,6 @@ function Shell({ children, school, onSignOut }) {
       </header>
       {children}
     </div>
-  );
-}
-
-// ---------------------------------------------------------------------
-// SIGN IN: mobile number + password. The first time, the password is the default password.
-// ---------------------------------------------------------------------
-function SignIn() {
-  // ?m=09171234567: sent here from the staff sign-in page with the number already typed.
-  const [mobile, setMobile] = useState(() => new URLSearchParams(window.location.search).get('m') ?? '');
-  const [password, setPassword] = useState('');
-  const [show, setShow] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState(null);
-  const submit = async (e) => {
-    e.preventDefault();
-    setError(null);
-    setBusy(true);
-    try {
-      await signInParent(mobile, password);
-    } catch (err) {
-      setError(err.message);
-      setBusy(false);
-    }
-  };
-  return (
-    <Shell>
-      <h1 className="pp-h1">Parent portal</h1>
-      <p className="pp-muted">See your child's attendance and send excuse notes to the teacher.</p>
-      <form className="pp-card pp-form" onSubmit={submit}>
-        <label className="pp-field">
-          <span>Mobile number</span>
-          <input
-            className="input"
-            type="tel"
-            inputMode="tel"
-            autoComplete="username"
-            placeholder="0917 123 4567"
-            value={mobile}
-            onChange={(e) => setMobile(e.target.value)}
-            autoFocus={!mobile}
-          />
-        </label>
-        <label className="pp-field">
-          <span>Password</span>
-          <div className="pw">
-            <input
-              className="input"
-              type={show ? 'text' : 'password'}
-              autoFocus={!!mobile}
-              autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-            <button type="button" className="icon-btn sm" onClick={() => setShow((v) => !v)} aria-label={show ? 'Hide password' : 'Show password'}>
-              {show ? <EyeOff size={16} /> : <Eye size={16} />}
-            </button>
-          </div>
-        </label>
-        {error && (
-          <p className="error" role="alert">
-            {error}
-          </p>
-        )}
-        <button className="btn btn-ink wide pp-big" type="submit" disabled={busy}>
-          <LogIn size={18} aria-hidden="true" /> {busy ? 'Signing in…' : 'Sign in'}
-        </button>
-      </form>
-      <section className="pp-help">
-        <strong>First time signing in?</strong>
-        <p>Use the mobile number the school has on file. Your default password is your child's initials (first, middle, last name) and birthday (MMDDYY), in small letters.</p>
-        <p>
-          Example: <b>Alice Pati Garcia</b>, born Aug 13, 2021 → <code>apg081321</code>
-        </p>
-        <p>Two or more children at this school? Use the eldest child's.</p>
-        <p>Forgot your password? Ask your child's teacher or the school office to reset it.</p>
-      </section>
-      <p className="pp-muted pp-center pp-small">
-        School staff? <Link to="/login">Sign in here</Link>
-      </p>
-    </Shell>
   );
 }
 

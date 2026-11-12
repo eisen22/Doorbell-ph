@@ -808,4 +808,7 @@ a.kpi:hover { background: var(--surface) !important; }
 .excuse-facts dd { margin: 0; }
 .excuse-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .excuse-actions .input { flex: 1; min-width: 200px; }
-.parent-portal-link { margin-top: 14px; text-decoration: none; justify-content: center; }
+.parent-help { margin-top: 14px; font-size: 13px; color: var(--ink-2); background: var(--surface); border-radius: var(--r-md); padding: 10px 14px; }
+.parent-help summary { cursor: pointer; font-weight: 700; color: var(--ink); min-height: 28px; display: flex; align-items: center; }
+.parent-help p { margin: 6px 0 2px; }
+.parent-help code { background: var(--frame); padding: 1px 6px; border-radius: var(--r-xs); font-weight: 700; }
