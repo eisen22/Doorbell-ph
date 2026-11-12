@@ -77,7 +77,8 @@ function Shell({ children, school, onSignOut }) {
 // SIGN IN: mobile number + password. The first time, the password is the default password.
 // ---------------------------------------------------------------------
 function SignIn() {
-  const [mobile, setMobile] = useState('');
+  // ?m=09171234567: sent here from the staff sign-in page with the number already typed.
+  const [mobile, setMobile] = useState(() => new URLSearchParams(window.location.search).get('m') ?? '');
   const [password, setPassword] = useState('');
   const [show, setShow] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -108,7 +109,7 @@ function SignIn() {
             placeholder="0917 123 4567"
             value={mobile}
             onChange={(e) => setMobile(e.target.value)}
-            autoFocus
+            autoFocus={!mobile}
           />
         </label>
         <label className="pp-field">
@@ -117,6 +118,7 @@ function SignIn() {
             <input
               className="input"
               type={show ? 'text' : 'password'}
+              autoFocus={!!mobile}
               autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}

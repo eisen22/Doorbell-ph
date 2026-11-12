@@ -808,3 +808,4 @@ a.kpi:hover { background: var(--surface) !important; }
 .excuse-facts dd { margin: 0; }
 .excuse-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .excuse-actions .input { flex: 1; min-width: 200px; }
+.parent-portal-link { margin-top: 14px; text-decoration: none; justify-content: center; }

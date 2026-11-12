@@ -32,6 +32,7 @@ import {
   FileText,
 } from 'lucide-react';
 import { useRepo, Logo, Skeleton, useLive, RepoProvider } from './ui';
+import { parentKeyOf } from './logic';
 import ReactDOM from 'react-dom/client';
 // One file per screen: teacher/ (teacher only), admin/ (admin only), shared/ (both portals).
 import { Dashboard } from './teacher/Dashboard';
@@ -109,6 +110,9 @@ export function Login() {
     setError(null);
     setNotice(null);
     if (!email || !password) return setError('Enter your email and password.');
+    // A mobile number instead of an email = a parent on the wrong page: open the parent portal with the number filled in.
+    const key = !email.includes('@') && parentKeyOf(email);
+    if (key) return navigate(`/parent?m=${key}`);
     setBusy(true);
     try {
       const s = await repo.signIn(email, password);
@@ -183,7 +187,7 @@ export function Login() {
             <form onSubmit={submit}>
               <label className="field">
                 <span>Email</span>
-                <input className="input" type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} autoFocus />
+                <input className="input" type="text" inputMode="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} autoFocus />
               </label>
               <label className="field">
                 <span>Password</span>
@@ -222,9 +226,9 @@ export function Login() {
                 <KeyRound size={14} /> Forgot password?
               </button>
             </form>
-            <p className="muted small center-text">
-              Parent? <a href={`${import.meta.env.BASE_URL}parent`}>Open the parent portal</a>
-            </p>
+            <a className="btn wide parent-portal-link" href={`${import.meta.env.BASE_URL}parent`}>
+              Parent? Open the parent portal
+            </a>
             {demo.length > 0 && (
               <div className="demo-box">
                 <p>
