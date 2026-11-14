@@ -244,6 +244,13 @@ export function Attendance() {
               Auto-confirms at {to12h(autoFinalizeTime(section.schedule))} if you do not confirm. Children not scanned by then are marked absent.
             </p>
           )}
+          {/* What a pre-filled Present / Late means: the gate scan, not yet a classroom check. */}
+          {!confirmation && (
+            <p className="hint">
+              <b>Present</b> and <b>Late</b> are filled in from the gate scan: the child has scanned at the gate. Check that each one is in the room. If a
+              scanned child is not here, select <b>Absent</b>, and the school is alerted right away.
+            </p>
+          )}
           {/* One row per child: name, scan time, streak, SMS consent, and the four status buttons. */}
           <ul className="roster">
             {statusFilter && (
@@ -269,7 +276,7 @@ export function Attendance() {
                       </strong>
                       <span className="muted small">
                         {row.record?.scannedAt
-                          ? `Scanned ${to12h(row.record.scannedAt)}`
+                          ? `Scanned at the gate ${to12h(row.record.scannedAt)}`
                           : row.record
                             ? row.record.source === 'auto'
                               ? 'Not scanned'
