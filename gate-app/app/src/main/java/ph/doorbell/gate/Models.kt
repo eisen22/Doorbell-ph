@@ -134,7 +134,8 @@ data class SchoolSettings(
 /** What happened after one scan. The scanner screen shows a different color for each. */
 sealed class ScanResult {
     /** Saved: the child arrived. status is "present" or "late". */
-    data class Recorded(val student: Student, val section: Section, val status: String, val time: String, val parentTexted: Boolean) : ScanResult()
+    // waitsForTeacher: scanned after the class was confirmed, so a teacher must confirm the child in class.
+    data class Recorded(val student: Student, val section: Section, val status: String, val time: String, val waitsForTeacher: Boolean) : ScanResult()
     /** The child was already scanned today (first scan kept). */
     data class AlreadyIn(val student: Student, val section: Section, val firstScanAt: String) : ScanResult()
     /** The code is not on any Doorbell ID card. */

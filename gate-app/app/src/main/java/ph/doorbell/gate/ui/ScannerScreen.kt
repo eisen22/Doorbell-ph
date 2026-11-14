@@ -165,7 +165,9 @@ private fun lookOf(r: ScanResult?, scanning: Boolean, hint: String?): BannerLook
         hint != null -> BannerLook(Doorbell.lateBg, Doorbell.late, Icons.Rounded.WarningAmber, "No ID found", hint)
         else -> BannerLook(Doorbell.frame, Doorbell.ink, Icons.Rounded.QrCodeScanner, "Ready", "Press Scan ID, then hold the card in front of the camera.")
     }
-    is ScanResult.Recorded -> if (r.status == "late") {
+    is ScanResult.Recorded -> if (r.waitsForTeacher) {
+        BannerLook(Doorbell.lateBg, Doorbell.late, Icons.Rounded.Schedule, r.student.fullName, "Arrived ${Rules.to12h(r.time)} · go to ${r.section.name}, the teacher will confirm")
+    } else if (r.status == "late") {
         BannerLook(Doorbell.lateBg, Doorbell.late, Icons.Rounded.Schedule, r.student.fullName, "Late · ${Rules.to12h(r.time)} · ${r.section.name}")
     } else {
         BannerLook(Doorbell.okBg, Doorbell.ok, Icons.Rounded.CheckCircle, r.student.fullName, "Arrived ${Rules.to12h(r.time)} · ${r.section.name}")

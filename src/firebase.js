@@ -183,7 +183,7 @@ export function createCloudEngine() {
      the in-memory copy and every open page redraws itself.
      ================================================================= */
   let unsubs = []; // functions that stop each listener
-  let tick = null; // the once-a-minute auto-confirm timer
+  let tick = null; // the once-a-minute timer (absence texts, and closing classes nobody confirmed)
   let watchClasses = null;
   let classUnsubs = []; // listeners for a teacher's classes
   let classKey = ''; // which classes those listeners cover, e.g. 'sec-a,sec-b'
@@ -348,7 +348,7 @@ export function createCloudEngine() {
           }
         });
       }
-      // Auto-confirm: past days nobody confirmed, and today after the auto-confirm time.
+      // Every minute: absence texts at the end of first period, and closing classes nobody confirmed.
       engine.catchUp();
       tick = setInterval(() => engine.catchUp(), 60_000);
       signInWaiter?.(account);

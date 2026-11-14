@@ -62,6 +62,9 @@ export function Attendance() {
   };
   // pending = an Excused change waiting for its (optional) note.
   const [pending, setPending] = useState(null);
+  // arrived = a child being confirmed after the class was already confirmed (classes with subject teachers ask which period).
+  const [arrived, setArrived] = useState(null);
+  const [period, setPeriod] = useState(2);
   const [text, setText] = useState('');
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [toast, setToast] = useState(null);
@@ -124,8 +127,22 @@ export function Attendance() {
       setError(null);
       return;
     }
+    // A child who arrives after the class was confirmed, in a class with subject teachers: ask which
+    // period, so the parent's text can say "arrived at 10:15 AM (2nd period)".
+    const lateArrival = confirmation && day === today.date && (status === 'present' || status === 'late') && (row.record?.status === 'absent' || row.record?.needsCheck);
+    if (lateArrival && section.subjectTeacherIds?.length) {
+      setArrived({ row, status });
+      setPeriod(2);
+      return;
+    }
     await repo.setStatus({ sectionId: section.id, date: day, studentId: row.student.id, status });
     flash(`${row.student.firstName} marked ${status}`);
+  };
+  const saveArrived = async () => {
+    const { row, status } = arrived;
+    await repo.setStatus({ sectionId: section.id, date: day, studentId: row.student.id, status, period });
+    setArrived(null);
+    flash(`${row.student.firstName} marked ${status}. The parent is texted.`);
   };
   const savePending = async () => {
     if (!pending) return;
@@ -215,7 +232,7 @@ export function Attendance() {
             {/* Auto-confirmed days show the class's auto-confirm time. (Days auto-confirmed before this fix were
                 stamped with the time the app was opened, e.g. 6:50 PM; this shows them correctly too.) */}
             {confirmation.auto
-              ? `Auto-confirmed at ${to12h(autoFinalizeTime(section.schedule))}`
+              ? 'Not confirmed by a teacher: closed automatically after class, parents were not texted'
               : `Confirmed by ${confirmation.confirmedBy} at ${format(new Date(confirmation.confirmedAt), 'h:mm a')}`}
             . You can still change a status.
           </div>
@@ -241,14 +258,30 @@ export function Attendance() {
         <Card>
           {!confirmation && day === today.date && (
             <p className="hint">
-              Auto-confirms at {to12h(autoFinalizeTime(section.schedule))} if you do not confirm. Children not scanned by then are marked absent.
+              Only you can confirm this class: parents are texted when you do. Children still absent at{' '}
+              {to12h(autoFinalizeTime(section.schedule))} (end of first period) get the absence text.
+            </p>
+          )}
+          {/* For the next teachers: who was not in class at first period, and who is waiting to be confirmed. */}
+          {confirmation && day === today.date && (
+            <p className="absent-strip">
+              <b>Not in class at first period:</b>{' '}
+              {roster.filter((r) => r.record?.status === 'absent').map((r) => `${r.student.firstName} ${r.student.lastName}`).join(', ') || 'nobody'}
+              {roster.some((r) => r.record?.needsCheck) && (
+                <>
+                  . <b>Scanned at the gate, waiting for a teacher:</b>{' '}
+                  {roster.filter((r) => r.record?.needsCheck).map((r) => `${r.student.firstName} ${r.student.lastName}`).join(', ')}
+                </>
+              )}
+              . If one of them is in your class now, mark Present or Late: the parent is texted with the arrival time.
             </p>
           )}
           {/* What a pre-filled Present / Late means: the gate scan, not yet a classroom check. */}
           {!confirmation && (
             <p className="hint">
               <b>Present</b> and <b>Late</b> are filled in from the gate scan: the child has scanned at the gate. Check that each one is in the room. If a
-              scanned child is not here, select <b>Absent</b>, and the school is alerted right away.
+              scanned child is not here, stop and look for the child. Found: keep Present or Late. Not found: select <b>Absent</b>. The school is
+              alerted right away, and the parent is texted "entered the school but is not in class" when you confirm.
             </p>
           )}
           {/* One row per child: name, scan time, streak, SMS consent, and the four status buttons. */}
@@ -268,7 +301,7 @@ export function Attendance() {
               .map((row) => {
                 const st = row.record?.status;
                 return (
-                  <li key={row.student.id} className="roster-row">
+                  <li key={row.student.id} className={`roster-row ${row.record?.needsCheck ? 'needs-check' : ''}`}>
                     <Avatar first={row.student.firstName} last={row.student.lastName} tone={section.color} />
                     <div className="roster-name">
                       <strong>
@@ -282,6 +315,8 @@ export function Attendance() {
                               ? 'Not scanned'
                               : 'Set manually'
                             : 'Not yet scanned'}
+                        {row.record?.needsCheck && <span className="check-note"> · arrived after confirming: check in class, then press Present or Late</span>}
+                        {st === 'absent' && row.record?.scannedAt && <span className="missing-note"> · not in class: look for the child</span>}
                         {row.record?.excusedNote && ` · ${row.record.excusedNote}`}
                         {row.streak.count >= 2 && (
                           <>
@@ -340,6 +375,40 @@ export function Attendance() {
         </Modal>
       )}
 
+      {/* A child confirmed after the class was confirmed (classes with subject teachers): which period? */}
+      {arrived && (
+        <Modal
+          title={`${arrived.row.student.firstName} is in class now`}
+          onClose={() => setArrived(null)}
+          footer={
+            <>
+              <button className="btn" onClick={() => setArrived(null)}>
+                Cancel
+              </button>
+              <button className="btn btn-ink" onClick={saveArrived}>
+                Mark {arrived.status} and text the parent
+              </button>
+            </>
+          }
+        >
+          <label className="field">
+            <span>Which period did {arrived.row.student.firstName} join?</span>
+            <select className="input" value={period} onChange={(e) => setPeriod(Number(e.target.value))} autoFocus>
+              {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
+                <option key={n} value={n}>
+                  {n === 1 ? '1st' : n === 2 ? '2nd' : n === 3 ? '3rd' : `${n}th`} period
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="muted small">
+            The parent gets: "{arrived.row.student.firstName} arrived at school at{' '}
+            {to12h(arrived.row.record?.scannedAt ?? today.time)} ({period === 1 ? '1st' : period === 2 ? '2nd' : period === 3 ? '3rd' : `${period}th`} period) and is in class,
+            confirmed by the teacher."
+          </p>
+        </Modal>
+      )}
+
       {/* "Are you sure?" window before confirming. */}
       {confirmOpen && (
         <Modal
@@ -357,11 +426,12 @@ export function Attendance() {
           }
         >
           <p>
-            {waiting} {waiting === 1 ? 'child has' : 'children have'} not been scanned and will be marked <b>absent</b>. Children who reach a
-            3-school-day late or absent streak will trigger an SMS to their guardian.
+            Parents of the children marked Present or Late are texted now. {waiting} {waiting === 1 ? 'child has' : 'children have'} not been
+            scanned and will be marked <b>absent</b>; their parents are texted at {to12h(autoFinalizeTime(section.schedule))} if they have still
+            not arrived.
           </p>
           <p className="muted small">
-            Date: {format(parseISO(day), 'EEEE, MMMM d')}. A child who arrives later can still be scanned and will be recorded as late.
+            Date: {format(parseISO(day), 'EEEE, MMMM d')}. A child who arrives later is scanned at the gate and waits on this list until a teacher marks Present or Late.
           </p>
         </Modal>
       )}

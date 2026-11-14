@@ -41,14 +41,22 @@ import { toTeacherInput, TeacherModal } from './Teachers';
 // Colors offered for sections. Add any hex color here to offer it.
 export const SECTION_COLORS = ['#FFD9A8', '#D8F5A2', '#E4D6FA', '#CDE8F7', '#FBD3E0', '#FFF0A8', '#C9F0E4', '#F2D9C4'];
 // Grade levels the school can have: Kindergarten to Grade 10 (Junior High School).
-export const GRADE_LEVELS = ['K', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10'];
+// Doorbell covers Kindergarten to Grade 6.
+export const GRADE_LEVELS = ['K', '1', '2', '3', '4', '5', '6'];
+// The admin pages group classes by level: Kindergarten, Grades 1 to 3 (one teacher all day) and
+// Grades 4 to 6 (may have subject teachers).
+export const LEVEL_BANDS = [
+  { id: 'k', label: 'Kindergarten' },
+  { id: 'lower', label: 'Grades 1 to 3' },
+  { id: 'upper', label: 'Grades 4 to 6' },
+];
+export const bandOf = (g) => (!g || g === 'K' ? 'k' : Number(g) <= 3 ? 'lower' : 'upper');
 export const gradeName = (g) => (g === 'K' || !g ? 'Kindergarten' : `Grade ${g}`);
 // Default values for a new section (a morning class).
 const blank = () => ({
   name: '',
   gradeLevel: 'K',
-  // Older learners: text the parent when the child entered the gate but is not in class (may be cutting class).
-  textParentIfMissing: false,
+  subjectTeacherIds: [], // Grades 4 to 6: teachers of other subjects who also see this class
   color: SECTION_COLORS[3],
   capacity: 25,
   teacherId: null,
@@ -58,7 +66,7 @@ const blank = () => ({
     endTime: '11:30',
     scanWindowMins: 30,
     lateCutoffMins: 15,
-    autoFinalizeMins: 45,
+    autoFinalizeMins: 60, // absence texts: 60 minutes after class starts (end of first period)
   },
 });
 export function Sections() {
@@ -134,8 +142,17 @@ export function Sections() {
           </button>
         </div>
       </div>
+      {/* Classes grouped by level: Kindergarten, Grades 1 to 3, Grades 4 to 6. */}
+      {LEVEL_BANDS.map((band) => {
+        const items = list.filter((s) => bandOf(s.gradeLevel) === band.id);
+        if (!items.length) return null;
+        return (
+          <section key={band.id} className="band">
+            <h2 className="band-title">
+              {band.label} <span className="muted">{items.length}</span>
+            </h2>
       <div className="section-grid">
-        {list.map((s) => {
+        {items.map((s) => {
           const n = data.count(s.id);
           return (
             <article
@@ -165,6 +182,8 @@ export function Sections() {
                         color: s.color,
                         capacity: s.capacity,
                         teacherId: s.teacherId,
+                        gradeLevel: s.gradeLevel ?? 'K',
+                        subjectTeacherIds: s.subjectTeacherIds ?? [],
                         schedule: { ...s.schedule },
                       });
                       setError(null);
@@ -202,6 +221,9 @@ export function Sections() {
           );
         })}
       </div>
+          </section>
+        );
+      })}
 
       {openId && data.sections.find((s) => s.id === openId) && (
         <SectionDetail
@@ -219,6 +241,8 @@ export function Sections() {
               color: s.color,
               capacity: s.capacity,
               teacherId: s.teacherId,
+              gradeLevel: s.gradeLevel ?? 'K',
+              subjectTeacherIds: s.subjectTeacherIds ?? [],
               schedule: { ...s.schedule },
             });
             setError(null);
@@ -331,7 +355,7 @@ export function Sections() {
               />
             </label>
             <label className="field">
-              <span>Auto-confirm (min after start)</span>
+              <span>Absence texts (min after start)</span>
               <input
                 type="number"
                 min={15}
@@ -347,11 +371,7 @@ export function Sections() {
             <select
               className="input"
               value={edit.gradeLevel ?? 'K'}
-              onChange={(e) => {
-                const g = e.target.value;
-                // New section, Grade 4 and up: suggest texting the parent (older learners may cut class).
-                setEdit({ ...edit, gradeLevel: g, textParentIfMissing: edit.id ? edit.textParentIfMissing : g !== 'K' && Number(g) >= 4 });
-              }}
+              onChange={(e) => setEdit({ ...edit, gradeLevel: e.target.value })}
             >
               {GRADE_LEVELS.map((g) => (
                 <option key={g} value={g}>
@@ -360,16 +380,37 @@ export function Sections() {
               ))}
             </select>
           </label>
-          <label className="check">
-            <input type="checkbox" checked={!!edit.textParentIfMissing} onChange={(e) => setEdit({ ...edit, textParentIfMissing: e.target.checked })} />
-            <span>
-              Text the parent if a learner was scanned at the gate but is not in class
-              <span className="muted small block">
-                Suggested for Grade 4 and up, where learners may cut class. For younger learners, leave it off: only the teacher and admin are
-                alerted, so the school can find the child first.
-              </span>
+          <p className="muted small">
+            Absence texts: children still absent at that time (the end of first period) are texted "has not arrived at school". Only a teacher
+            confirms a class; there is no automatic confirmation.
+          </p>
+          {/* Subject teachers: Grades 4 to 6 may have a different teacher per subject. */}
+          <div className="field">
+            <span>Subject teachers (optional, usually Grades 4 to 6)</span>
+            <div className="chips-inline">
+              {data.teachers
+                .filter((t) => t.active !== false && t.id !== edit.teacherId)
+                .map((t) => {
+                  const on = (edit.subjectTeacherIds ?? []).includes(t.id);
+                  return (
+                    <label key={t.id} className="check">
+                      <input
+                        type="checkbox"
+                        checked={on}
+                        onChange={() =>
+                          setEdit({ ...edit, subjectTeacherIds: on ? edit.subjectTeacherIds.filter((x) => x !== t.id) : [...(edit.subjectTeacherIds ?? []), t.id] })
+                        }
+                      />{' '}
+                      {t.name}
+                    </label>
+                  );
+                })}
+            </div>
+            <span className="muted small">
+              They see this class's list (who was absent at first period) and can confirm a child who arrives during their period. The teacher
+              above takes the first-period attendance.
             </span>
-          </label>
+          </div>
           <label className="field">
             <span>Capacity</span>
             <input

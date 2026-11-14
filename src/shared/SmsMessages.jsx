@@ -34,6 +34,7 @@ const KINDS = [
   { k: 'late', label: 'Arrived late' },
   { k: 'streak', label: '3-day alerts' },
   { k: 'total', label: 'Totals' },
+  { k: 'absent', label: 'Absent today' },
   { k: 'missing', label: 'Not in class' },
   { k: 'failed', label: 'Failed' },
   { k: 'test', label: 'Tests' },

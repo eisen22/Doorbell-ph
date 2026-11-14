@@ -29,7 +29,7 @@ Press `Ctrl + C` in the terminal to stop it. `npm run build` makes the finished 
 | `src/shared/` | Screens both portals use: `Attendance`, `AbsenceWatch`, `SmsMessages` |
 | `src/style.css` | How everything looks (colors at the top) |
 | `firestore.rules` | Who may read and write what in the database |
-| `worker/` | Free Cloudflare Worker: real SMS through Semaphore and the scheduled auto-confirm, every minute (see `worker/README.md`) |
+| `worker/` | Free Cloudflare Worker: real SMS through Semaphore, the absence texts at the end of first period and the quiet end-of-day close (see `worker/README.md`) |
 | `gate-app/` | Doorbell Gate, the Android scanner app for the school gate (see `gate-app/README.md`) |
 | `index.html`, `vite.config.js`, `package.json` | Project setup |
 | `.github/workflows/deploy.yml` | Publishes the site to GitHub Pages on every push |

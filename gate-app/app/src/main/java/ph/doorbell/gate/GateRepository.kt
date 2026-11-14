@@ -11,13 +11,14 @@ import java.util.UUID
 // =====================================================================
 // GateRepository.kt — THE GATE PHONE'S CONNECTION TO THE DOORBELL DATABASE
 // ---------------------------------------------------------------------
-// 1. start() opens live listeners: students, sections, enrollments, guardians, the school
+// 1. start() opens live listeners: students, sections, enrollments, the school
 //    settings and calendar, plus TODAY's attendance and confirmations. Firestore keeps a copy
 //    on the phone, so scanning keeps working if the school Wi-Fi drops for a while; the saves
 //    are sent when the connection comes back.
 // 2. scan(code) does what recordScan() does on the website (src/engine.js):
 //      find the child -> check the card, section and school day -> ignore a double beep ->
-//      keep the first scan of the day -> save present/late -> text the parent (arrival or late)
+//      keep the first scan of the day -> save present/late. No text is sent here: the parent is
+//      texted when a teacher confirms the child in class (website).
 // The documents written here have exactly the same shape as the website's, so the teacher
 // sees the arrival appear live on the Attendance page and confirms it once the class is inside.
 // =====================================================================
@@ -28,13 +29,13 @@ class GateRepository(private val db: FirebaseFirestore = FirebaseFirestore.getIn
     private var byToken = mapOf<String, Student>() // card code -> student
     private var sections = mapOf<String, Section>()
     private var sectionOf = mapOf<String, String>() // student id -> section id (active enrollments only)
-    private var guardians = listOf<Guardian>()
     private var calendar = mapOf<String, String>() // date -> day type ('holiday', 'suspension', ...)
     private var settings = SchoolSettings()
 
     // ----- today -----
     private var day = "" // the date the "today" listeners are for
     private val scannedToday = mutableMapOf<String, MutableMap<String, String>>() // section id -> (student id -> scan time)
+    private val statusToday = mutableMapOf<String, String>() // student id -> today's status on the class list (also set by a teacher)
     private var confirmedToday = setOf<String>() // sections whose teacher already confirmed today
     private val lastSeen = mutableMapOf<String, Long>() // card code -> when it was last scanned (ms), for the double-beep check
 
@@ -76,10 +77,6 @@ class GateRepository(private val db: FirebaseFirestore = FirebaseFirestore.getIn
             }?.toMap() ?: emptyMap()
             refreshStatus()
         }
-        schoolListeners += db.collection("guardians").addSnapshotListener { snap, err ->
-            if (err != null) return@addSnapshotListener onListenError(err)
-            guardians = snap?.documents?.mapNotNull { d -> d.data?.let { Guardian.from(d.id, it) } } ?: emptyList()
-        }
         schoolListeners += db.collection("meta").document("school").addSnapshotListener { snap, err ->
             if (err != null) return@addSnapshotListener onListenError(err)
             settings = SchoolSettings.from(snap?.data)
@@ -110,6 +107,7 @@ class GateRepository(private val db: FirebaseFirestore = FirebaseFirestore.getIn
         dayListeners.clear()
         day = date
         scannedToday.clear()
+        statusToday.clear()
         confirmedToday = emptySet()
         dayListeners += db.collection("attendance").whereEqualTo("date", date).addSnapshotListener { snap, err ->
             if (err != null) return@addSnapshotListener onListenError(err)
@@ -119,6 +117,7 @@ class GateRepository(private val db: FirebaseFirestore = FirebaseFirestore.getIn
                 val records = d.get("records") as? Map<String, Map<String, Any?>> ?: continue
                 val map = scannedToday.getOrPut(sectionId) { mutableMapOf() }
                 for ((studentId, rec) in records) {
+                    (rec["status"] as? String)?.let { statusToday[studentId] = it }
                     val at = rec["scannedAt"] as? String ?: continue // manual records without a scan don't count
                     map[studentId] = at
                 }
@@ -171,6 +170,21 @@ class GateRepository(private val db: FirebaseFirestore = FirebaseFirestore.getIn
 
         // 2. Is there class today?
         if (!Rules.isSchoolDay(today, section.schedule, calendar) || today < settings.yearStart || today > settings.yearEnd) {
+            // CHILD SAFETY: the class was cancelled for today (teacher absent) but the child came anyway:
+            // tell the staff (shows as an urgent alert on the website).
+            if (today in section.schedule.noClassDates && today >= settings.yearStart && today <= settings.yearEnd) {
+                val nid = "oncampus_${student.id}_$today"
+                val time = Rules.timeNow()
+                save(
+                    "notifications", nid,
+                    mapOf(
+                        "id" to nid, "kind" to "missing", "studentId" to student.id, "sectionId" to section.id,
+                        "createdAt" to "${today}T$time:00+08:00", "read" to false,
+                        "title" to "${student.fullName} came to school at ${Rules.to12h(time)} but ${section.name} has no class today",
+                        "body" to "The class was cancelled because the teacher is absent. Keep the child with a staff member and call the guardian.",
+                    ),
+                )
+            }
             return ScanResult.NoClassToday(student, section)
         }
 
@@ -183,14 +197,27 @@ class GateRepository(private val db: FirebaseFirestore = FirebaseFirestore.getIn
         // 4. Only the first scan of the day counts.
         scannedToday[section.id]?.get(student.id)?.let { return ScanResult.AlreadyIn(student, section, it) }
 
-        // 5. Present or late?
+        // 5. Present or late, by the clock. NO text is sent at the gate: the parent is texted when a
+        //    teacher confirms the child in class (website).
         val time = Rules.timeNow()
         val confirmed = section.id in confirmedToday
-        val status = Rules.statusForScan(time, section.schedule, confirmed)
+        val dayId = "${section.id}_$today"
+        val already = statusToday[student.id]
+
+        // 5a. A teacher already marked this child Present or Late without a scan (e.g. forgot the ID):
+        //     keep that status and only add the scan time. merge = the other fields stay untouched.
+        if (already == "present" || already == "late") {
+            save("attendance", dayId, mapOf("records" to mapOf(student.id to mapOf("scannedAt" to time))), merge = true)
+            scannedToday.getOrPut(section.id) { mutableMapOf() }[student.id] = time
+            refreshStatus()
+            return ScanResult.Recorded(student, section, already, time, false)
+        }
 
         // 6. Save it inside the section's attendance document for today: attendance/{sectionId}_{date}.
-        //    merge = only this child's record is added; the other children's records stay untouched.
-        val dayId = "${section.id}_$today"
+        //    merge = only this child's record is changed; the other children's records stay untouched.
+        //    After the teacher confirmed the class, the scan is marked needsCheck: the child waits on the
+        //    class list until a teacher marks Present or Late (then the parent is texted).
+        val status = Rules.statusForScan(time, section.schedule, false)
         val record = mutableMapOf<String, Any>(
             "date" to today,
             "studentId" to student.id,
@@ -199,52 +226,28 @@ class GateRepository(private val db: FirebaseFirestore = FirebaseFirestore.getIn
             "scannedAt" to time,
             "source" to "scanner",
         )
-        if (confirmed) record["editedReason"] = "Arrived after attendance was confirmed"
+        if (confirmed) {
+            record["needsCheck"] = true
+            record["editedReason"] = "Arrived after attendance was confirmed"
+        }
         save("attendance", dayId, mapOf("id" to dayId, "sectionId" to section.id, "date" to today, "records" to mapOf(student.id to record)), merge = true)
         scannedToday.getOrPut(section.id) { mutableMapOf() }[student.id] = time // show it at once, even offline
+        statusToday[student.id] = status
         refreshStatus()
-        if (confirmed) audit("attendance.scan_after_lock", student.fullName, "absent -> late at $time")
-
-        // 7. No text at the gate: the parent is texted when the teacher confirms the class (website).
-        //    Only a child arriving AFTER the class was confirmed gets the "arrived late at school" text now.
-        val texted = confirmed && queueSms(student, section, "late", "lateAuto", today, time)
-        return ScanResult.Recorded(student, section, status, time, texted)
-    }
-
-    // Same as queueSms() on the website. Returns true when a text was queued.
-    // `template` is the kind of message ("lateAuto" = "arrived late at school", no teacher check).
-    private fun queueSms(student: Student, section: Section, kind: String, template: String, date: String, time: String): Boolean {
-        val g = guardians.firstOrNull { student.id in it.studentIds } ?: return false
-        if (!g.smsConsent || !settings.arrivalSmsEnabled) return false
-        val body = Rules.renderTemplate(
-            settings.template(g.language, template),
-            mapOf("child" to student.firstName, "time" to Rules.to12h(time), "school" to settings.schoolName, "contact" to settings.contactNumber),
-        )
-        val id = "arr_${student.id}_$date" // same id as the website: never two arrival texts for one day
-        val createdAt = "${date}T$time:00+08:00"
-        save(
-            "sms", id,
-            mapOf(
-                "id" to id, "studentId" to student.id, "guardianId" to g.id, "sectionId" to section.id,
-                "to" to g.mobile, "body" to body, "kind" to kind,
-                "status" to if (g.numberFailed) "failed" else if (settings.realSms) "queued" else "sent",
-                "createdAt" to createdAt, "queuedAt" to java.time.Instant.now().toString(), "attempts" to 1,
-            ),
-        )
-        if (g.numberFailed) {
-            // Tell the teacher the text did not go through (shows in Alerts on the website).
-            val nid = "smsf_$id"
+        if (confirmed) {
+            audit("attendance.scan_after_lock", student.fullName, "scanned at $time, waiting for the teacher")
+            val nid = "late_${student.id}_$today"
             save(
                 "notifications", nid,
                 mapOf(
-                    "id" to nid, "kind" to "sms_failed", "studentId" to student.id, "sectionId" to section.id,
-                    "createdAt" to createdAt, "read" to false,
-                    "title" to "Text to ${student.fullName}'s guardian did not go through",
-                    "body" to "${g.name}'s number could not be reached. Ask the office to update it, or call the family.",
+                    "id" to nid, "kind" to "missing", "studentId" to student.id, "sectionId" to section.id,
+                    "createdAt" to "${today}T$time:00+08:00", "read" to false,
+                    "title" to "${student.fullName} scanned at the gate at ${Rules.to12h(time)}, after attendance was confirmed",
+                    "body" to "Check that ${student.firstName} is in ${section.name}, then mark Present or Late on the Attendance page. The parent is texted when you do.",
                 ),
             )
         }
-        return !g.numberFailed
+        return ScanResult.Recorded(student, section, status, time, confirmed) // last value: waiting for the teacher
     }
 
     // An audit log entry, like logAudit() on the website.

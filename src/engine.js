@@ -11,6 +11,7 @@ import {
   renderTemplate,
   shouldAlertStreak,
   shouldAutoFinalize,
+  classEnded,
   autoFinalizeTime,
   streakInfo,
   to12h,
@@ -196,9 +197,17 @@ export class Engine {
     const today = this.clock.today();
     return [...this.s.sections.values()].filter((x) => !x.archived && x.teacherId !== teacherId && this.awayOn(x, today)?.teacherId === teacherId);
   }
-  /** Own classes plus classes covered today: what a teacher sees and takes attendance for. */
+  // SUBJECT TEACHERS (Grades 4-6 may have a different teacher per subject): the admin lists them on the
+  // section (section.subjectTeacherIds). They see the class list, so they know who was absent at first
+  // period, and they can confirm a child who arrives during their period (the parent is texted).
+  subjectClassesOf(teacherId) {
+    if (!teacherId) return [];
+    return [...this.s.sections.values()].filter((x) => !x.archived && x.teacherId !== teacherId && (x.subjectTeacherIds ?? []).includes(teacherId));
+  }
+  /** Own classes, classes taught as a subject teacher, and classes covered today. */
   myClasses(teacherId) {
-    return sortByStart([...this.classesOf(teacherId), ...this.coveringToday(teacherId)]);
+    const all = [...this.classesOf(teacherId), ...this.subjectClassesOf(teacherId), ...this.coveringToday(teacherId)];
+    return sortByStart([...new Map(all.map((c) => [c.id, c])).values()]);
   }
   // Remembers who is signed in. For a teacher it also works out their classes
   // (sectionIds) and which one is happening now (sectionId).
@@ -247,7 +256,7 @@ export class Engine {
     return this.session?.name ?? 'System';
   }
   // School settings. Saved settings from before the parent texts moved to "after the teacher confirms"
-  // get the new template kinds (arrivalAuto, lateAuto), and an untouched old default text is replaced
+  // get the new template kinds (absent, laterPeriod, ...), and an untouched old default text is replaced
   // by the new default; anything the admin wrote is kept.
   get settings() {
     const saved = this.s.meta.settings;
@@ -295,12 +304,23 @@ export class Engine {
     return undefined;
   }
   // One child's status per day in a section: { '2026-10-29': 'present', ... } (for streaks).
+  // It looks at EVERY class the child was in this year, so totals and streaks follow a child who
+  // moved to another section. (A teacher only has their own classes loaded; the admin has all.)
   statusMap(sectionId, studentId) {
     const out = {};
+    for (const [date, r] of this.recordsOf(studentId)) out[date] = r.status === 'late' && r.lateExcused ? 'present' : r.status;
+    return out;
+  }
+  // One child's record per date across all sections: Map(date -> record). If two classes have a record
+  // on the same date (the day the child moved), the one where the child came to school wins.
+  recordsOf(studentId) {
+    const out = new Map();
+    const rank = (r) => (r.scannedAt ? 3 : 0) + (r.status === 'absent' ? 0 : 1);
     for (const day of this.s.attendance.values()) {
-      if (day.sectionId !== sectionId) continue;
       const r = day.records[studentId];
-      if (r) out[day.date] = r.status;
+      if (!r) continue;
+      const have = out.get(day.date);
+      if (!have || rank(r) > rank(have)) out.set(day.date, r);
     }
     return out;
   }
@@ -342,11 +362,14 @@ export class Engine {
     if (!g || !g.smsConsent) return null;
     if ((kind === 'arrival' || kind === 'late') && !this.settings.arrivalSmsEnabled) return null;
     // One arrival/late text per child per day (confirming, then editing a status, does not text twice).
-    if ((kind === 'arrival' || kind === 'late') && this.s.sms.has(`arr_${student.id}_${opts.date}`)) return null;
-    // One total text per limit per month/semester, one "not in class" text per day (opts.id says which).
-    if ((kind === 'total' || kind === 'missing') && this.s.sms.has(opts.id)) return null;
+    if ((kind === 'arrival' || kind === 'late') && this.s.sms.has(opts.id ?? `arr_${student.id}_${opts.date}`)) return null;
+    if (kind === 'absent' && this.settings.absentSmsEnabled === false) return null;
+    // One total text per limit per month/semester, one "not in class" / "absent" text per day (opts.id says which).
+    if ((kind === 'total' || kind === 'missing' || kind === 'absent') && this.s.sms.has(opts.id)) return null;
+    if (kind === 'streak' && this.s.sms.has(`stk_${student.id}_${opts.date}`)) return null;
     const tpl = this.settings.templates[g.preferredLanguage] ?? this.settings.templates.en;
-    const key = kind === 'streak' || kind === 'total' || kind === 'missing' ? kind : `${kind}${opts.auto ? 'Auto' : ''}`;
+    const key = opts.template ?? kind;
+    const ord = (n) => `${n}${n === 1 ? 'st' : n === 2 ? 'nd' : n === 3 ? 'rd' : 'th'}`;
     const body = renderTemplate(tpl[key] ?? this.settings.templates.en[key], {
       child: student.firstName,
       time: opts.time ? to12h(opts.time) : '',
@@ -354,9 +377,10 @@ export class Engine {
       contact: this.settings.contactNumber,
       streak: opts.streak ? describeStreak(opts.streak, g.preferredLanguage) : '',
       summary: opts.metric ? describeTotal(opts.metric, opts.count, g.preferredLanguage) : '',
+      period: opts.period ? (g.preferredLanguage === 'fil' ? `ika-${opts.period} na period` : `${ord(opts.period)} period`) : '',
     });
     // Deterministic ids: two devices processing the same event write the same document once.
-    const id = kind === 'total' || kind === 'missing' ? opts.id : kind === 'streak' ? `stk_${student.id}_${opts.date}` : `arr_${student.id}_${opts.date}`;
+    const id = kind === 'total' || kind === 'missing' || kind === 'absent' ? opts.id : kind === 'streak' ? `stk_${student.id}_${opts.date}` : (opts.id ?? `arr_${student.id}_${opts.date}`);
     const failed = g.numberStatus === 'failed';
     const msg = {
       id,
@@ -393,10 +417,12 @@ export class Engine {
   }
   // Checks one child's streak after a day is confirmed. When it reaches the threshold
   // (Admin -> Settings, default 3) the parent is texted and the teacher gets an alert.
-  checkStreak(section, stu, date, at) {
+  // text = false: only the alert for staff (a day nobody confirmed, or a correction to an old day).
+  checkStreak(section, stu, date, at, text = true) {
     const info = this.streakFor(section, stu.id, date);
     if (!shouldAlertStreak(info.count, this.settings.streakDays)) return;
-    const sms = this.queueSms(stu, 'streak', { streak: info, date, sectionId: section.id, createdAt: at });
+    if (this.s.notifications.has(`stk_${stu.id}_${date}`)) return; // already handled
+    const sms = text ? this.queueSms(stu, 'streak', { streak: info, date, sectionId: section.id, createdAt: at }) : null;
     const g = this.guardianOf(stu.id);
     const dates = [...info.dates]
       .reverse()
@@ -411,7 +437,7 @@ export class Engine {
       createdAt: at,
       read: false,
       title: `${stu.firstName} ${stu.lastName} was ${describeStreak(info)}`,
-      body: `${dates}. ${sms ? `${g?.name ?? 'The guardian'} was sent an SMS.` : 'No SMS sent (no consent on file). Please call the family.'}`,
+      body: `${dates}. ${sms ? `${g?.name ?? 'The guardian'} was sent an SMS.` : text ? 'No SMS sent (no consent on file). Please call the family.' : 'No SMS sent (the class was not confirmed by a teacher). Please call the family.'}`,
     };
     this.s.notifications.set(n.id, n);
     this.put('notifications', n.id, n);
@@ -433,7 +459,7 @@ export class Engine {
   // checked. At "alert" the parent gets ONE text per limit per month/semester; at "serious" the
   // teacher and admin are told to hold a parent conference. "watch" only shows in Absence Watch.
   // =====================================================================
-  checkTotals(section, stu, date, at) {
+  checkTotals(section, stu, date, at, text = true) {
     const t = this.totalsFor(section, stu.id, date);
     const g = this.guardianOf(stu.id);
     for (const [metric, level] of Object.entries(t.levels)) {
@@ -443,7 +469,7 @@ export class Engine {
       const n = metric.startsWith('absent') ? (month ? t.month.absent : t.semester.absent) : month ? t.month.late : t.semester.late;
       const id = `tot_${stu.id}_${metric}_${period}_${level}`;
       if (this.s.notifications.has(id)) continue; // already handled for this period and level
-      const sms = level === 'alert' ? this.queueSms(stu, 'total', { id, metric, count: n, date, sectionId: section.id, createdAt: at }) : null;
+      const sms = level === 'alert' && text ? this.queueSms(stu, 'total', { id, metric, count: n, date, sectionId: section.id, createdAt: at }) : null;
       const what = describeTotal(metric, n);
       const n2 = {
         id,
@@ -483,60 +509,126 @@ export class Engine {
     }
     return out.sort((a, b) => b.worst - a.worst || b.totals.semester.absent - a.totals.semester.absent || byName(a.student, b.student));
   }
-  /** Marks unscanned children absent, locks the day, then applies the streak rule. Idempotent. */
+  // =====================================================================
+  // CONFIRMING A CLASS (finalize) AND THE PARENT TEXTS
+  // Only a TEACHER (or the admin) confirms a class. What the parent gets, and when:
+  //   1. At confirmation (today only):
+  //        present / late      -> "is in class, confirmed by the teacher"
+  //        scanned but absent  -> "entered the school but is not in class" (staff are alerted the
+  //                               moment the teacher marks the child Absent)
+  //        not scanned, absent -> nothing yet (the child may still arrive)
+  //   2. At the absence text time (end of first period: start + autoFinalizeMins), runAbsence():
+  //        still absent -> "As of 9:00 AM, {child} has not arrived at school", then the 3-day and
+  //        limit texts. If the class is confirmed after that time, this runs right away.
+  //   3. A child who arrives after confirmation waits for the teacher (recordScan -> needsCheck);
+  //      when the teacher marks them Present or Late the parent gets the text with the arrival time.
+  // A class NOBODY confirmed is closed quietly after it ends (auto = true): scanned children are
+  // recorded from the gate, the rest absent, NO parent texts, and staff get an alert. If there is
+  // no scan and no mark at all, nobody is marked absent (there is simply no data for that day).
+  // Confirming or closing a PAST day never texts parents.
+  // =====================================================================
   finalize(sectionId, date, by, auto, at = this.nowIso(date)) {
     const existing = this.s.confirmations.get(dayId(sectionId, date));
     if (existing) return existing;
     const section = this.s.sections.get(sectionId);
     const roster = this.rosterOn(sectionId, date);
     const id = dayId(sectionId, date);
+    if (auto && !roster.length) return null; // the class had no children yet on that day
     const day = this.s.attendance.get(id) ?? { id, sectionId, date, records: {} };
-    for (const stu of roster) {
-      if (day.records[stu.id]) continue;
-      // The teacher already approved a parent's excuse for this day (Parent portal): excused, not absent.
-      const ex = this.approvedExcuse(stu.id, date);
-      day.records[stu.id] = ex
-        ? { date, studentId: stu.id, sectionId, status: 'excused', source: 'excuse', excusedNote: `Parent: ${ex.reason}` }
-        : { date, studentId: stu.id, sectionId, status: 'absent', source: 'auto' };
+    const noData = auto && !roster.some((stu) => day.records[stu.id]);
+    if (!noData) {
+      for (const stu of roster) {
+        if (day.records[stu.id]) continue;
+        // The teacher already approved a parent's excuse for this day (Parent portal): excused, not absent.
+        const ex = this.approvedExcuse(stu.id, date);
+        day.records[stu.id] = ex
+          ? { date, studentId: stu.id, sectionId, status: 'excused', source: 'excuse', excusedNote: `Parent: ${ex.reason}` }
+          : { date, studentId: stu.id, sectionId, status: 'absent', source: 'auto' };
+      }
+      this.s.attendance.set(id, day);
+      this.put('attendance', id, day);
     }
-    this.s.attendance.set(id, day);
-    this.put('attendance', id, day);
-    const conf = { id, sectionId, date, confirmedBy: by, confirmedAt: at, auto };
+    const conf = { id, sectionId, date, confirmedBy: by, confirmedAt: at, auto, ...(noData ? { noData: true } : {}) };
     this.s.confirmations.set(id, conf);
     this.put('confirmations', id, conf);
-    for (const stu of roster) this.checkStreak(section, stu, date, at);
-    for (const stu of roster) this.checkTotals(section, stu, date, at);
-    // Parent texts for the children in class: sent now, after the class is confirmed.
-    const confirmedAt = at.slice(11, 16);
-    for (const stu of roster) {
-      const rec = day.records[stu.id];
-      if (rec?.status !== 'present' && rec?.status !== 'late') continue;
-      this.queueSms(stu, rec.status === 'late' ? 'late' : 'arrival', {
-        time: rec.scannedAt ?? confirmedAt,
-        date,
+    const today = this.clock.today();
+    if (auto) {
+      // Nobody confirmed: tell the staff, never the parents.
+      const n = {
+        id: `unc_${id}`,
+        kind: 'cover',
         sectionId,
-        auto,
         createdAt: at,
-      });
+        read: false,
+        title: `${section?.name ?? 'A class'} was not confirmed by a teacher on ${fmtDay(date)}`,
+        body: noData
+          ? 'No child was scanned or marked that day, so nobody was marked absent. If there was class, open Attendance for that day and fix it.'
+          : 'It was closed automatically: children scanned at the gate are recorded from the scan, the others as absent. Parents were not texted. Check the list and correct it if needed.',
+      };
+      this.s.notifications.set(n.id, n);
+      this.put('notifications', n.id, n);
+      if (!noData) this.runAbsence(section, date, at, false);
+    } else {
+      const live = date === today || !!this.backfill;
+      const confirmedAt = at.slice(11, 16);
+      if (live) {
+        for (const stu of roster) {
+          const rec = day.records[stu.id];
+          if (rec?.status === 'present' || rec?.status === 'late') {
+            this.queueSms(stu, rec.status === 'late' ? 'late' : 'arrival', { time: rec.scannedAt ?? confirmedAt, date, sectionId, createdAt: at });
+          } else if (rec?.status === 'absent' && rec.scannedAt) {
+            // Scanned at the gate, not in the room, and the teacher has finished checking: tell the parent.
+            this.queueSms(stu, 'missing', { id: `mis_${stu.id}_${date}`, time: rec.scannedAt, date, sectionId, createdAt: at });
+          }
+        }
+      }
+      // Confirmed after the absence text time (or an old day confirmed by hand): do that step now.
+      if (date !== today || shouldAutoFinalize(this.clock.peek(), section.schedule)) this.runAbsence(section, date, at, live);
     }
     // The parent portal now shows this day (it only shows days the class has confirmed).
     this.syncParentDays(roster.map((x) => x.id), [date.slice(0, 7)]);
     return conf;
   }
-  /** Auto-confirms past school days nobody confirmed, and today after the auto-confirm time. */
-  // Runs every minute (and at sign-in): confirms past school days nobody confirmed, and today once the auto-confirm time passes.
+  // The absence step for one confirmed class day (see the box above). Runs once per class per day:
+  // a hidden marker (notifications/absrun_<class>_<date>) remembers it, for the website and the Worker.
+  // text = false: only staff alerts (a day nobody confirmed, or an old day).
+  runAbsence(section, date, at = this.nowIso(date), text = true) {
+    const mark = `absrun_${dayId(section.id, date)}`;
+    if (this.s.notifications.has(mark)) return;
+    const asOf = at.slice(11, 16);
+    let texted = 0;
+    for (const stu of this.rosterOn(section.id, date)) {
+      const rec = this.record(section.id, date, stu.id);
+      // On the day a 3-day streak is reached the parent gets that (stronger) text instead of the plain absence text.
+      const streakToday = shouldAlertStreak(this.streakFor(section, stu.id, date).count, this.settings.streakDays) && !this.s.notifications.has(`stk_${stu.id}_${date}`);
+      if (text && rec?.status === 'absent' && !rec.scannedAt && !(streakToday && this.guardianOf(stu.id)?.smsConsent)) {
+        if (this.queueSms(stu, 'absent', { id: `abs_${stu.id}_${date}`, time: asOf, date, sectionId: section.id, createdAt: at })) texted += 1;
+      }
+      this.checkStreak(section, stu, date, at, text);
+      this.checkTotals(section, stu, date, at, text);
+    }
+    const n = { id: mark, kind: 'system', sectionId: section.id, createdAt: at, read: true, title: `Absence texts for ${section.name}: ${texted}` };
+    this.s.notifications.set(mark, n);
+    this.put('notifications', mark, n);
+  }
+  // Runs every minute while the website is open (and in the Cloudflare Worker every 5 minutes):
+  //   - today, a class a teacher confirmed, once the absence text time passes: runAbsence()
+  //   - a class nobody confirmed: closed quietly after the class ends (and any past day)
   catchUp() {
     const today = this.clock.today();
+    const now = this.clock.peek();
     const end = today < this.year.end ? today : this.year.end;
     for (const sec of this.writableSections()) {
       // A substitute may only confirm the covered class TODAY (firestore.rules allows only that date).
       const own = this.session.role === 'admin' || sec.teacherId === this.session.teacherId;
       for (let d = own ? this.year.start : today; d <= end; d = addDays(d, 1)) {
-        if (!isSchoolDay(d, sec.schedule, this.s.calendar) || this.s.confirmations.has(dayId(sec.id, d))) continue;
-        if (d < today || (d === today && shouldAutoFinalize(this.clock.peek(), sec.schedule))) {
-          // Stamp it with the class's auto-confirm time (e.g. 8:45 AM on that day), not the moment the
-          // app happened to be opened. A day caught up later (nobody was signed in at 8:45) still reads 8:45 AM.
-          this.finalize(sec.id, d, 'Auto-confirm', true, `${d}T${autoFinalizeTime(sec.schedule)}:00+08:00`);
+        if (!isSchoolDay(d, sec.schedule, this.s.calendar)) continue;
+        const conf = this.s.confirmations.get(dayId(sec.id, d));
+        if (!conf) {
+          // Stamped with the class's end time on that day, not the moment the app happened to be opened.
+          if (d < today || classEnded(now, sec.schedule)) this.finalize(sec.id, d, 'Not confirmed', true, `${d}T${sec.schedule.endTime}:00+08:00`);
+        } else if (d === today && !conf.auto && shouldAutoFinalize(now, sec.schedule)) {
+          this.runAbsence(sec, d);
         }
       }
     }
@@ -651,8 +743,14 @@ export class Engine {
   //  1. find the child by the code on the card (unknown / revoked card -> stop)
   //  2. check the child belongs to this section and today is a school day
   //  3. decideScan(): ignore a double beep, keep the first scan of the day, or record present/late
-  //  4. save the record and text the parent (arrival or late)
-  // A child scanned after the day was confirmed is recorded as late, and it is written in the audit log.
+  //  4. save the record. NO text is sent at the gate.
+  // Before the class is confirmed the scan pre-fills Present / Late on the teacher's list.
+  // AFTER the class is confirmed:
+  //   - the teacher already marked the child Present / Late / Excused (e.g. forgot the ID): only the
+  //     scan time is added, the status stays;
+  //   - the child was absent: the record becomes present/late with needsCheck = true, staff are alerted,
+  //     and the parent is texted only when the teacher confirms the child in class (setStatus).
+  // The same steps are in the gate app: gate-app/.../GateRepository.kt scan().
   async recordScan({ qrToken, sectionId }) {
     await this.ready;
     const token = qrToken.trim();
@@ -663,12 +761,32 @@ export class Engine {
     const sec = enr ? this.s.sections.get(enr.sectionId) : undefined;
     if (!sec || (sectionId && sec.id !== sectionId)) return { kind: 'wrong_section', student };
     const today = this.clock.today();
-    if (!isSchoolDay(today, sec.schedule, this.s.calendar) || today < this.year.start || today > this.year.end) return { kind: 'not_school_day' };
+    const time = this.clock.scanTime();
+    if (!isSchoolDay(today, sec.schedule, this.s.calendar) || today < this.year.start || today > this.year.end) {
+      // CHILD SAFETY: the class was cancelled for today (teacher absent) but the child came anyway.
+      if (this.awayOn(sec, today)?.kind === 'noclass' && today >= this.year.start && today <= this.year.end) {
+        const n = {
+          id: `oncampus_${student.id}_${today}`,
+          kind: 'missing',
+          studentId: student.id,
+          sectionId: sec.id,
+          createdAt: this.nowIso(today),
+          read: false,
+          title: `${student.firstName} ${student.lastName} came to school at ${to12h(time)} but ${sec.name} has no class today`,
+          body: 'The class was cancelled because the teacher is absent. Keep the child with a staff member and call the guardian.',
+        };
+        if (!this.s.notifications.has(n.id)) {
+          this.s.notifications.set(n.id, n);
+          this.put('notifications', n.id, n);
+          this.emit();
+        }
+      }
+      return { kind: 'not_school_day', student };
+    }
     const last = this.lastScanAt.get(token);
     const nowMs = Date.now();
     this.lastScanAt.set(token, nowMs);
     const existing = this.record(sec.id, today, student.id);
-    const time = this.clock.scanTime();
     const decision = decideScan({
       time,
       schedule: sec.schedule,
@@ -678,7 +796,13 @@ export class Engine {
     if (decision.kind === 'ignore') return { kind: 'ignore' };
     if (decision.kind === 'duplicate') return { kind: 'duplicate', student, firstScanAt: decision.firstScanAt };
     const locked = this.s.confirmations.has(dayId(sec.id, today));
-    const status = locked ? 'late' : decision.status;
+    // The teacher already marked this child (present, late or excused) without a scan: keep that, add the scan time.
+    if (existing && (existing.status === 'present' || existing.status === 'late')) {
+      this.writeRecord({ ...existing, scannedAt: time });
+      this.emit();
+      return { kind: 'recorded', student, status: existing.status, time };
+    }
+    const status = decision.status;
     this.writeRecord({
       date: today,
       studentId: student.id,
@@ -686,20 +810,34 @@ export class Engine {
       status,
       scannedAt: time,
       source: 'scanner',
-      editedReason: locked ? 'Arrived after attendance was confirmed' : undefined,
+      ...(locked ? { needsCheck: true, editedReason: 'Arrived after attendance was confirmed' } : {}),
     });
-    if (locked) await this.logAudit('attendance.scan_after_lock', `${student.firstName} ${student.lastName}`, `absent -> late at ${time}`);
-    // No text at the gate: the parent is texted when the teacher confirms the class (finalize).
-    // A child who arrives AFTER the class was confirmed gets the "arrived late at school" text now.
-    if (locked) this.queueSms(student, 'late', { time, date: today, sectionId: sec.id, auto: true });
+    if (locked) {
+      await this.logAudit('attendance.scan_after_lock', `${student.firstName} ${student.lastName}`, `scanned at ${time}, waiting for the teacher`);
+      const n = {
+        id: `late_${student.id}_${today}`,
+        kind: 'missing',
+        studentId: student.id,
+        sectionId: sec.id,
+        createdAt: this.nowIso(today),
+        read: false,
+        title: `${student.firstName} ${student.lastName} scanned at the gate at ${to12h(time)}, after attendance was confirmed`,
+        body: `Check that ${student.firstName} is in ${sec.name}, then mark Present or Late on the Attendance page. The parent is texted when you do.`,
+      };
+      this.s.notifications.set(n.id, n);
+      this.put('notifications', n.id, n);
+    }
     this.emit();
-    return { kind: 'recorded', student, status, time };
+    return { kind: 'recorded', student, status, time, needsCheck: locked };
   }
   // A teacher changes a status by hand, before or after confirming (every change is saved in the audit log).
+  // Parent texts are only sent for TODAY: correcting an older day never texts anyone.
   async setStatus(input) {
     await this.ready;
     const locked = this.s.confirmations.has(dayId(input.sectionId, input.date));
     const prev = this.record(input.sectionId, input.date, input.studentId);
+    const live = input.date === this.clock.today();
+    const section = this.s.sections.get(input.sectionId);
     this.writeRecord({
       date: input.date,
       studentId: input.studentId,
@@ -716,27 +854,64 @@ export class Engine {
       stu ? `${stu.firstName} ${stu.lastName}` : input.studentId,
       `${input.date}: ${prev?.status ?? 'none'} -> ${input.status}${input.reason ? ` (${input.reason})` : ''}`,
     );
-    if (locked && stu && (input.status === 'absent' || input.status === 'late')) {
-      this.checkStreak(this.s.sections.get(input.sectionId), stu, input.date, this.nowIso());
-      this.checkTotals(this.s.sections.get(input.sectionId), stu, input.date, this.nowIso());
+    const absenceDone = this.s.notifications.has(`absrun_${dayId(input.sectionId, input.date)}`);
+    if (stu && input.status !== 'absent') {
+      // The child is accounted for: close any open "not in class" / "arrived after confirming" alert.
+      const wasMissing = this.resolveAlerts(stu, input.date, input.status);
+      // After confirming, the teacher marks a child present or late: the parent gets the "in class" text
+      // (once a day; if the parent was told "not in class" earlier, a new text says the child is in class now).
+      if (locked && live && (input.status === 'present' || input.status === 'late')) {
+        const again = wasMissing && this.s.sms.has(`mis_${stu.id}_${input.date}`);
+        // input.period (2, 3, ...): a subject teacher confirmed the child in a later period.
+        const later = Number(input.period) > 1;
+        this.queueSms(stu, input.status === 'late' || later ? 'late' : 'arrival', {
+          time: prev?.scannedAt ?? this.clock.peek(),
+          date: input.date,
+          sectionId: input.sectionId,
+          ...(later ? { template: 'laterPeriod', period: Number(input.period) } : {}),
+          ...(again ? { id: `arr_${stu.id}_${input.date}_found` } : {}),
+        });
+      }
     }
-    // After confirming, the teacher marks a child present or late: the parent gets the "in class" text
-    // (only once a day; queueSms skips it if a text was already made).
-    if (locked && stu && (input.status === 'present' || input.status === 'late')) {
-      this.queueSms(stu, input.status === 'late' ? 'late' : 'arrival', {
-        time: prev?.scannedAt ?? this.clock.peek(),
-        date: input.date,
-        sectionId: input.sectionId,
-      });
+    if (stu && input.status === 'absent') {
+      if (prev?.scannedAt) {
+        // CHILD SAFETY: scanned at the gate but marked absent in class = the child is in school but missing.
+        // Staff are alerted now. The parent is texted when the class is confirmed (now, if it already is).
+        await this.alertMissing(stu, input.sectionId, input.date, prev.scannedAt, locked && live);
+      } else if (locked && live && absenceDone) {
+        // Marked absent after the absence texts already went out: this child's text goes now.
+        this.queueSms(stu, 'absent', { id: `abs_${stu.id}_${input.date}`, time: this.clock.peek(), date: input.date, sectionId: input.sectionId });
+      }
     }
-    // CHILD SAFETY: scanned at the gate but marked absent in class = the child is in school but missing.
-    if (stu && input.status === 'absent' && prev?.scannedAt) await this.alertMissing(stu, input.sectionId, input.date, prev.scannedAt);
+    // Streak and limit alerts follow the change once the day's absence step has run (texts only today).
+    if (locked && stu && section && absenceDone && (input.status === 'absent' || input.status === 'late')) {
+      this.checkStreak(section, stu, input.date, this.nowIso(), live);
+      this.checkTotals(section, stu, input.date, this.nowIso(), live);
+    }
     // A change to a confirmed day (or a past day) also changes what the parent portal shows.
     if (locked || input.date < this.clock.today()) this.syncParentDays([input.studentId], [input.date.slice(0, 7)]);
     this.emit();
   }
+  // Marks the open "not in class" alerts of a child as resolved. Returns true if there was one.
+  resolveAlerts(stu, date, status) {
+    let any = false;
+    for (const id of [`miss_${stu.id}_${date}`, `late_${stu.id}_${date}`]) {
+      const n = this.s.notifications.get(id);
+      if (!n || n.resolved) continue;
+      any = any || id.startsWith('miss_');
+      Object.assign(n, {
+        resolved: true,
+        read: true,
+        title: `Resolved: ${n.title}`,
+        body: `Marked ${status} at ${to12h(this.clock.peek())} by ${this.actor()}. ${n.body}`,
+      });
+      this.put('notifications', id, n);
+    }
+    return any;
+  }
   // Raises an urgent alert (admin Overview + the teacher's Alerts): the gate saw the child, the classroom did not.
-  async alertMissing(stu, sectionId, date, scannedAt) {
+  // textParent: the class is already confirmed, so the parent is told now; otherwise at confirmation (finalize).
+  async alertMissing(stu, sectionId, date, scannedAt, textParent) {
     const sec = this.s.sections.get(sectionId);
     const g = this.guardianOf(stu.id);
     const n = {
@@ -749,15 +924,11 @@ export class Engine {
       title: `${stu.firstName} ${stu.lastName} was scanned at the gate at ${to12h(scannedAt)} but is not in class`,
       body: `Marked absent in ${sec?.name ?? 'class'} by ${this.actor()}. Look for the child now (gate, office, comfort rooms, other rooms)${
         g ? `, then call ${g.name} at ${displayPhMobile(g.mobile)}` : ''
-      }. ${sec?.textParentIfMissing ? 'The parent was sent a text that the child is not in class.' : 'The parent has not been told the child is in class.'}`,
+      }. ${textParent ? 'The parent was sent a text that the child is not in class.' : 'If the child is not found, the parent is texted when you confirm attendance.'}`,
     };
     this.s.notifications.set(n.id, n);
     this.put('notifications', n.id, n);
-    // Older learners (the section's setting): the parent is texted too, since the child may be cutting class.
-    // Young learners: staff only, so the school can find the child first.
-    if (sec?.textParentIfMissing) {
-      this.queueSms(stu, 'missing', { id: `mis_${stu.id}_${date}`, time: scannedAt, date, sectionId, createdAt: this.nowIso(date) });
-    }
+    if (textParent) this.queueSms(stu, 'missing', { id: `mis_${stu.id}_${date}`, time: scannedAt, date, sectionId, createdAt: this.nowIso(date) });
     await this.logAudit('attendance.missing_after_scan', `${stu.firstName} ${stu.lastName}`, `scanned ${scannedAt}, marked absent`);
   }
   // The teacher presses "Confirm attendance" (same as finalize, plus an audit entry).
@@ -780,7 +951,7 @@ export class Engine {
     await this.ready;
     const vis = this.visibleSectionIds();
     return [...this.s.notifications.values()]
-      .filter((n) => !vis || (n.sectionId && vis.has(n.sectionId)))
+      .filter((n) => n.kind !== 'system' && (!vis || (n.sectionId && vis.has(n.sectionId))))
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
   // Marks alerts as read (all of them, or only the ids given).
@@ -845,13 +1016,13 @@ export class Engine {
     await this.ready;
     const section = this.s.sections.get(sectionId);
     const days = {};
-    for (const day of this.s.attendance.values()) {
-      if (day.sectionId !== sectionId) continue;
+    // Every class the child was in this year (a child who moved keeps their history).
+    for (const [date, r] of this.recordsOf(studentId)) {
       // A day the admin later made a break, holiday or suspension is not a class day anymore: its old
-      // records (e.g. auto-confirmed absences) are not shown or counted, like in Absence Watch.
-      if (section && !isSchoolDay(day.date, section.schedule, this.s.calendar)) continue;
-      const r = day.records[studentId];
-      if (r) days[day.date] = { status: r.status, scannedAt: r.scannedAt ?? null };
+      // records are not shown or counted, like in Absence Watch.
+      const sec = this.s.sections.get(r.sectionId) ?? section;
+      if (sec && !isSchoolDay(date, sec.schedule, this.s.calendar)) continue;
+      days[date] = { status: r.status, scannedAt: r.scannedAt ?? null };
     }
     const today = this.clock.today();
     return {
@@ -906,16 +1077,15 @@ export class Engine {
     const enr = this.activeEnrollment(studentId);
     const section = enr ? this.s.sections.get(enr.sectionId) : undefined;
     const days = {};
-    for (const day of this.s.attendance.values()) {
-      if (!day.date.startsWith(month)) continue;
-      const r = day.records[studentId];
-      if (!r) continue;
-      const sec = this.s.sections.get(day.sectionId);
+    for (const [date, r] of this.recordsOf(studentId)) {
+      if (!date.startsWith(month)) continue;
+      const sec = this.s.sections.get(r.sectionId);
       // Not a class day anymore (made a holiday or break later): not shown, like in Absence Watch.
-      if (sec && !isSchoolDay(day.date, sec.schedule, this.s.calendar)) continue;
-      // Today only after the class is confirmed (the parent is never shown a gate scan as "in class").
-      if (day.date >= today && !this.s.confirmations.has(dayId(day.sectionId, day.date))) continue;
-      days[day.date] = { s: r.status, t: r.scannedAt ?? null };
+      if (sec && !isSchoolDay(date, sec.schedule, this.s.calendar)) continue;
+      // Today only after the class is confirmed (the parent is never shown a gate scan as "in class"),
+      // and not while a late arrival is still waiting for the teacher to confirm the child in class.
+      if (date >= today && (!this.s.confirmations.has(dayId(r.sectionId, date)) || r.needsCheck)) continue;
+      days[date] = { s: r.status, t: r.scannedAt ?? null };
     }
     // Class days with no class (holidays, breaks, suspensions, teacher absent), with their names.
     const noClass = {};
@@ -955,7 +1125,8 @@ export class Engine {
   }
   // Rewrites the parent portal months. studentIds null = every child.
   syncParentDays(studentIds, months) {
-    const ids = studentIds ?? [...this.s.students.keys()];
+    // (Revoked copies of lost ID cards are kept as students with '-old-' in the id: skipped.)
+    const ids = (studentIds ?? [...this.s.students.keys()]).filter((id) => !id.includes('-old-'));
     for (const month of new Set(months)) {
       for (const id of ids) {
         const doc = this.parentMonthDoc(id, month);
@@ -996,6 +1167,9 @@ export class Engine {
     await this.ready;
     const ex = this.s.excuses.get(id);
     if (!ex || ex.status !== 'pending') return;
+    // The request must be for a child who is (or was) in that class.
+    if (![...this.s.enrollments.values()].some((e) => e.studentId === ex.studentId && e.sectionId === ex.sectionId))
+      throw new Error('This child is not in that class. Decline the request.');
     Object.assign(ex, { status: decision, decidedBy: this.actor(), decidedAt: new Date().toISOString(), teacherNote: note || null });
     this.put('excuses', id, ex);
     const stu = this.s.students.get(ex.studentId);
@@ -1005,9 +1179,21 @@ export class Engine {
       for (const date of ex.dates) {
         if (date > today || !isSchoolDay(date, sec.schedule, this.s.calendar)) continue;
         const rec = this.record(ex.sectionId, date, ex.studentId);
+        if (rec?.status === 'late' && !rec.lateExcused) {
+          // The child came late with a valid reason: still Late on the list, but not counted in the late totals.
+          this.writeRecord({ ...rec, lateExcused: true, excusedNote: `Parent: ${ex.reason}` });
+          this.syncParentDays([ex.studentId], [date.slice(0, 7)]);
+          continue;
+        }
         if (rec && rec.status !== 'absent') continue; // the child came (present or late) or already excused
         await this.setStatus({ studentId: ex.studentId, sectionId: ex.sectionId, date, status: 'excused', note: `Parent: ${ex.reason}`, reason: 'Parent excuse approved' });
       }
+    }
+    // The same parent asked twice for the same day(s): the second request gets the same answer.
+    for (const other of this.s.excuses.values()) {
+      if (other.status !== 'pending' || other.studentId !== ex.studentId || !other.dates.every((d) => ex.dates.includes(d))) continue;
+      Object.assign(other, { status: decision, decidedBy: ex.decidedBy, decidedAt: ex.decidedAt, teacherNote: ex.teacherNote });
+      this.put('excuses', other.id, other);
     }
     await this.logAudit(`excuse.${decision}`, stu ? `${stu.firstName} ${stu.lastName}` : ex.studentId, `${ex.dates.join(', ')}: ${ex.reason}`);
     this.emit();
@@ -1123,6 +1309,7 @@ export class Engine {
       'School calendar was reset',
       'The calendar now follows the DepEd school year template. Check the Calendar page for holidays and breaks.',
     );
+    await this.syncParentPortal();
     this.emit();
   }
   // Shortcut for one suspended day.
@@ -1239,6 +1426,18 @@ export class Engine {
         if (s.teacherId === id) {
           s.teacherId = null;
           this.put('sections', s.id, s);
+          // Only a teacher confirms a class, so a class without one must be noticed.
+          const n = {
+            id: uid('cov'),
+            kind: 'cover',
+            sectionId: s.id,
+            createdAt: this.nowIso(),
+            read: false,
+            title: `${s.name} has no teacher`,
+            body: `${t.name} was deactivated. Assign a teacher in Sections, or nobody confirms this class and parents are not texted.`,
+          };
+          this.s.notifications.set(n.id, n);
+          this.put('notifications', n.id, n);
         }
     }
     await this.logAudit(active ? 'teacher.activate' : 'teacher.deactivate', t.name);
@@ -1265,7 +1464,8 @@ export class Engine {
           capacity: input.capacity,
           teacherId: input.teacherId,
           gradeLevel: input.gradeLevel ?? existing.gradeLevel ?? 'K',
-          textParentIfMissing: !!input.textParentIfMissing,
+          // Subject teachers (never the class teacher, never a deactivated one).
+          subjectTeacherIds: (input.subjectTeacherIds ?? []).filter((t) => t !== input.teacherId && this.s.teachers.get(t)?.active !== false),
           // keep the teacher-away days when the admin edits the class hours
           schedule: { ...input.schedule, teacherAway: existing.schedule?.teacherAway ?? input.schedule.teacherAway },
         }
@@ -1321,6 +1521,24 @@ export class Engine {
     };
     this.s.notifications.set(n.id, n);
     this.put('notifications', n.id, n);
+    // CHILD SAFETY: class cancelled for TODAY after children already scanned in: list them for the staff.
+    const today = this.clock.today();
+    if (kind === 'noclass' && dates.includes(today)) {
+      const here = this.rosterOn(sec.id, today).filter((k) => this.record(sec.id, today, k.id)?.scannedAt);
+      if (here.length) {
+        const m = {
+          id: `oncampus_${sec.id}_${today}`,
+          kind: 'missing',
+          sectionId: sec.id,
+          createdAt: this.nowIso(),
+          read: false,
+          title: `${here.length} ${here.length === 1 ? 'child of' : 'children of'} ${sec.name} already scanned in, but the class has no class today`,
+          body: `${here.map((k) => `${k.firstName} ${k.lastName}`).join(', ')}. Keep them with a staff member and call their guardians.`,
+        };
+        this.s.notifications.set(m.id, m);
+        this.put('notifications', m.id, m);
+      }
+    }
     this.refreshSession();
     this.emit();
     return dates;
@@ -1406,6 +1624,27 @@ export class Engine {
       const e = { id: uid('enr'), studentId, sectionId, schoolYearId: this.year.id, status: 'active', startDate: start };
       this.s.enrollments.set(e.id, e);
       this.put('enrollments', e.id, e);
+      // Moved during the school day: today's gate scan (or mark) goes with the child to the new class,
+      // so the new teacher sees it and the child is not marked absent there.
+      const rec = current ? this.record(current.sectionId, today, studentId) : undefined;
+      if (rec && !this.s.confirmations.has(dayId(sectionId, today)) && !this.record(sectionId, today, studentId)) {
+        this.writeRecord({ ...rec, sectionId });
+        if (!this.s.confirmations.has(dayId(current.sectionId, today))) {
+          const old = this.s.attendance.get(dayId(current.sectionId, today));
+          delete old.records[studentId];
+          this.put('attendance', old.id, old);
+        }
+      }
+    }
+  }
+  // Rewrites the parent portal keys of these children's guardians (the key holds each child's class).
+  async syncKeysFor(studentIds) {
+    const seen = new Set();
+    for (const id of studentIds) {
+      const g = this.guardianOf(id);
+      if (!g || seen.has(g.id)) continue;
+      seen.add(g.id);
+      await this.syncParentKey(g);
     }
   }
   // Creates or updates a child and their guardian. Children with the SAME guardian mobile
@@ -1429,14 +1668,16 @@ export class Engine {
     let sibling = false;
     const touched = []; // guardians whose parent portal key must be updated
     let g = [...this.s.guardians.values()].find((x) => x.mobile === input.guardianMobile);
-    if (!g) {
-      for (const other of this.s.guardians.values()) {
-        if (other.studentIds.includes(student.id)) {
-          other.studentIds = other.studentIds.filter((id) => id !== student.id);
-          this.put('guardians', other.id, other);
-          touched.push(other);
-        }
+    // A child has ONE guardian record: take the child off any other number (the old number then
+    // stops getting texts and loses the child in the parent portal).
+    for (const other of this.s.guardians.values()) {
+      if (other !== g && other.studentIds.includes(student.id)) {
+        other.studentIds = other.studentIds.filter((id) => id !== student.id);
+        this.put('guardians', other.id, other);
+        touched.push(other);
       }
+    }
+    if (!g) {
       g = {
         id: uid('g'),
         name: input.guardianName,
@@ -1477,6 +1718,7 @@ export class Engine {
     await this.ready;
     this.lastAssign = { label, before: structuredClone([...this.s.enrollments.values()]) };
     Object.entries(assignments).forEach(([studentId, sectionId]) => this.placeStudent(studentId, sectionId));
+    await this.syncKeysFor(Object.keys(assignments));
     await this.logAudit('student.assign', label, `${Object.keys(assignments).length} students`);
     this.emit();
   }
@@ -1495,6 +1737,7 @@ export class Engine {
       this.put('enrollments', e.id, e);
     }
     this.lastAssign = null;
+    await this.syncKeysFor(before.map((e) => e.studentId));
     await this.logAudit('student.assign_undo', label);
     this.emit();
     return label;
@@ -1506,6 +1749,7 @@ export class Engine {
     e.status = status;
     e.endDate = date;
     this.put('enrollments', e.id, e);
+    await this.syncKeysFor([studentId]);
     const stu = this.s.students.get(studentId);
     await this.logAudit(`student.${status}`, stu ? `${stu.firstName} ${stu.lastName}` : studentId, `effective ${date}`);
     this.emit();
@@ -1569,12 +1813,12 @@ const schedule = {
   endTime: '11:30',
   scanWindowMins: 30,
   lateCutoffMins: 15,
-  autoFinalizeMins: 45,
+  autoFinalizeMins: 60, // absence texts go out 60 minutes after class starts (end of first period)
 };
 export const schoolYear = { id: 'sy-2026', name: 'SY 2026-2027', start: '2026-06-08', end: '2027-04-08', isActive: true };
 // Default school settings. {child}, {time}, {school}, {contact} and {streak} are filled in by renderTemplate().
 export const settings = {
-  schoolName: 'Sunnyside Kinder',
+  schoolName: 'Sunnyside Elementary School',
   contactNumber: '0917 555 0123',
   arrivalSmsEnabled: true,
   streakDays: 3,
@@ -1598,6 +1842,8 @@ export const settings = {
       streak: '{school}: {child} has been {streak}. We hope all is well. Please call {contact}.',
       total: '{school}: {child} has been {summary}. We hope all is well. Please call {contact}.',
       missing: '{school}: {child} entered the school at {time} but is not in class. The school is looking for {child} now. Please call {contact}.',
+      absent: '{school}: As of {time}, {child} has not arrived at school and is marked absent today. If {child} should be in school, please call {contact}.',
+      laterPeriod: 'Doorbell: {child} arrived at school at {time} ({period}) and is in class, confirmed by the teacher. - {school}',
     },
     fil: {
       arrival: 'Doorbell: Nasa klase na si {child}. Dumating ng {time}, kinumpirma ng guro. - {school}',
@@ -1607,11 +1853,14 @@ export const settings = {
       streak: '{school}: Si {child} ay {streak}. Sana ay maayos siya. Pakitawagan ang {contact}.',
       total: '{school}: Si {child} ay {summary}. Sana ay maayos siya. Pakitawagan ang {contact}.',
       missing: '{school}: Pumasok si {child} sa paaralan ng {time} pero wala sa klase. Hinahanap na siya ng paaralan. Pakitawagan ang {contact}.',
+      absent: '{school}: Hanggang {time}, hindi pa dumarating si {child} sa paaralan at absent siya ngayong araw. Kung dapat ay nasa paaralan siya, pakitawagan ang {contact}.',
+      laterPeriod: 'Doorbell: Dumating si {child} sa paaralan ng {time} ({period}) at nasa klase na, kinumpirma ng guro. - {school}',
     },
   },
 };
 // The kinds of parent texts, in the order the Settings pages show them.
-export const TEMPLATE_KINDS = ['arrival', 'late', 'arrivalAuto', 'lateAuto', 'streak', 'total', 'missing'];
+// (arrivalAuto / lateAuto were the auto-confirm texts: no longer sent, kept only in old saved settings.)
+export const TEMPLATE_KINDS = ['arrival', 'late', 'laterPeriod', 'absent', 'missing', 'streak', 'total'];
 // The old default texts (sent at the gate scan). Saved settings that still have them get the new ones.
 const OLD_DEFAULTS = {
   en: { arrival: 'Doorbell: {child} arrived at school at {time}. - {school}', late: 'Doorbell: {child} arrived late at {time}. - {school}' },
@@ -1644,7 +1893,7 @@ export const sections = [
   {
     id: 'sec-apple',
     schoolYearId: 'sy-2026',
-    name: 'Kindergarten I - Apple',
+    name: 'Kindergarten - Apple',
     gradeLevel: 'K',
     color: '#FFD9A8',
     schedule,
@@ -1655,8 +1904,8 @@ export const sections = [
   {
     id: 'sec-mango',
     schoolYearId: 'sy-2026',
-    name: 'Kindergarten I - Mango',
-    gradeLevel: 'K',
+    name: 'Grade 2 - Mango',
+    gradeLevel: '2',
     color: '#D8F5A2',
     schedule,
     capacity: 25,
@@ -1666,8 +1915,8 @@ export const sections = [
   {
     id: 'sec-banana',
     schoolYearId: 'sy-2026',
-    name: 'Kindergarten II - Banana',
-    gradeLevel: 'K',
+    name: 'Grade 4 - Banana',
+    gradeLevel: '4',
     color: '#E4D6FA',
     schedule: { ...schedule, startTime: '12:30', endTime: '16:00' },
     capacity: 25,
@@ -1678,8 +1927,8 @@ export const sections = [
   {
     id: 'sec-cherry',
     schoolYearId: 'sy-2026',
-    name: 'Kindergarten II - Cherry',
-    gradeLevel: 'K',
+    name: 'Grade 6 - Cherry',
+    gradeLevel: '6',
     color: '#FBD3E0',
     schedule: { ...schedule, startTime: '12:30', endTime: '16:00' },
     capacity: 25,
@@ -1753,7 +2002,8 @@ function people() {
   const enrollments = [];
   const usedNames = new Set();
   let n = 0;
-  const newStudent = (prefix) => {
+  // year = birth year (Kindergarten 2021, Grade 2 2019, Grade 4 2017, Grade 6 2015 in SY 2026-2027).
+  const newStudent = (prefix, year = 2021) => {
     n++;
     let first = '';
     let last = '';
@@ -1770,7 +2020,7 @@ function people() {
       firstName: first,
       middleName: pick(MIDDLE),
       lastName: last,
-      birthdate: `2021-0${1 + Math.floor(r() * 9)}-${String(10 + Math.floor(r() * 18))}`,
+      birthdate: `${year}-0${1 + Math.floor(r() * 9)}-${String(10 + Math.floor(r() * 18))}`,
       sex,
       qrToken: `${prefix}${token}`,
       qrStatus: 'active',
@@ -1778,7 +2028,7 @@ function people() {
   };
   for (const sec of sections) {
     for (let i = 0; i < 20; i++) {
-      const s = newStudent('DB-');
+      const s = newStudent('DB-', sec.gradeLevel === 'K' ? 2021 : 2021 - Number(sec.gradeLevel));
       students.push(s);
       enrollments.push({
         id: `enr-${s.id}`,
@@ -1845,7 +2095,7 @@ export function demoAuth(engine) {
     demoAccounts: () => [
       { email: 'admin@sunnyside.edu.ph', password: DEMO_PASSWORD, label: 'School admin (Rosario Dizon)' },
       { email: 'maria.santos@sunnyside.edu.ph', password: DEMO_PASSWORD, label: 'Teacher, Apple (AM) and Cherry (PM)' },
-      { email: 'jose.ramirez@sunnyside.edu.ph', password: DEMO_PASSWORD, label: 'Teacher, Kinder I - Mango' },
+      { email: 'jose.ramirez@sunnyside.edu.ph', password: DEMO_PASSWORD, label: 'Teacher, Grade 2 - Mango' },
     ],
   };
 }
@@ -1876,6 +2126,7 @@ export function buildDemoState(today, clock) {
     demoAccounts: () => [],
   };
   const engine = new Engine('demo', state, noopPersistence, auth, clock);
+  engine.backfill = true; // building history: past days get their parent texts, as if confirmed on the day
   const r = rng(77);
   const yesterday = addDays(today, -1);
   for (const sec of state.sections.values()) {
@@ -1920,7 +2171,7 @@ export function buildDemoState(today, clock) {
       });
       state.attendance.set(id, day);
       const conf = `${date}T${fromMinutes(toMinutes(sec.schedule.startTime) + 20 + Math.floor(r() * 25))}:00+08:00`;
-      engine.finalize(sec.id, date, r() < 0.8 ? (state.teachers.get(sec.teacherId ?? '')?.name ?? 'Auto-confirm') : 'Auto-confirm', false, conf);
+      engine.finalize(sec.id, date, r() < 0.8 ? (state.teachers.get(sec.teacherId ?? '')?.name ?? 'Rosario Dizon') : 'Rosario Dizon', false, conf);
     });
     // Today: about 60% of each morning class has arrived (only if today is a class day).
     if (today <= schoolYear.end && isSchoolDay(today, sec.schedule, state.calendar) && toMinutes(sec.schedule.startTime) < toMinutes('12:00')) {

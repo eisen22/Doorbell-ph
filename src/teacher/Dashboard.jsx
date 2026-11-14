@@ -158,7 +158,7 @@ export function Dashboard() {
                           <Lock size={12} /> Confirmed
                         </>
                       ) : (
-                        `Confirm by ${to12h(autoFinalizeTime(s))}`
+                        `Confirm before ${to12h(autoFinalizeTime(s))}`
                       )}
                     </span>
                   </p>

@@ -17,11 +17,11 @@ import { TEMPLATE_KINDS } from '../engine';
 const KIND_LABELS = {
   arrival: 'In class (teacher confirmed)',
   late: 'Late, in class (teacher confirmed)',
-  arrivalAuto: 'Arrived (auto-confirmed, no teacher check)',
-  lateAuto: 'Late (auto-confirmed or after confirming)',
+  laterPeriod: 'Arrived in a later period (confirmed by a subject teacher)',
+  absent: 'Absent today (sent at the end of first period)',
   streak: '3-day alert',
   total: 'Monthly / semester total',
-  missing: 'In school but not in class (if on for the section)',
+  missing: 'Scanned at the gate but not in class',
 };
 
 // =====================================================================
@@ -93,7 +93,7 @@ export function SettingsPage() {
               <dd>{to12h(fromMinutes(toMinutes(s.startTime) - s.scanWindowMins))}</dd>
               <dt>Late after</dt>
               <dd>{to12h(fromMinutes(toMinutes(s.startTime) + s.lateCutoffMins))}</dd>
-              <dt>Auto-confirm</dt>
+              <dt>Absence texts sent</dt>
               <dd>{to12h(autoFinalizeTime(s))}</dd>
               <dt>Parents texted after</dt>
               <dd>{settings.streakDays} school days absent in a row, or too many absences or lates this month or semester (see Absence Watch)</dd>

@@ -18,6 +18,8 @@ import {
   Skeleton,
   useRepo,
 } from '../ui';
+import { LEVEL_BANDS, bandOf } from './Sections';
+import { autoFinalizeTime } from '../logic';
 import { useState } from 'react';
 import { SAMPLE_TEACHER_PASSWORD } from '../firebase';
 
@@ -64,7 +66,7 @@ function SampleSchool() {
       ) : (
         <>
           <p className="muted">
-            The school is empty. Load a sample kindergarten (Sunnyside Kinder) to try every feature, or add your own sections, teachers and students.
+            The school is empty. Load a sample school (Sunnyside Elementary School, Kindergarten to Grade 6) to try every feature, or add your own sections, teachers and students.
           </p>
           <button className="btn btn-ink" onClick={run} disabled={!!status}>
             <Save size={16} /> {status ?? 'Load sample school'}
@@ -118,14 +120,20 @@ export function AdminDashboard() {
   const upcoming = calendar.filter((c) => c.date > today.date && c.type !== 'event').slice(0, 5);
   const noTeacher = data.sections.filter((s) => !s.teacherId);
   const teacherName = (id) => teachers.find((t) => t.id === id)?.name ?? 'a teacher';
-  // A class that was auto-confirmed today with no teacher away planned: the teacher may be absent.
-  const unconfirmedByTeacher = perSection.filter((p) => p.confirmation?.auto && p.confirmation.date === today.date && !p.away);
+  // A class nobody confirmed today (closed automatically) with no teacher away planned: the teacher may be absent.
+  const unconfirmedByTeacher = perSection.filter(
+    (p) =>
+      !p.away &&
+      ((p.confirmation?.auto && p.confirmation.date === today.date) ||
+        // no teacher has confirmed yet and first period is over
+        (!p.confirmation && today.isSchoolDay && today.date === today.actualDate && p.total > 0 && today.time >= autoFinalizeTime(p.section.schedule))),
+  );
   // What the "Today by section" line says under each class.
   const statusOf = ({ confirmation, away }) => {
     if (away?.kind === 'noclass') return 'No class today (teacher absent)';
     const sub = away?.kind === 'substitute' ? `Substitute: ${teacherName(away.teacherId)} · ` : '';
     if (!confirmation) return `${sub}Not yet confirmed`;
-    return `${sub}${confirmation.auto ? 'Auto-confirmed, no teacher confirmed' : `Confirmed by ${confirmation.confirmedBy}`}`;
+    return `${sub}${confirmation.auto ? 'Not confirmed by a teacher (closed automatically, no texts)' : `Confirmed by ${confirmation.confirmedBy}`}`;
   };
   return (
     <div className="page">
@@ -203,8 +211,15 @@ export function AdminDashboard() {
             </Link>
           }
         >
+          {/* Grouped by level: Kindergarten, Grades 1 to 3, Grades 4 to 6. */}
+          {LEVEL_BANDS.map((band) => {
+            const items = perSection.filter((p) => bandOf(p.section.gradeLevel) === band.id);
+            if (!items.length) return null;
+            return (
+              <div key={band.id}>
+                <h3 className="band-sub">{band.label}</h3>
           <ul className="sec-today">
-            {perSection.map((p) => {
+            {items.map((p) => {
               const { section, total, arrived } = p;
               return (
               <li key={section.id}>
@@ -223,6 +238,9 @@ export function AdminDashboard() {
               );
             })}
           </ul>
+              </div>
+            );
+          })}
         </Card>
         <Card title="Needs your attention">
           <ul className="todo">

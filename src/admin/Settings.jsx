@@ -31,11 +31,11 @@ import { TEMPLATE_KINDS } from '../engine';
 const KIND_LABELS = {
   arrival: 'In class (teacher confirmed)',
   late: 'Late, in class (teacher confirmed)',
-  arrivalAuto: 'Arrived (auto-confirmed, no teacher check)',
-  lateAuto: 'Late (auto-confirmed or after confirming)',
+  laterPeriod: 'Arrived in a later period (confirmed by a subject teacher)',
+  absent: 'Absent today (sent at the end of first period)',
   streak: '3-day alert',
   total: 'Monthly / semester total',
-  missing: 'In school but not in class (if on for the section)',
+  missing: 'Scanned at the gate but not in class',
 };
 
 // =====================================================================
@@ -74,6 +74,7 @@ export function AdminSettings() {
     contact: s.contactNumber,
     streak: describeStreak({ count: 3, absent: 3, late: 0 }, lang),
     summary: describeTotal('absentMonth', 5, lang),
+    period: lang === 'fil' ? 'ika-2 na period' : '2nd period',
   });
   const setTpl = (lang, k, v) => setS({ ...s, templates: { ...s.templates, [lang]: { ...s.templates[lang], [k]: v } } });
   return (
@@ -107,7 +108,11 @@ export function AdminSettings() {
         <Card title="When parents get a text">
           <label className="check">
             <input type="checkbox" checked={s.arrivalSmsEnabled} onChange={(e) => setS({ ...s, arrivalSmsEnabled: e.target.checked })} /> Text parents
-            when their child arrives (and when late)
+            when the teacher confirms their child is in class (and when late)
+          </label>
+          <label className="check">
+            <input type="checkbox" checked={s.absentSmsEnabled !== false} onChange={(e) => setS({ ...s, absentSmsEnabled: e.target.checked })} /> Text
+            parents on the day their child is absent (sent at the end of first period, only for classes a teacher confirmed)
           </label>
           <label className="field">
             <span>Text parents after this many school days absent in a row</span>
@@ -187,7 +192,8 @@ export function AdminSettings() {
       <Card title="Message templates">
         <p className="muted small">
           Parents are texted when the teacher confirms the class, not at the gate scan, so "in class" is only said once the teacher has
-          seen the child. If nobody confirms, the auto-confirm text only says "arrived at school". Variables: {'{child}'} first name, {'{time}'}, {'{school}'}, {'{contact}'}, and in the 3-day alert {'{streak}'}, which becomes the exact
+          seen the child. Absence texts go out at the end of first period (each section's "Absence texts" time). A class nobody confirms sends no
+          texts. Variables: {'{child}'} first name, {'{time}'}, {'{school}'}, {'{contact}'}, and in the 3-day alert {'{streak}'}, which becomes the exact
           pattern, e.g. "absent for 3 school days in a row" (only absences count; a late day ends it). Keep each under 160 plain characters (no emoji or curly
           quotes) so it costs one SMS.
         </p>
@@ -200,7 +206,7 @@ export function AdminSettings() {
                 const plain = isGsmPlain(preview);
                 return (
                   <label key={k} className="tpl">
-                    <span className={`kind kind-${k.replace('Auto', '')}`}>{KIND_LABELS[k]}</span>
+                    <span className={`kind kind-${k === 'laterPeriod' ? 'late' : k === 'absent' ? 'streak' : k}`}>{KIND_LABELS[k]}</span>
                     <textarea rows={3} value={s.templates[lang][k]} onChange={(e) => setTpl(lang, k, e.target.value)} />
                     <span className="muted small">Preview: {preview}</span>
                     <span className={`small ${preview.length > 160 || !plain ? 'over' : 'muted'}`}>

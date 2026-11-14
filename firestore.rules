@@ -34,6 +34,13 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/sections/$(sectionId)).data.teacherId == account().teacherId;
     }
 
+    // A subject teacher of that section (Grades 4 to 6: the admin lists them in sections/{id}.subjectTeacherIds).
+    // They may mark attendance for the class (a child who arrives in their period) and confirm it.
+    function subjectTeacher(sectionId) {
+      return isStaff() && account().role == 'teacher'
+        && account().teacherId in get(/databases/$(database)/documents/sections/$(sectionId)).data.get('subjectTeacherIds', []);
+    }
+
     // ----- parent portal (src/parent/) -----
     // A parent signs in with an account whose email is p<09XXXXXXXXX>@parents.doorbell-ph-f12d0.firebaseapp.com
     // and has a parents/{uid} profile. parentKeys/{09XXXXXXXXX} lists that number's children.
@@ -78,6 +85,7 @@ service cloud.firestore {
     match /attendance/{id} {
       allow read: if isStaff();
       allow create, update: if isAdmin() || isGate() || teachesSection(request.resource.data.sectionId)
+        || subjectTeacher(request.resource.data.sectionId)
         || coversSection(request.resource.data.sectionId, request.resource.data.date);
       allow delete: if isAdmin();
     }
@@ -85,15 +93,18 @@ service cloud.firestore {
     match /confirmations/{id} {
       allow read: if isStaff();
       allow create: if isAdmin() || teachesSection(request.resource.data.sectionId)
+        || subjectTeacher(request.resource.data.sectionId)
         || coversSection(request.resource.data.sectionId, request.resource.data.date)
-        || isGate(); // the Cloudflare Worker (worker/) auto-confirms with a gate account
+        || isGate(); // the Cloudflare Worker (worker/) closes classes nobody confirmed, with a gate account
       allow update, delete: if isAdmin();
     }
 
     // Outgoing texts (simulated) and in-app alerts.
+    // A text always belongs to a child (studentId); only the admin may make the Settings test text.
+    // The Worker also checks that the number is that child's guardian's before sending (worker/src/index.js).
     match /sms/{id} {
       allow read: if isStaff();
-      allow create, update: if isStaff();
+      allow create, update: if isAdmin() || (isStaff() && request.resource.data.get('studentId', '') != '');
       allow delete: if isAdmin();
     }
     match /notifications/{id} {

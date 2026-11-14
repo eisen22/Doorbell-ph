@@ -148,7 +148,19 @@ export function autoFinalizeTime(schedule) {
   return fromMinutes(toMinutes(schedule.startTime) + schedule.autoFinalizeMins);
 }
 
-/** True once it is time to auto-confirm today's attendance. */
+/**
+ * NO MORE AUTO-CONFIRM IN THE MORNING. Only a teacher confirms a class. Two times matter instead:
+ *   - the ABSENCE TEXT time (start + autoFinalizeMins, "end of first period"): children still absent
+ *     in a class the teacher confirmed are texted "has not arrived at school", and the 3-day and
+ *     limit texts go out. autoFinalizeTime() / shouldAutoFinalize() below now mean this time.
+ *   - the class END time: a class nobody confirmed is closed quietly (no parent texts) so the
+ *     records are complete (classEnded()).
+ */
+export function classEnded(nowTime, schedule) {
+  return toMinutes(nowTime) >= toMinutes(schedule.endTime);
+}
+
+/** True once it is time to send today's absence texts (the end of first period). */
 export function shouldAutoFinalize(nowTime, schedule) {
   return toMinutes(nowTime) >= toMinutes(schedule.startTime) + schedule.autoFinalizeMins;
 }

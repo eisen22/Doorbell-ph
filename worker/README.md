@@ -6,7 +6,7 @@ You don't need the Firebase Blaze plan or a credit card.
 It does two things:
 
 1. **Sends real texts through Semaphore.** This works when *Settings & SMS → How texts are sent* is set to **Semaphore**. Every text Doorbell saves as "Sending" goes out within about a minute. It is then marked *Sent*, or *Failed* with Semaphore's reason, and the teacher gets an alert.
-2. **Auto-confirms classes on time.** It runs every 5 minutes from 6 AM to 6 PM, Monday to Saturday, Philippine time. Each class is confirmed after its own auto-confirm time. Unscanned children are marked absent, and the 3-day absence texts are sent. It uses the same rules as the website (`src/engine.js`).
+2. **Does the class work on time, even when nobody has Doorbell open.** It runs every 5 minutes from 6 AM to 6 PM, Monday to Saturday, Philippine time. It never confirms a class in the morning: only a teacher does. For a class a teacher confirmed, it queues the absence texts ("has not arrived at school") and the 3-day and limit texts at the section's absence text time (end of first period). A class nobody confirmed is closed quietly after it ends: scanned children are recorded, the rest absent, no parent texts, and staff get an alert. It uses the same rules as the website (`src/engine.js`).
 
 The Worker signs in to Firebase with a normal Doorbell **gate account**, so `firestore.rules` limits what it can do, the same as for any user. Passwords and the Semaphore API key are saved as Cloudflare secrets. They are never put in this folder or on GitHub.
 
@@ -64,7 +64,7 @@ You need Node.js (already installed for the website) and the Doorbell-ph folder.
 | Texts stay **Sending** | Check `npx wrangler tail`. "Sign-in failed" means GATE_EMAIL or GATE_PASSWORD is wrong (step 5). "SEMAPHORE_API_KEY secret is missing" means you need to redo step 5. |
 | Text **Failed**: "not a Philippine mobile number" | Fix the guardian's number (09XX XXX XXXX) on the Students page, then press **Resend**. |
 | Text **Failed** with a Semaphore message about credits or the sender name | Buy credits on Semaphore, or clear *Sender name* until Semaphore approves yours. |
-| Auto-confirm doesn't happen | `npx wrangler tail` shows "Missing or insufficient permissions" when step 3 (Publish rules) was skipped. |
+| Absence texts or the end-of-day close don't happen | `npx wrangler tail` shows "Missing or insufficient permissions" when step 3 (Publish rules) was skipped. |
 | "Exceeded CPU limit" in the logs | This is unlikely for one school. The next run continues where it stopped. |
 
 ## Turning it off
@@ -75,5 +75,5 @@ You need Node.js (already installed for the website) and the Doorbell-ph folder.
 ## For developers
 
 - `npm test` runs the Worker against a fake Firestore and a fake Semaphore. It needs no internet.
-- `src/index.js` holds the schedule, Semaphore sending and auto-confirm. `src/firestore.js` is the Firestore REST helper.
+- `src/index.js` holds the schedule, Semaphore sending (only to a child's guardian number on file) and the class work. `src/firestore.js` is the Firestore REST helper.
 - The Worker reuses `../src/engine.js` and `../src/logic.js`. A change in how the website confirms days changes the Worker too, after `npx wrangler deploy`.

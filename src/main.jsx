@@ -161,7 +161,7 @@ export function Login() {
             <div className="art-bubble b2">
               <b>Doorbell:</b> Nakarating na si Bea sa paaralan ng 7:45 AM.
             </div>
-            <div className="art-bubble b3">Attendance confirmed for Kinder I - Apple</div>
+            <div className="art-bubble b3">Attendance confirmed for Grade 2 - Mango</div>
           </div>
           <p>Scan the ID. Parents know right away.</p>
         </section>

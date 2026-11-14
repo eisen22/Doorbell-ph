@@ -4,15 +4,18 @@
 // Runs every minute on Cloudflare's free plan (no Firebase Blaze plan needed):
 //   1. sendQueuedSms():  when Settings -> How texts are sent = Semaphore, sends every text saved
 //                        as 'queued' through Semaphore and marks it 'sent' or 'failed'.
-//   2. autoConfirm():    every 5 minutes, 6 AM to 6 PM, Monday to Saturday (Philippine time):
-//                        confirms each class after its auto-confirm time, even if nobody has
-//                        Doorbell open. Uses the SAME rules as the website (src/engine.js).
+//   2. dailyWork():      every 5 minutes, 6 AM to 6 PM, Monday to Saturday (Philippine time), even
+//                        if nobody has Doorbell open, with the SAME rules as the website (src/engine.js):
+//                          - a class a TEACHER confirmed: at the absence text time (end of first
+//                            period) queues the "has not arrived" texts and the 3-day / limit texts
+//                          - a class NOBODY confirmed: closed quietly after the class ends (no texts)
+//                        The Worker never confirms a class in the morning: only a teacher does.
 // It signs in to Firebase with a Doorbell gate account (see README.md), so firestore.rules
 // decides what it may do, like for any user. Secrets (passwords, API key) are kept in Cloudflare.
 // =====================================================================
 import { Firestore } from './firestore.js';
-import { Engine, emptyState, realClock } from '../../src/engine.js';
-import { addDays, isSchoolDay, manilaTime, manilaToday, shouldAutoFinalize, autoFinalizeTime, semesterOf } from '../../src/logic.js';
+import { Engine, emptyState } from '../../src/engine.js';
+import { addDays, isSchoolDay, manilaTime, manilaToday, shouldAutoFinalize, classEnded, semesterOf, parentKeyOf } from '../../src/logic.js';
 
 export default {
   // The schedule (wrangler.toml: every minute).
@@ -30,19 +33,22 @@ export default {
 export async function run(env, now = new Date(), fetchFn = (...args) => fetch(...args)) {
   const db = new Firestore(env, fetchFn);
   const report = { sms: null, confirm: null };
+  // The class work runs every 5 minutes during school hours (fewer database reads).
+  const hour = Number(manilaTime(now).slice(0, 2));
+  const weekday = new Date(`${manilaToday(now)}T12:00:00+08:00`).getUTCDay(); // 0 = Sunday
+  const classMinute = now.getUTCMinutes() % 5 === 0 && hour >= 6 && hour <= 18 && weekday !== 0;
   try {
-    report.sms = await sendQueuedSms(db, env, fetchFn);
+    // Cloudflare's free plan allows 50 web requests per run, and each text needs 3 of them:
+    // 14 texts on a normal minute, 6 on the minutes that also do the class work.
+    report.sms = await sendQueuedSms(db, env, fetchFn, classMinute ? 6 : 14);
   } catch (e) {
     console.error('SMS step failed:', e.message);
   }
-  // Auto-confirm every 5 minutes during school hours (fewer database reads).
-  const hour = Number(manilaTime(now).slice(0, 2));
-  const weekday = new Date(`${manilaToday(now)}T12:00:00+08:00`).getUTCDay(); // 0 = Sunday
-  if (now.getUTCMinutes() % 5 === 0 && hour >= 6 && hour <= 18 && weekday !== 0) {
+  if (classMinute) {
     try {
-      report.confirm = await autoConfirm(db, now);
+      report.confirm = await dailyWork(db, now);
     } catch (e) {
-      console.error('Auto-confirm step failed:', e.message);
+      console.error('Class step failed:', e.message);
     }
   }
   return report;
@@ -58,14 +64,30 @@ export function toSemaphoreNumber(to) {
   return m ? `63${m[1]}` : null;
 }
 
-async function sendQueuedSms(db, env, fetchFn) {
+async function sendQueuedSms(db, env, fetchFn, batch = 14) {
   const school = await db.get('meta/school');
   const settings = school?.data.settings ?? {};
   if (settings.smsProvider !== 'semaphore') return 'skipped (Semaphore is not chosen in Settings)';
   if (!env.SEMAPHORE_API_KEY) throw new Error('SEMAPHORE_API_KEY secret is missing');
-  const queued = await db.query('sms', [['status', 'EQUAL', 'queued']], 20);
+  const queued = await db.query('sms', [['status', 'EQUAL', 'queued']], batch);
   let sent = 0;
   let failed = 0;
+  // A text left as 'sending' for over 5 minutes was interrupted (the Worker stopped mid-way). It may or
+  // may not have gone out, so it is not sent again by itself: it is marked failed and staff can Resend.
+  for (const m of await db.query('sms', [['status', 'EQUAL', 'sending']], 5)) {
+    if (Date.now() - new Date(m.updateTime).getTime() < 5 * 60_000) continue;
+    await db.commit([{ path: `sms/${m.id}`, patch: { status: 'failed', error: 'Sending was interrupted. Press Resend if the parent did not get it.', failedAt: new Date().toISOString() } }]).catch(() => {});
+    failed += 1;
+  }
+  // SAFETY: a text for a child may only go to THAT child's guardian's number on file. This stops anyone
+  // with a staff or gate sign-in from using the school's sender name to text other numbers.
+  const guardianIds = [...new Set(queued.filter((m) => m.data.studentId).map((m) => m.data.guardianId).filter(Boolean))];
+  const guardians = await db.getMany(guardianIds.map((id) => `guardians/${id}`));
+  const onFile = (m) => {
+    if (!m.data.studentId) return m.data.kind === 'test'; // the admin's test text (firestore.rules: admin only)
+    const g = guardians.get(`guardians/${m.data.guardianId}`);
+    return !!g && (g.studentIds ?? []).includes(m.data.studentId) && parentKeyOf(g.mobile) === parentKeyOf(m.data.to);
+  };
   for (const m of queued) {
     // Claim it: only works if nobody changed it since we read it, so a text is never sent twice.
     try {
@@ -90,6 +112,10 @@ async function sendQueuedSms(db, env, fetchFn) {
       }
       await db.commit(writes);
     };
+    if (!onFile(m)) {
+      await fail(`"${m.data.to}" is not this child's guardian number on file`);
+      continue;
+    }
     const number = toSemaphoreNumber(m.data.to);
     if (!number) {
       await fail(`"${m.data.to}" is not a Philippine mobile number`);
@@ -129,11 +155,11 @@ async function sendQueuedSms(db, env, fetchFn) {
 }
 
 /* =====================================================================
-   2. AUTO-CONFIRM
-   Looks at today and the last 7 days, so a day missed while nobody had Doorbell open is
-   still confirmed, stamped with the class's own auto-confirm time (e.g. 8:45 AM).
+   2. THE CLASS WORK (no morning auto-confirm: only a teacher confirms a class)
+   For today: classes a teacher confirmed get their absence step once the absence text time passes.
+   For today and the last 7 days: classes nobody confirmed are closed quietly after they end.
    ===================================================================== */
-async function autoConfirm(db, now) {
+async function dailyWork(db, now) {
   const today = manilaToday(now);
   const time = manilaTime(now);
   const [school, cal, secs] = await Promise.all([db.get('meta/school'), db.get('meta/calendar'), db.query('sections')]);
@@ -143,34 +169,41 @@ async function autoConfirm(db, now) {
   const calendar = new Map(days.map((c) => [c.date, c]));
   const sections = secs.map((s) => ({ ...s.data, id: s.id })).filter((s) => !s.archived && s.schedule);
 
-  // 1. Which class days should be confirmed by now?
+  // 1. Which class days need work?
   const due = [];
   for (const sec of sections) {
     for (let i = 7; i >= 0; i--) {
       const d = addDays(today, -i);
       if (d < meta.schoolYear.start || d > meta.schoolYear.end || !isSchoolDay(d, sec.schedule, calendar)) continue;
-      if (d === today && !shouldAutoFinalize(time, sec.schedule)) continue;
       due.push({ sec, d });
     }
   }
-  if (!due.length) return { confirmed: 0 };
-  const have = await db.getMany(due.map(({ sec, d }) => `confirmations/${sec.id}_${d}`));
-  const todo = due.filter(({ sec, d }) => !have.has(`confirmations/${sec.id}_${d}`));
-  if (!todo.length) return { confirmed: 0 };
+  if (!due.length) return { closed: 0, absence: 0 };
+  const have = await db.getMany([
+    ...due.map(({ sec, d }) => `confirmations/${sec.id}_${d}`),
+    ...due.filter(({ d }) => d === today).map(({ sec }) => `notifications/absrun_${sec.id}_${today}`), // "absence step done" markers
+  ]);
+  const confOf = ({ sec, d }) => have.get(`confirmations/${sec.id}_${d}`);
+  const toClose = due.filter((x) => !confOf(x) && (x.d < today || classEnded(time, x.sec.schedule)));
+  const toText = due.filter(
+    (x) => x.d === today && confOf(x) && !confOf(x).auto && shouldAutoFinalize(time, x.sec.schedule) && !have.has(`notifications/absrun_${x.sec.id}_${today}`),
+  );
+  if (!toClose.length && !toText.length) return { closed: 0, absence: 0 };
 
-  // 2. Load what finalize() needs, only for the classes being confirmed (keeps the Worker fast):
-  //    children, guardians, placements, and attendance since the semester started (at least the last
-  //    60 days), for the 3-day texts and the month / semester totals.
+  // 2. Load what the engine needs, only for those classes (keeps the Worker fast): children, guardians,
+  //    placements, attendance since the semester started (at least the last 60 days) for the 3-day and
+  //    limit rules, and the texts and alerts already made (so nothing is sent twice).
   const semStart = semesterOf(today, meta.schoolYear, meta.settings?.semester2Start).from;
   const since = semStart < addDays(today, -60) ? semStart : addDays(today, -60);
   const span = Math.round((new Date(`${today}T00:00:00Z`) - new Date(`${since}T00:00:00Z`)) / 86400000);
-  const ids = [...new Set(todo.map(({ sec }) => sec.id))];
+  const ids = [...new Set([...toClose, ...toText].map(({ sec }) => sec.id))];
   const bySection = async (col) => {
     const out = [];
     for (let i = 0; i < ids.length; i += 30) out.push(...(await db.query(col, [['sectionId', 'IN', ids.slice(i, i + 30)]])));
     return out;
   };
-  const [students, guardians, enrollments, attendance, teachers, excuses] = await Promise.all([
+  const dayStart = `${today}T00:00:00+08:00`;
+  const [students, guardians, enrollments, attendance, teachers, excuses, smsToday, smsTotals, notesToday, notesTotals] = await Promise.all([
     db.query('students'),
     db.query('guardians'),
     bySection('enrollments'),
@@ -180,13 +213,18 @@ async function autoConfirm(db, now) {
     // For the parent portal months (teacher's name) and the excuses the teacher already approved.
     db.query('teachers'),
     db.query('excuses', [['status', 'EQUAL', 'approved']]).catch(() => []), // none if the rules are older than the portal
+    db.query('sms', [['createdAt', 'GREATER_THAN_OR_EQUAL', dayStart]]),
+    db.query('sms', [['kind', 'EQUAL', 'total']]),
+    db.query('notifications', [['createdAt', 'GREATER_THAN_OR_EQUAL', dayStart]]),
+    db.query('notifications', [['kind', 'EQUAL', 'total']]),
   ]);
   const writes = new Map();
   const persistence = {
     put: (col, id, data) => writes.set(`${col}/${id}`, JSON.parse(JSON.stringify(data))),
     remove: () => {},
   };
-  const engine = new Engine('cloud', emptyState(meta, days), persistence, {}, realClock);
+  const clock = { today: () => today, peek: () => time, scanTime: () => time, simulated: () => false };
+  const engine = new Engine('cloud', emptyState(meta, days), persistence, {}, clock);
   sections.forEach((s) => engine.s.sections.set(s.id, s));
   for (const [map, rows] of [
     [engine.s.students, students],
@@ -194,15 +232,21 @@ async function autoConfirm(db, now) {
     [engine.s.enrollments, enrollments],
     [engine.s.teachers, teachers],
     [engine.s.excuses, excuses],
+    [engine.s.sms, [...smsToday, ...smsTotals]],
+    [engine.s.notifications, [...notesToday, ...notesTotals]],
   ])
     rows.forEach((r) => map.set(r.id, { ...r.data, id: r.data.id ?? r.id }));
   for (const [path, data] of attendance) engine.s.attendance.set(path.split('/')[1], { ...data, id: path.split('/')[1] });
+  for (const [path, data] of have) if (path.startsWith('confirmations/')) engine.s.confirmations.set(path.split('/')[1], data);
 
-  // 3. Confirm, stamped with each class's own auto-confirm time.
-  for (const { sec, d } of todo) engine.finalize(sec.id, d, 'Auto-confirm', true, `${d}T${autoFinalizeTime(sec.schedule)}:00+08:00`);
+  // 3. Do the work.
+  for (const { sec, d } of toClose) engine.finalize(sec.id, d, 'Not confirmed', true, `${d}T${sec.schedule.endTime}:00+08:00`);
+  for (const { sec, d } of toText) engine.runAbsence(sec, d);
 
   // 4. Save everything.
   await db.commit([...writes].map(([path, data]) => ({ path, data })));
-  console.log('Auto-confirmed', todo.map(({ sec, d }) => `${sec.name} ${d}`).join(', '), `(${writes.size} writes)`);
-  return { confirmed: todo.length, writes: writes.size };
+  console.log(
+    `Closed (nobody confirmed): ${toClose.map(({ sec, d }) => `${sec.name} ${d}`).join(', ') || 'none'}. Absence texts: ${toText.map(({ sec }) => sec.name).join(', ') || 'none'}. (${writes.size} writes)`,
+  );
+  return { closed: toClose.length, absence: toText.length, writes: writes.size };
 }

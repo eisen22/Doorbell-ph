@@ -812,3 +812,15 @@ a.kpi:hover { background: var(--surface) !important; }
 .parent-help summary { cursor: pointer; font-weight: 700; color: var(--ink); min-height: 28px; display: flex; align-items: center; }
 .parent-help p { margin: 6px 0 2px; }
 .parent-help code { background: var(--frame); padding: 1px 6px; border-radius: var(--r-xs); font-weight: 700; }
+
+/* ---------- level groups on the admin pages (Kindergarten, Grades 1 to 3, Grades 4 to 6) ---------- */
+.band { margin-bottom: 22px; }
+.band-title { font-size: 16px; font-weight: 800; margin: 0 0 10px; display: flex; align-items: baseline; gap: 8px; }
+.band-title .muted { font-size: 13px; font-weight: 600; }
+.band-sub { font-size: 12.5px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin: 12px 0 2px; }
+.band-sub:first-child { margin-top: 0; }
+.roster-row.needs-check { background: var(--late-bg); border-radius: var(--r-sm); }
+.check-note { color: var(--late); font-weight: 700; }
+.missing-note { color: var(--absent); font-weight: 700; }
+.absent-strip { background: var(--surface); border-radius: var(--r-md); padding: 10px 14px; font-size: 13.5px; margin: 0 0 12px; }
+.kind-absent { background: var(--absent-bg); } .kind-missing { background: var(--absent-bg); } .kind-total { background: var(--late-bg); }
