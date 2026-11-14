@@ -1,4 +1,5 @@
 import {
+  ShieldCheck,
   RefreshCw,
   Trash2,
   Plus,
@@ -12,6 +13,7 @@ import {
   Skeleton,
   useRepo,
   Toast,
+  Modal,
 } from '../ui';
 import { useState, useEffect } from 'react';
 import {
@@ -211,6 +213,7 @@ export function AdminSettings() {
           ))}
         </div>
       </Card>
+      <AdminsCard flash={flash} />
       <GateAccountCard flash={flash} />
       <ParentPortalCard flash={flash} />
       <Toast message={toast} />
@@ -281,6 +284,138 @@ function GateAccountCard({ flash }) {
         </button>
       </form>
       {error && <p className="error">{error}</p>}
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------
+// ADMINS: list the school's admins, add one (a sign-in account with a temporary password),
+// remove one. You cannot remove yourself or the last admin.
+// ---------------------------------------------------------------------
+function AdminsCard({ flash }) {
+  const repo = useRepo();
+  const { data } = useLive(async (r) => ({ list: r.admins(), me: (await r.getSession())?.uid }));
+  const admins = data?.list;
+  const me = data?.me;
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [created, setCreated] = useState(null);
+  const [confirm, setConfirm] = useState(null);
+  const add = async (e) => {
+    e.preventDefault();
+    setError('');
+    setBusy(true);
+    try {
+      const res = await repo.addAdmin({ name, email });
+      setCreated({ name: res.account.name, email: res.account.email, password: res.tempPassword });
+      setName('');
+      setEmail('');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const remove = async () => {
+    const a = confirm;
+    setConfirm(null);
+    try {
+      await repo.removeAdmin(a.uid);
+      flash(`${a.name} is no longer an admin.`);
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+  const many = (admins?.length ?? 0) > 1;
+  return (
+    <Card title="Admins">
+      <p className="muted small">
+        Admins can do everything on this website. Add another admin (for example the principal or the school clerk) so the school is not stuck if one
+        person is away. You cannot remove yourself or the last admin.
+      </p>
+      {admins?.length ? (
+        <ul className="cal-list">
+          {admins.map((a) => (
+            <li key={a.uid}>
+              <ShieldCheck size={16} aria-hidden="true" />
+              <span>
+                <b>{a.name}</b> · {a.email}
+                {a.uid === me ? ' (you)' : ''}
+              </span>
+              {a.uid !== me && many && (
+                <button className="btn btn-sm" onClick={() => setConfirm(a)}>
+                  <Trash2 size={15} aria-hidden="true" /> Remove
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <form className="form-row" onSubmit={add}>
+        <label className="field">
+          <span>Name</span>
+          <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Ma. Teresa Cruz" />
+        </label>
+        <label className="field">
+          <span>Email</span>
+          <input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="principal@yourschool.edu.ph" />
+        </label>
+        <button className="btn btn-ink align-end" disabled={busy || !name.trim() || !email.trim()}>
+          <Plus size={17} aria-hidden="true" /> {busy ? 'Adding…' : 'Add admin'}
+        </button>
+      </form>
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+      {created && (
+        <Modal
+          title="Admin added"
+          onClose={() => setCreated(null)}
+          footer={
+            <button className="btn btn-ink" onClick={() => setCreated(null)}>
+              Done
+            </button>
+          }
+        >
+          <p>
+            Give these to <b>{created.name}</b> privately. They can change it with "Forgot password?" on the sign-in page, which emails
+            them a reset link.
+          </p>
+          <dl className="dl cred">
+            <dt>Email</dt>
+            <dd>{created.email}</dd>
+            <dt>Temporary password</dt>
+            <dd>
+              <code>{created.password}</code>
+            </dd>
+          </dl>
+          <p className="muted small">This password is shown only once.</p>
+        </Modal>
+      )}
+      {confirm && (
+        <Modal
+          title={`Remove ${confirm.name} as admin?`}
+          onClose={() => setConfirm(null)}
+          footer={
+            <>
+              <button className="btn" onClick={() => setConfirm(null)}>
+                Cancel
+              </button>
+              <button className="btn btn-danger" onClick={remove}>
+                Remove admin
+              </button>
+            </>
+          }
+        >
+          <p>
+            {confirm.name} ({confirm.email}) will no longer be able to open the website. Their past changes stay in the Audit Log.
+          </p>
+        </Modal>
+      )}
     </Card>
   );
 }

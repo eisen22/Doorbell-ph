@@ -1188,6 +1188,46 @@ export class Engine {
     await this.logAudit('gate.remove', acc.email, 'gate scanner account removed');
     this.emit();
   }
+  // ---------------------------------------------------------------------
+  // ADMIN ACCOUNTS (Settings -> Admins). The school can have several admins; each one can do
+  // everything. Removing an admin deletes their profile (users/{uid}), so they can no longer
+  // open the website. Nobody can remove their own access or the last admin, so the school
+  // can never lock itself out.
+  // ---------------------------------------------------------------------
+  admins() {
+    return [...this.s.users.values()].filter((u) => u.role === 'admin').sort((a, b) => a.name.localeCompare(b.name));
+  }
+  async addAdmin({ name, email }) {
+    const cleanName = (name ?? '').trim();
+    const clean = (email ?? '').trim().toLowerCase();
+    if (!cleanName) throw new Error("Enter the new admin's name.");
+    if (!clean.includes('@')) throw new Error('Enter an email address, e.g. principal@yourschool.edu.ph');
+    if ([...this.s.users.values()].some((u) => u.email.toLowerCase() === clean)) throw new Error('That email already has an account.');
+    let made;
+    try {
+      made = await this.auth.createTeacherAccount(clean, cleanName);
+    } catch (e) {
+      if (String(e?.code ?? e?.message).includes('email-already-in-use'))
+        throw new Error('That email already has a sign-in account (maybe a removed admin or teacher). Delete it in Firebase console -> Authentication first, or use another email.');
+      throw e;
+    }
+    const account = { uid: made.uid || uid('u'), email: clean, name: cleanName, role: 'admin' };
+    this.s.users.set(account.uid, account);
+    this.put('users', account.uid, account);
+    await this.logAudit('admin.create', cleanName, clean);
+    this.emit();
+    return { account, tempPassword: made.tempPassword };
+  }
+  async removeAdmin(accountUid) {
+    const acc = this.s.users.get(accountUid);
+    if (!acc || acc.role !== 'admin') return;
+    if (accountUid === this.session?.uid) throw new Error('You cannot remove your own admin access. Ask another admin to do it.');
+    if (this.admins().length <= 1) throw new Error('The school must keep at least one admin.');
+    this.s.users.delete(accountUid);
+    this.persistence.remove('users', accountUid);
+    await this.logAudit('admin.remove', acc.name, acc.email);
+    this.emit();
+  }
   // Deactivate (cannot sign in, removed from their classes) or reactivate a teacher.
   async setTeacherActive(id, active) {
     const t = this.s.teachers.get(id);
