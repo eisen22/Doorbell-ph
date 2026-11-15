@@ -1444,13 +1444,14 @@ export class Engine {
     if (dupe) throw new Error('Another teacher already uses this email.');
     const existing = input.id ? this.s.teachers.get(input.id) : undefined;
     if (existing) {
-      Object.assign(existing, { name: input.name, mobile: input.mobile, subjects: input.subjects ?? existing.subjects ?? [] });
+      Object.assign(existing, { name: input.name, mobile: input.mobile, subjects: input.subjects ?? existing.subjects ?? [], gradeLevel: input.gradeLevel ?? existing.gradeLevel ?? null });
       this.put('teachers', existing.id, existing);
       await this.logAudit('teacher.update', existing.name);
       this.emit();
       return { teacher: existing };
     }
-    const teacher = { id: uid('t'), name: input.name, email: input.email, mobile: input.mobile, subjects: input.subjects ?? [], active: true };
+    // gradeLevel: the grade they teach ('K'...'6'), used to show only that grade's classes when placing them.
+    const teacher = { id: uid('t'), name: input.name, email: input.email, mobile: input.mobile, subjects: input.subjects ?? [], gradeLevel: input.gradeLevel ?? null, active: true };
     const { uid: accountUid, tempPassword } = await this.auth.createTeacherAccount(input.email, input.name, teacher.id);
     teacher.uid = accountUid;
     const account = { uid: accountUid, email: input.email, name: input.name, role: 'teacher', teacherId: teacher.id };

@@ -29,6 +29,8 @@ import {
   ASSIGN_METHODS,
   autoAssign,
   manilaToday,
+  GRADE_LEVELS,
+  gradeName,
 } from '../logic';
 
 // =====================================================================
@@ -393,6 +395,9 @@ export function StudentModal({ input, sections, onClose, onSaved }) {
   const repo = useRepo();
   const [f, setF] = useState(input);
   const [error, setError] = useState(null);
+  // The child's grade: only that grade's sections are listed (starts at the grade of their current section).
+  const [grade, setGrade] = useState(sections.find((s) => s.id === input.sectionId)?.gradeLevel ?? '');
+  const gradeSections = sections.filter((s) => (!s.archived || s.id === f.sectionId) && (!grade || (s.gradeLevel ?? 'K') === grade));
   const set = (patch) => setF({ ...f, ...patch });
   // Checks the form (names, birthdate, PH mobile number) before saving.
   const save = async () => {
@@ -460,17 +465,40 @@ export function StudentModal({ input, sections, onClose, onSaved }) {
           </select>
         </label>
       </div>
+      <div className="form-row">
+      <label className="field">
+        <span>Grade level</span>
+        <select
+          className="input"
+          value={grade}
+          onChange={(e) => {
+            const g = e.target.value;
+            setGrade(g);
+            // A section of another grade is cleared.
+            const cur = sections.find((s) => s.id === f.sectionId);
+            if (g && cur && (cur.gradeLevel ?? 'K') !== g) set({ sectionId: null });
+          }}
+        >
+          <option value="">Choose a grade</option>
+          {GRADE_LEVELS.map((g) => (
+            <option key={g} value={g}>
+              {gradeName(g)} student
+            </option>
+          ))}
+        </select>
+      </label>
       <label className="field">
         <span>Section</span>
         <select className="input" value={f.sectionId ?? ''} onChange={(e) => set({ sectionId: e.target.value || null })}>
-          <option value="">Not yet (auto-assign later)</option>
-          {sections.map((s) => (
+          <option value="">{grade ? 'Not yet (auto-assign later)' : 'Choose a grade first, or not yet'}</option>
+          {gradeSections.map((s) => (
             <option key={s.id} value={s.id}>
               {s.name}
             </option>
           ))}
         </select>
       </label>
+      </div>
       <h4 className="form-sub">Parent or guardian (receives SMS)</h4>
       <div className="form-row">
         <label className="field">

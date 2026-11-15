@@ -17,7 +17,7 @@ import {
   countByGrade,
 } from '../ui';
 import { useState } from 'react';
-import { displayPhMobile, to12h, normalizePhMobile, GRADE_LEVELS, gradeName, gradeRank, SUBJECTS } from '../logic';
+import { displayPhMobile, to12h, normalizePhMobile, GRADE_LEVELS, gradeName, gradeRank, SUBJECTS, hasSubjectTeachers } from '../logic';
 
 // =====================================================================
 // TEACHERS (/admin/teachers): teacher accounts and the classes they handle.
@@ -34,6 +34,7 @@ export const toTeacherInput = (t) => ({
   email: t.email,
   mobile: t.mobile ? displayPhMobile(t.mobile) : '',
   subjects: t.subjects ?? [],
+  gradeLevel: t.gradeLevel ?? null,
 });
 /** Add or edit a teacher, including which classes they handle. */
 export function TeacherModal({ input, sections, teachers, onClose, onSaved }) {
@@ -44,6 +45,11 @@ export function TeacherModal({ input, sections, teachers, onClose, onSaved }) {
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const nameOf = (id) => teachers.find((t) => t.id === id)?.name;
+  // The grade they teach: picked here, or (for older records) the grade of the class they advise.
+  const grade = edit.gradeLevel ?? live.find((s) => input.id && s.teacherId === input.id)?.gradeLevel ?? '';
+  // Only that grade's classes are listed (plus any class already ticked).
+  const shownClasses = live.filter((s) => !grade || (s.gradeLevel ?? 'K') === grade || classes.has(s.id));
+  const upper = !grade || hasSubjectTeachers(grade);
   // Saves the teacher, then assigns/unassigns each ticked class (one saveSection per changed class).
   const save = async () => {
     if (!edit.name.trim()) return setError("Enter the teacher's name.");
@@ -56,7 +62,7 @@ export function TeacherModal({ input, sections, teachers, onClose, onSaved }) {
     }
     setBusy(true);
     try {
-      const res = await repo.saveTeacher({ ...edit, name: edit.name.trim(), email: edit.email.trim(), mobile });
+      const res = await repo.saveTeacher({ ...edit, gradeLevel: grade || null, name: edit.name.trim(), email: edit.email.trim(), mobile });
       const id = res.teacher.id;
       for (const s of live) {
         const want = classes.has(s.id);
@@ -106,7 +112,20 @@ export function TeacherModal({ input, sections, teachers, onClose, onSaved }) {
         <span>Mobile (optional, for alerts)</span>
         <input className="input" value={edit.mobile} onChange={(e) => setEdit({ ...edit, mobile: e.target.value })} placeholder="0917 123 4567" />
       </label>
+      {/* The grade they teach: only that grade's classes are listed below. */}
+      <label className="field">
+        <span>Grade level</span>
+        <select className="input" value={grade} onChange={(e) => setEdit({ ...edit, gradeLevel: e.target.value || null })}>
+          <option value="">Any grade (show all classes)</option>
+          {GRADE_LEVELS.map((g) => (
+            <option key={g} value={g}>
+              {gradeName(g)} teacher
+            </option>
+          ))}
+        </select>
+      </label>
       {/* Subjects: Grades 4 to 6 may have a teacher per subject. Used to sort ("Mathematics teachers"). */}
+      {upper && (
       <fieldset className="checks subject-checks">
         <legend>Subjects taught (Grades 4 to 6, optional)</legend>
         {SUBJECTS.map((sub) => {
@@ -123,10 +142,13 @@ export function TeacherModal({ input, sections, teachers, onClose, onSaved }) {
           );
         })}
       </fieldset>
+      )}
       <fieldset className="checks class-checks">
-        <legend>Classes handled (as adviser)</legend>
-        {live.length === 0 && <p className="muted small">No sections yet. Add one on the Sections page.</p>}
-        {live.map((s) => {
+        <legend>{grade ? `${gradeName(grade)} classes handled (as adviser)` : 'Classes handled (as adviser)'}</legend>
+        {shownClasses.length === 0 && (
+          <p className="muted small">{live.length ? `No ${gradeName(grade)} sections yet. Add one on the Sections page.` : 'No sections yet. Add one on the Sections page.'}</p>
+        )}
+        {shownClasses.map((s) => {
           const other = s.teacherId && s.teacherId !== edit.id ? nameOf(s.teacherId) : undefined;
           return (
             <label key={s.id}>
@@ -180,10 +202,12 @@ export function Teachers() {
   const adviserOf = (t) => live.filter((x) => x.teacherId === t.id);
   const subjectOf = (t) => live.filter((x) => (x.subjectTeacherIds ?? []).includes(t.id));
   // The grade levels a teacher teaches (as adviser or subject teacher).
-  const levelsOf = (t) => [...adviserOf(t), ...subjectOf(t)].map((x) => x.gradeLevel ?? 'K');
-  const firstLevel = (t) => Math.min(99, ...adviserOf(t).map((x) => gradeRank(x.gradeLevel)));
+  const levelsOf = (t) => [...[...adviserOf(t), ...subjectOf(t)].map((x) => x.gradeLevel ?? 'K'), ...(t.gradeLevel ? [t.gradeLevel] : [])];
+  const firstLevel = (t) => Math.min(99, ...adviserOf(t).map((x) => gradeRank(x.gradeLevel)), ...(t.gradeLevel && !subjectOf(t).length ? [gradeRank(t.gradeLevel)] : []));
   const shown = data.teachers.filter((t) => level === 'all' || levelsOf(t).includes(level));
   const byName = (a, b) => a.name.localeCompare(b.name);
+  // Advises a class in the picked grade, or was added as that grade's teacher and has no class yet.
+  const isAdv = (t) => adviserOf(t).some((x) => (x.gradeLevel ?? 'K') === level) || (t.gradeLevel === level && !adviserOf(t).length && !subjectOf(t).length);
   // Groups: by the grade they advise (subject teachers with no class of their own after Grade 6),
   // by subject (teachers of Grades 4 to 6), or one list by name.
   const groups =
@@ -209,12 +233,12 @@ export function Teachers() {
               {
                 key: 'adv',
                 label: `${gradeName(level)} advisers`,
-                items: shown.filter((t) => adviserOf(t).some((x) => (x.gradeLevel ?? 'K') === level)).sort(byName),
+                items: shown.filter((t) => isAdv(t)).sort(byName),
               },
               {
                 key: 'sub',
                 label: `Subject teachers in ${gradeName(level)}`,
-                items: shown.filter((t) => !adviserOf(t).some((x) => (x.gradeLevel ?? 'K') === level)).sort(byName),
+                items: shown.filter((t) => !isAdv(t)).sort(byName),
               },
             ].filter((g) => g.items.length)
           : [
