@@ -188,7 +188,15 @@ export const attendanceMethods = {
           : undefined,
       source: 'manual',
       markedBy: this.actor(), // who set this status (shown in a child's attendance history)
-      excusedNote: input.status === 'excused' ? input.note : undefined,
+      excusedNote: input.status === 'excused' ? input.note : prev?.excusedNote && inClass && prev?.excusedPeriods?.length ? prev.excusedNote : undefined,
+      // Excused for some class periods only (e.g. [1, 2]); empty/absent = the whole day. A child excused for
+      // some periods and in class for the others keeps the list when the teacher marks them present or late.
+      excusedPeriods:
+        input.status === 'excused'
+          ? (input.excusedPeriods ?? []).map(Number).filter((n) => n > 0).sort((a, b) => a - b)
+          : inClass && prev?.excusedPeriods?.length
+            ? prev.excusedPeriods
+            : undefined,
       editedReason: input.reason,
       ...joined,
       ...earlier,
@@ -380,6 +388,7 @@ export const attendanceMethods = {
         joinedPeriod: r.joinedPeriod ?? null,
         joinedSubject: r.joinedSubject ?? null,
         excusedNote: r.excusedNote ?? null,
+        excusedPeriods: r.excusedPeriods ?? null,
         editedReason: r.editedReason ?? null,
         needsCheck: !!r.needsCheck,
         sectionName: sec?.name ?? null,

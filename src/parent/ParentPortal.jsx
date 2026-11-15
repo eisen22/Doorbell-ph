@@ -11,7 +11,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { AlertTriangle, ChevronLeft, ChevronRight, FileText, KeyRound, LogOut, Send } from 'lucide-react';
 import { Logo, Wordmark, StatusChip, DatePicker, longDate, useRepo } from '../ui';
-import { addDays, isoWeekday, manilaToday, to12h, ordinal, EXCUSE_REASONS } from '../logic';
+import { addDays, isoWeekday, manilaToday, to12h, ordinal, periodsLabel, EXCUSE_REASONS } from '../logic';
 import { changeParentPassword, portalAvailable, sendExcuse, signOutParent, watchParent } from './parentCloud';
 
 const STATUS_WORD = { present: 'Present', late: 'Late', absent: 'Absent', excused: 'Excused' };
@@ -319,9 +319,18 @@ function ChildView({ child, docs, excuses, onExcuse }) {
 function timesOf(rec, date, today, endTime) {
   const lines = [];
   if (rec.s === 'absent' || rec.s === 'excused') {
-    lines.push(rec.s === 'absent' ? (rec.t ? `Scanned in at the gate ${to12h(rec.t)}, but not in class` : 'Absent: did not come to school') : 'Excused');
+    lines.push(
+      rec.s === 'absent'
+        ? rec.t
+          ? `Scanned in at the gate ${to12h(rec.t)}, but not in class`
+          : 'Absent: did not come to school'
+        : rec.xp?.length
+          ? `Excused for the ${periodsLabel(rec.xp)}`
+          : 'Excused for the whole day',
+    );
     return lines;
   }
+  if (rec.xp?.length) lines.push(`Excused for the ${periodsLabel(rec.xp)}`);
   // Before the teacher's confirmation, in time order: the gate scan and any earlier text
   // ("absent" at the end of the 1st period, or "entered the school but not in class").
   const before = [];

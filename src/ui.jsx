@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, useMemo } from 'react';
-import { GRADE_LEVELS, gradeName, bySectionGrade, levelsLabel, manilaToday, addDays, isoWeekday, DAY_KIND_META, dayKind, classNow, classPhase, shortClassName, sortByStart, to12h, isSchoolDay, ordinal } from './logic';
+import { GRADE_LEVELS, gradeName, bySectionGrade, levelsLabel, manilaToday, addDays, isoWeekday, DAY_KIND_META, dayKind, classNow, classPhase, shortClassName, sortByStart, to12h, isSchoolDay, ordinal, periodsLabel } from './logic';
 import { DemoClock, Engine, noopPersistence, buildDemoState, demoAuth } from './engine';
 import { cloudConfigured, createCloudEngine } from './firebase';
 import { CheckCircle2, Clock3, XCircle, FileCheck2, CircleDashed, X, CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react';
@@ -667,6 +667,7 @@ function DayDetail({ date, rec, look, picked }) {
         {!rec.scannedAt && (inClass ? 'Did not scan in at the gate (marked by the teacher). ' : 'No gate scan. ')}
         {inClass && !rec.scannedOut && 'Did not scan out. '}
         {rec.status === 'absent' && rec.scannedAt && 'Scanned in at the gate but was not found in class. '}
+        {rec.excusedPeriods?.length > 0 && `Excused for the ${periodsLabel(rec.excusedPeriods)} only. `}
         {rec.excusedNote && `Excuse: ${rec.excusedNote}. `}
         {rec.editedReason && rec.status !== 'excused' && `Note: ${rec.editedReason}.`}
       </p>

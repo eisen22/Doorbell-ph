@@ -839,3 +839,10 @@ export const CLASS_ROLE_GROUPS = [
 /** Splits a teacher's items into Advisory / Subject / Covering groups (empty groups left out). sectionOf(item) gives the class. */
 export const groupByClassRole = (items, teacherId, sectionOf = (x) => x) =>
   CLASS_ROLE_GROUPS.map((g) => ({ ...g, items: items.filter((x) => classRole(sectionOf(x), teacherId) === g.id) })).filter((g) => g.items.length);
+
+/** [1, 2] -> "1st and 2nd period"; [1, 3, 4] -> "1st, 3rd and 4th period". */
+export function periodsLabel(periods) {
+  const o = (periods ?? []).map(ordinal);
+  if (!o.length) return '';
+  return `${o.length > 1 ? `${o.slice(0, -1).join(', ')} and ${o.at(-1)}` : o[0]} period`;
+}

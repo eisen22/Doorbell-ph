@@ -74,6 +74,7 @@ export const parentPortalMethods = {
         o: r.scannedOut ?? null,
         ...(r.joinedPeriod ? { p: r.joinedPeriod, j: r.joinedSubject ?? null } : {}),
         ...(r.earlierText ? { e: r.earlierText, et: r.earlierTextAt } : {}),
+        ...(r.excusedPeriods?.length ? { xp: r.excusedPeriods } : {}), // excused for these class periods only
       };
     }
     // Class days with no class (holidays, breaks, suspensions, teacher absent), with their names.

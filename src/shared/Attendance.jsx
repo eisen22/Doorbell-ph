@@ -18,6 +18,7 @@ import {
   classPeriods,
   periodAt,
   ordinal,
+  periodsLabel,
 } from '../logic';
 import {
   useLive,
@@ -68,6 +69,8 @@ export function Attendance() {
   // arrived = a child being confirmed after the class was already confirmed (classes with subject teachers ask which period).
   const [arrived, setArrived] = useState(null);
   const [period, setPeriod] = useState(2);
+  const [excuseWhole, setExcuseWhole] = useState(true); // Excused: the whole day, or some periods only
+  const [excusedPeriods, setExcusedPeriods] = useState([]);
   const [text, setText] = useState('');
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [toast, setToast] = useState(null);
@@ -127,6 +130,8 @@ export function Attendance() {
     if (row.record?.status === status) return;
     if (status === 'excused') {
       setPending({ row, status });
+      setExcuseWhole(true);
+      setExcusedPeriods([]);
       setText('');
       setError(null);
       return;
@@ -151,6 +156,7 @@ export function Attendance() {
   };
   const savePending = async () => {
     if (!pending) return;
+    if (!excuseWhole && !excusedPeriods.length) return setError('Pick at least one period, or choose Whole day.');
     try {
       await repo.setStatus({
         sectionId: section.id,
@@ -158,6 +164,7 @@ export function Attendance() {
         studentId: pending.row.student.id,
         status: pending.status,
         note: text,
+        excusedPeriods: excuseWhole ? [] : excusedPeriods,
       });
       setPending(null);
       flash(`${pending.row.student.firstName} updated`);
@@ -334,6 +341,9 @@ export function Attendance() {
                             · parent texted "{row.record.earlierText === 'missing' ? 'not in class' : 'absent'}" at {to12h(row.record.earlierTextAt)}, then "in class"
                           </span>
                         )}
+                        {row.record?.excusedPeriods?.length > 0 && (
+                          <span className="joined-note"> · excused for the {periodsLabel(row.record.excusedPeriods)}</span>
+                        )}
                         {row.record?.excusedNote && ` · ${row.record.excusedNote}`}
                         {row.streak.count >= 2 && (
                           <>
@@ -384,6 +394,41 @@ export function Attendance() {
             </>
           }
         >
+          {/* Whole day, or only some class periods (e.g. a dental appointment during the 1st and 2nd period). */}
+          <fieldset className="excuse-scope">
+            <legend>Excused for</legend>
+            <label className="radio">
+              <input type="radio" checked={excuseWhole} onChange={() => setExcuseWhole(true)} /> The whole day
+            </label>
+            <label className="radio">
+              <input type="radio" checked={!excuseWhole} onChange={() => setExcuseWhole(false)} /> Certain class periods only
+            </label>
+            {!excuseWhole && (
+              <div className="excuse-periods">
+                {(periods.length ? periods : [1, 2, 3, 4, 5, 6, 7, 8].map(() => null)).map((p, i) => {
+                  const n = i + 1;
+                  const on = excusedPeriods.includes(n);
+                  return (
+                    <label key={n} className={`excuse-period ${on ? 'on' : ''}`}>
+                      <input
+                        type="checkbox"
+                        checked={on}
+                        onChange={() => setExcusedPeriods(on ? excusedPeriods.filter((x) => x !== n) : [...excusedPeriods, n].sort((a, b) => a - b))}
+                      />
+                      <span>
+                        <b>{ordinal(n)}</b>
+                        {p ? ` · ${p.subject} · ${to12h(p.start)}` : ' period'}
+                      </span>
+                    </label>
+                  );
+                })}
+                <p className="muted small">
+                  The child is excused for these periods. When they are in class for the other periods, mark them Present or Late as usual;
+                  the excuse is kept.
+                </p>
+              </div>
+            )}
+          </fieldset>
           <label className="field">
             <span>Note (optional), e.g. "Parent called, fever"</span>
             <textarea value={text} onChange={(e) => setText(e.target.value)} rows={3} autoFocus />

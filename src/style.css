@@ -925,3 +925,11 @@ a.kpi:hover { background: var(--surface) !important; }
 .sa-notes { margin: 8px 0 0; }
 .sa-notes:empty { display: none; }
 .sa-hint { margin: 8px 0; }
+
+/* Excused: whole day or some class periods */
+.excuse-scope { border: 0; padding: 0; margin: 0 0 12px; display: flex; flex-direction: column; gap: 6px; }
+.excuse-scope legend { font-weight: 600; font-size: 13.5px; margin-bottom: 4px; }
+.excuse-scope .radio { display: flex; gap: 8px; align-items: center; font-size: 14px; }
+.excuse-periods { display: flex; flex-direction: column; gap: 4px; margin: 4px 0 0 24px; }
+.excuse-period { display: flex; gap: 8px; align-items: center; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--r-sm, 10px); font-size: 13.5px; cursor: pointer; }
+.excuse-period.on { background: var(--excused-bg, #eaecfb); border-color: var(--excused, #464ca8); }

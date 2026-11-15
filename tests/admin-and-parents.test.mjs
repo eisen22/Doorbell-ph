@@ -100,3 +100,16 @@ const kinds = (w, id) => w.smsFor(id).map((m) => m.kind).join('+') || '-';
   const s4 = [...w.state.sections.values()].find((x) => x.id === 'sec-4-rizal');
   check('P1 sample Grade 4 class has a program with recess and lunch', s4?.program?.some((p) => p.subject === 'Recess') && s4.program.some((p) => p.subject === 'Lunch'));
 }
+// ---- excused for some class periods only ----
+{
+  const w = world(); const D = w.clock.d; const [a, b] = w.roster(SEC);
+  await w.eng.setStatus({ studentId: a.id, sectionId: SEC, date: D, status: 'excused', note: 'Dentist', excusedPeriods: [2, 1] });
+  check('X1 excused for periods 1 and 2', JSON.stringify(w.eng.record(SEC, D, a.id).excusedPeriods) === '[1,2]');
+  await w.eng.setStatus({ studentId: a.id, sectionId: SEC, date: D, status: 'present' });
+  const r = w.eng.record(SEC, D, a.id);
+  check('X1 marked present later: keeps the excused periods and note', JSON.stringify(r.excusedPeriods) === '[1,2]' && r.excusedNote === 'Dentist', JSON.stringify(r));
+  await w.eng.setStatus({ studentId: b.id, sectionId: SEC, date: D, status: 'excused', excusedPeriods: [] });
+  check('X1 whole-day excuse has no periods', !(w.eng.record(SEC, D, b.id).excusedPeriods ?? []).length);
+  await w.eng.setStatus({ studentId: a.id, sectionId: SEC, date: D, status: 'absent' });
+  check('X1 absent clears the excused periods', !w.eng.record(SEC, D, a.id).excusedPeriods);
+}
