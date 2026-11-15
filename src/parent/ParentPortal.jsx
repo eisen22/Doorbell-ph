@@ -299,7 +299,10 @@ function ChildView({ child, docs, excuses, onExcuse }) {
             {excuses.slice(0, 6).map((x) => (
               <li key={x.id}>
                 <div>
-                  <strong>{x.dates.map(shortDay).join(', ')}</strong>
+                  <strong>
+                    {x.dates.map(shortDay).join(', ')}
+                    {x.periods?.length ? ` · ${periodsLabel(x.periods)}` : ''}
+                  </strong>
                   <span className="pp-muted pp-small">
                     {x.reason}
                     {x.teacherNote ? ` · Teacher: ${x.teacherNote}` : ''}
@@ -470,8 +473,13 @@ function ExcuseForm({ child, docs, excuses, guardianName, onDone, onBack }) {
   const [other, setOther] = useState('');
   const [reason, setReason] = useState(null);
   const [note, setNote] = useState('');
+  const [whole, setWhole] = useState(true); // the whole day, or certain class periods only
+  const [periods, setPeriods] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+  // The class periods (from the class program); older saved months don't have them: 1st to 8th.
+  const classPeriodList = latest?.periods?.length ? latest.periods : [1, 2, 3, 4, 5, 6, 7, 8].map((n) => ({ n }));
+  const togglePeriod = (n) => setPeriods((xs) => (xs.includes(n) ? xs.filter((x) => x !== n) : [...xs, n].sort((a, b) => a - b)));
   const toggle = (d) => setDates((xs) => (xs.includes(d) ? xs.filter((x) => x !== d) : [...xs, d]));
   const submit = async (e) => {
     e.preventDefault();
@@ -479,9 +487,10 @@ function ExcuseForm({ child, docs, excuses, guardianName, onDone, onBack }) {
     if (!sectionId) return setError(`${child.firstName} is not in a class yet. Please contact the school.`);
     if (!dates.length) return setError('Pick at least one day.');
     if (!reason) return setError('Pick a reason.');
+    if (!whole && !periods.length) return setError('Pick the class periods, or choose The whole day.');
     setBusy(true);
     try {
-      await sendExcuse({ studentId: child.id, sectionId, studentName: `${child.firstName} ${child.lastName}`, guardianName, dates, reason, note });
+      await sendExcuse({ studentId: child.id, sectionId, studentName: `${child.firstName} ${child.lastName}`, guardianName, dates, reason, note, periods: whole ? [] : periods });
       onDone();
     } catch (err) {
       setError(err.code === 'permission-denied' ? 'Could not send. Sign out and sign in again, then try again.' : err.message);
@@ -521,6 +530,45 @@ function ExcuseForm({ child, docs, excuses, guardianName, onDone, onBack }) {
           </div>
         </fieldset>
         <fieldset className="pp-fieldset">
+          <legend>For how long?</legend>
+          <div className="pp-chips">
+            <button type="button" className={`pp-chip ${whole ? 'on' : ''}`} aria-pressed={whole} onClick={() => setWhole(true)}>
+              The whole day
+            </button>
+            <button type="button" className={`pp-chip ${!whole ? 'on' : ''}`} aria-pressed={!whole} onClick={() => setWhole(false)}>
+              Certain class periods only
+            </button>
+          </div>
+          {!whole && (
+            <>
+              <div className="pp-periods">
+                {classPeriodList.map((p) => (
+                  <button
+                    key={p.n}
+                    type="button"
+                    className={`pp-period ${periods.includes(p.n) ? 'on' : ''}`}
+                    aria-pressed={periods.includes(p.n)}
+                    onClick={() => togglePeriod(p.n)}
+                  >
+                    <b>{ordinal(p.n)}</b>
+                    {p.subject ? (
+                      <span>
+                        {p.subject} · {to12h(p.start)}
+                      </span>
+                    ) : (
+                      <span>period</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+              <p className="pp-muted pp-small">
+                e.g. a check-up in the morning: pick the periods {child.firstName} will miss. {child.firstName} is not marked absent and the teacher marks
+                the arrival as usual.
+              </p>
+            </>
+          )}
+        </fieldset>
+        <fieldset className="pp-fieldset">
           <legend>Reason</legend>
           <div className="pp-chips">
             {EXCUSE_REASONS.map((r) => (
@@ -534,7 +582,9 @@ function ExcuseForm({ child, docs, excuses, guardianName, onDone, onBack }) {
           <span>Message to the teacher (optional)</span>
           <textarea className="input" rows={3} maxLength={500} value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. He has a fever. We will see the doctor today." />
         </label>
-        <p className="pp-muted pp-small">Have a medical certificate? Send it to school with your child when they return.</p>
+        <p className="pp-muted pp-small">
+          Have an excuse letter or a medical certificate? Send it to school with {child.firstName} when they return, and give it to the teacher.
+        </p>
       </section>
       {error && (
         <p className="error" role="alert">

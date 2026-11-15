@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { format } from 'date-fns';
 import { Check, FileText, X } from 'lucide-react';
 import { useLive, useRepo, Card, Empty, Skeleton, Avatar, Toast, LevelChips, countByGrade } from '../ui';
+import { periodsLabel } from '../logic';
 
 // =====================================================================
 // EXCUSE REQUESTS (/excuses for teachers, /admin/excuses for the admin)
@@ -78,6 +79,8 @@ export function ExcuseRequests() {
                 <dl className="excuse-facts">
                   <dt>Days</dt>
                   <dd>{x.dates.map(shortDay).join(', ')}</dd>
+                  <dt>For</dt>
+                  <dd>{x.periods?.length ? `The ${periodsLabel(x.periods)} only` : 'The whole day'}</dd>
                   <dt>Reason</dt>
                   <dd>{x.reason}</dd>
                   {x.note && (

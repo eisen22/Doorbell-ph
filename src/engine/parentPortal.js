@@ -11,6 +11,7 @@ import {
   defaultParentPassword,
   eldestChild,
   sha256Hex,
+  classPeriods,
 } from '../logic';
 import { dayId } from './util';
 
@@ -109,6 +110,8 @@ export const parentPortalMethods = {
       endTime: section?.schedule.endTime ?? null, // after this time, no scan out = "did not scan out"
       schoolName: this.settings.schoolName ?? null,
       yearStart: this.year.start, // first day of classes: the portal's calendar goes back to it
+      // The class periods (for "excuse for certain periods" in the portal): number, subject, start time.
+      periods: classPeriods(section?.program).map((p, i) => ({ n: i + 1, subject: p.subject, start: p.start })),
       days,
       noClass,
       totals,
@@ -192,14 +195,31 @@ export const parentPortalMethods = {
       for (const date of ex.dates) {
         if (date > today || !isSchoolDay(date, sec.schedule, this.s.calendar)) continue;
         const rec = this.record(ex.sectionId, date, ex.studentId);
-        if (rec?.status === 'late' && !rec.lateExcused) {
-          // The child came late with a valid reason: still Late on the list, but not counted in the late totals.
-          this.writeRecord({ ...rec, lateExcused: true, excusedNote: `Parent: ${ex.reason}` });
+        const periods = ex.periods?.length ? [...ex.periods].sort((a, b) => a - b) : null; // null = the whole day
+        if (rec && (rec.status === 'present' || rec.status === 'late')) {
+          // The child came. A late child with a valid reason (or excused for the 1st period) stays Late on the
+          // list but is not counted in the late totals; an excuse for some periods is noted on the day.
+          const lateOk = rec.status === 'late' && (!periods || periods.includes(1));
+          if (!periods && (rec.status !== 'late' || rec.lateExcused)) continue;
+          this.writeRecord({
+            ...rec,
+            ...(lateOk ? { lateExcused: true } : {}),
+            ...(periods ? { excusedPeriods: periods } : {}),
+            excusedNote: `Parent: ${ex.reason}`,
+          });
           this.syncParentDays([ex.studentId], [date.slice(0, 7)]);
           continue;
         }
-        if (rec && rec.status !== 'absent') continue; // the child came (present or late) or already excused
-        await this.setStatus({ studentId: ex.studentId, sectionId: ex.sectionId, date, status: 'excused', note: `Parent: ${ex.reason}`, reason: 'Parent excuse approved' });
+        if (rec && rec.status !== 'absent') continue; // already excused
+        await this.setStatus({
+          studentId: ex.studentId,
+          sectionId: ex.sectionId,
+          date,
+          status: 'excused',
+          note: `Parent: ${ex.reason}`,
+          reason: 'Parent excuse approved',
+          excusedPeriods: periods ?? [],
+        });
       }
     }
     // The same parent asked twice for the same day(s): the second request gets the same answer.

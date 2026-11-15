@@ -135,7 +135,7 @@ export async function changeParentPassword(current, next, codeHash) {
 }
 
 /** Sends an excuse request to the child's teacher. */
-export async function sendExcuse({ studentId, sectionId, studentName, guardianName, dates, reason, note }) {
+export async function sendExcuse({ studentId, sectionId, studentName, guardianName, dates, reason, note, periods }) {
   const { auth, db } = start();
   const uid = auth.currentUser?.uid;
   if (!uid) throw new Error('Sign in again first.');
@@ -150,6 +150,8 @@ export async function sendExcuse({ studentId, sectionId, studentName, guardianNa
     dates: [...dates].sort(),
     reason,
     note: note.trim(),
+    // Excused for these class periods only (numbers, e.g. [1, 2]); left out = the whole day.
+    ...(periods?.length ? { periods: [...periods].sort((a, b) => a - b) } : {}),
     status: 'pending',
     createdAt: new Date().toISOString(),
   });

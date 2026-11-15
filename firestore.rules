@@ -153,7 +153,8 @@ service cloud.firestore {
         && request.resource.data.dates is list && request.resource.data.dates.size() > 0 && request.resource.data.dates.size() <= 10
         && request.resource.data.reason is string && request.resource.data.reason.size() <= 60
         && request.resource.data.get('note', '').size() <= 500
-        && request.resource.data.keys().hasOnly(['id', 'studentId', 'sectionId', 'parentUid', 'studentName', 'guardianName', 'dates', 'reason', 'note', 'status', 'createdAt']);
+        && (!('periods' in request.resource.data) || (request.resource.data.periods is list && request.resource.data.periods.size() <= 12))
+        && request.resource.data.keys().hasOnly(['id', 'studentId', 'sectionId', 'parentUid', 'studentName', 'guardianName', 'dates', 'reason', 'note', 'periods', 'status', 'createdAt']);
       allow update: if isAdmin() || teachesSection(resource.data.sectionId);
       allow delete: if isAdmin();
     }

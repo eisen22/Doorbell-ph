@@ -933,3 +933,11 @@ a.kpi:hover { background: var(--surface) !important; }
 .excuse-periods { display: flex; flex-direction: column; gap: 4px; margin: 4px 0 0 24px; }
 .excuse-period { display: flex; gap: 8px; align-items: center; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--r-sm, 10px); font-size: 13.5px; cursor: pointer; }
 .excuse-period.on { background: var(--excused-bg, #eaecfb); border-color: var(--excused, #464ca8); }
+
+/* Parent portal: excuse for certain class periods */
+.pp-periods { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; margin-top: 10px; }
+.pp-period { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r-sm, 10px); background: var(--frame, #fff); font: inherit; font-size: 13px; color: inherit; cursor: pointer; text-align: left; }
+.pp-period b { font-size: 14px; }
+.pp-period span { color: var(--muted, #666); }
+.pp-period.on { background: var(--ink); color: #fff; border-color: var(--ink); }
+.pp-period.on span { color: rgba(255, 255, 255, 0.8); }

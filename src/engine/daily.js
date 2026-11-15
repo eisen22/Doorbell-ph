@@ -54,7 +54,17 @@ export const dailyMethods = {
         // The teacher already approved a parent's excuse for this day (Parent portal): excused, not absent.
         const ex = this.approvedExcuse(stu.id, date);
         day.records[stu.id] = ex
-          ? { date, studentId: stu.id, sectionId, status: 'excused', source: 'excuse', excusedNote: `Parent: ${ex.reason}` }
+          ? {
+              date,
+              studentId: stu.id,
+              sectionId,
+              status: 'excused',
+              source: 'excuse',
+              excusedNote: `Parent: ${ex.reason}`,
+              // Excused for some periods only (e.g. arrives after a check-up): not absent, no absence text;
+              // the teacher marks them Present or Late when they come, and the excuse is kept.
+              ...(ex.periods?.length ? { excusedPeriods: [...ex.periods].sort((a, b) => a - b) } : {}),
+            }
           : { date, studentId: stu.id, sectionId, status: 'absent', source: 'auto' };
       }
       this.s.attendance.set(id, day);

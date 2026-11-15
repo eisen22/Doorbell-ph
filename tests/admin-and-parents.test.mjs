@@ -113,3 +113,18 @@ const kinds = (w, id) => w.smsFor(id).map((m) => m.kind).join('+') || '-';
   await w.eng.setStatus({ studentId: a.id, sectionId: SEC, date: D, status: 'absent' });
   check('X1 absent clears the excused periods', !w.eng.record(SEC, D, a.id).excusedPeriods);
 }
+// ---- parent excuse for certain periods ----
+{
+  const w = world(); const D = w.clock.d; const [a, b] = w.roster(SEC);
+  const mk = (id, stu, periods) => { const ex = { id, studentId: stu.id, sectionId: SEC, parentUid: 'p1', studentName: stu.firstName, dates: [D], reason: 'Doctor or dental appointment', note: '', periods, status: 'pending', createdAt: new Date().toISOString() }; w.state.excuses.set(id, ex); return ex; };
+  mk('ex-p1', a, [1, 2]); mk('ex-p2', b, undefined);
+  w.as('u-admin');
+  await w.eng.decideExcuse('ex-p1', 'approved'); await w.eng.decideExcuse('ex-p2', 'approved');
+  w.clock.t = '08:20'; await w.eng.confirmDay(SEC, D);
+  const ra = w.eng.record(SEC, D, a.id), rb = w.eng.record(SEC, D, b.id);
+  check('E1 period excuse: excused for the 1st and 2nd period, not absent', ra.status === 'excused' && JSON.stringify(ra.excusedPeriods) === '[1,2]', JSON.stringify(ra));
+  check('E1 whole-day excuse: excused, no periods', rb.status === 'excused' && !rb.excusedPeriods?.length, JSON.stringify(rb));
+  check('E1 no absence text for either', !w.smsFor(a.id).some((m) => m.kind === 'absent') && !w.smsFor(b.id).some((m) => m.kind === 'absent'));
+  await w.eng.setStatus({ studentId: a.id, sectionId: SEC, date: D, status: 'late' });
+  check('E1 arrives later: Late, excuse kept', JSON.stringify(w.eng.record(SEC, D, a.id).excusedPeriods) === '[1,2]');
+}
