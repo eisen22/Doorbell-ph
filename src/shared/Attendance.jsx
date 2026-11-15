@@ -15,6 +15,9 @@ import {
   isSchoolDay,
   to12h,
   recentSchoolDays,
+  classPeriods,
+  periodAt,
+  ordinal,
 } from '../logic';
 import {
   useLive,
@@ -93,6 +96,7 @@ export function Attendance() {
       </div>
     );
   const { session, today, classes, section, calendar, year, day, roster, confirmation, teachers } = data;
+  const periods = classPeriods(section.program); // Grades 4 to 6: from the class program
   const schoolDay = isSchoolDay(day, section.schedule, calendar);
   // Teacher absent on this day? (set by the admin: Sections -> a class -> Teacher absent)
   const away = section.schedule.teacherAway?.[day] ?? null;
@@ -132,7 +136,8 @@ export function Attendance() {
     const lateArrival = confirmation && day === today.date && (status === 'present' || status === 'late') && (row.record?.status === 'absent' || row.record?.needsCheck);
     if (lateArrival && section.subjectTeacherIds?.length) {
       setArrived({ row, status });
-      setPeriod(2);
+      // Default: the period going on now (from the class program), else the 2nd period.
+      setPeriod(Math.max(2, periodAt(section.program, today.time)?.n ?? 2));
       return;
     }
     await repo.setStatus({ sectionId: section.id, date: day, studentId: row.student.id, status });
@@ -394,17 +399,16 @@ export function Attendance() {
           <label className="field">
             <span>Which period did {arrived.row.student.firstName} join?</span>
             <select className="input" value={period} onChange={(e) => setPeriod(Number(e.target.value))} autoFocus>
-              {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
-                <option key={n} value={n}>
-                  {n === 1 ? '1st' : n === 2 ? '2nd' : n === 3 ? '3rd' : `${n}th`} period
+              {(periods.length ? periods : [1, 2, 3, 4, 5, 6, 7, 8].map(() => null)).map((p, i) => (
+                <option key={i} value={i + 1}>
+                  {ordinal(i + 1)} period{p ? ` · ${p.subject} · ${to12h(p.start)}` : ''}
                 </option>
               ))}
             </select>
           </label>
           <p className="muted small">
-            The parent gets: "{arrived.row.student.firstName} arrived at school at{' '}
-            {to12h(arrived.row.record?.scannedAt ?? today.time)} ({period === 1 ? '1st' : period === 2 ? '2nd' : period === 3 ? '3rd' : `${period}th`} period) and is in class,
-            confirmed by the teacher."
+            The parent gets: "{arrived.row.student.firstName} arrived at school at {to12h(arrived.row.record?.scannedAt ?? today.time)} (
+            {ordinal(period)} period{periods[period - 1] ? `, ${periods[period - 1].subject}` : ''}) and is in class, confirmed by the teacher."
           </p>
         </Modal>
       )}

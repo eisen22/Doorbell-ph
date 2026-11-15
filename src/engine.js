@@ -15,6 +15,10 @@ import {
   gradeRank,
   bySectionGrade,
   levelsLabel,
+  classPeriods,
+  hasSubjectTeachers,
+  sampleProgram,
+  ordinal,
   autoFinalizeTime,
   streakInfo,
   to12h,
@@ -159,6 +163,9 @@ export class Engine {
     const gate = toMinutes(st.gateOpens || '06:00');
     sec.schedule.gradeLevel = sec.gradeLevel ?? 'K';
     sec.schedule.autoFinalizeMins = Number(st.firstPeriodMins) > 0 ? Number(st.firstPeriodMins) : 60;
+    // Grades 4 to 6 with a class program: the absence texts go out when THEIR first period ends.
+    const first = hasSubjectTeachers(sec.gradeLevel) ? classPeriods(sec.program)[0] : null;
+    if (first && first.end > sec.schedule.startTime) sec.schedule.autoFinalizeMins = toMinutes(first.end) - toMinutes(sec.schedule.startTime);
     sec.schedule.scanWindowMins = Math.max(0, toMinutes(sec.schedule.startTime) - gate);
     return sec;
   }
@@ -402,7 +409,9 @@ export class Engine {
       contact: this.settings.contactNumber,
       streak: opts.streak ? describeStreak(opts.streak, g.preferredLanguage) : '',
       summary: opts.metric ? describeTotal(opts.metric, opts.count, g.preferredLanguage) : '',
-      period: opts.period ? (g.preferredLanguage === 'fil' ? `ika-${opts.period} na period` : `${ord(opts.period)} period`) : '',
+      period: opts.period
+        ? `${g.preferredLanguage === 'fil' ? `ika-${opts.period} na period` : `${ord(opts.period)} period`}${opts.subject ? `, ${opts.subject}` : ''}`
+        : '',
     });
     // Deterministic ids: two devices processing the same event write the same document once.
     const id = kind === 'total' || kind === 'missing' || kind === 'absent' ? opts.id : kind === 'streak' ? `stk_${student.id}_${opts.date}` : (opts.id ?? `arr_${student.id}_${opts.date}`);
@@ -928,7 +937,7 @@ export class Engine {
           time: prev?.scannedAt ?? this.clock.peek(),
           date: input.date,
           sectionId: input.sectionId,
-          ...(later ? { template: 'laterPeriod', period: Number(input.period) } : {}),
+          ...(later ? { template: 'laterPeriod', period: Number(input.period), subject: classPeriods(section?.program)[Number(input.period) - 1]?.subject } : {}),
           ...(again ? { id: `arr_${stu.id}_${input.date}_found` } : {}),
         });
       }
@@ -1532,12 +1541,22 @@ export class Engine {
           capacity: input.capacity,
           teacherId: input.teacherId,
           gradeLevel: input.gradeLevel ?? existing.gradeLevel ?? 'K',
+          // Grades 4 to 6: the class program (periods, subjects, teachers). Kindergarten to Grade 3: none.
+          program: input.program ?? existing.program ?? [],
           // Subject teachers (never the class teacher, never a deactivated one).
           subjectTeacherIds: (input.subjectTeacherIds ?? existing.subjectTeacherIds ?? []).filter((t) => t !== input.teacherId && this.s.teachers.get(t)?.active !== false),
           // keep the teacher-away days when the admin edits the class hours
           schedule: { ...input.schedule, teacherAway: existing.schedule?.teacherAway ?? input.schedule.teacherAway },
         }
       : { id: uid('sec'), schoolYearId: this.year.id, gradeLevel: 'K', archived: false, ...input };
+    if (!hasSubjectTeachers(section.gradeLevel)) {
+      section.program = [];
+      section.subjectTeacherIds = [];
+    } else if (section.program?.length) {
+      // The subject teachers are the teachers in the class program (the adviser is not one of them).
+      section.program = section.program.filter((p) => p.start && p.end && p.subject).sort((a, b) => a.start.localeCompare(b.start));
+      section.subjectTeacherIds = [...new Set(section.program.map((p) => p.teacherId).filter((t) => t && t !== section.teacherId && this.s.teachers.get(t)?.active !== false))];
+    }
     this.normalizeSection(section);
     this.s.sections.set(section.id, section);
     this.put('sections', section.id, section);
@@ -2018,11 +2037,21 @@ export const sections = (() => {
       });
     });
   }
-  // Grades 4 to 6: the other advisers of the same grade and the 3 specialists teach the class too.
+  // Grades 4 to 6: a class program. Who teaches each subject in each grade (the advisers teach their own
+  // subject; MAPEH, EPP and GMRC have specialists). The order of subjects is shifted for each section.
+  const byName = (n) => SAMPLE_TEACHERS.find((t) => t.name === n)?.id ?? null;
+  const SUBJECT_TEACHERS = {
+    4: { Mathematics: 'Ana Villanueva', English: 'Ramon Cruz', Science: 'Celia Domingo', Filipino: 'Mark Ocampo', 'Araling Panlipunan': 'Rhea Lim' },
+    5: { Mathematics: 'Paolo Tan', English: 'Divina Morales', Science: 'Allan Garcia', Filipino: 'Mark Ocampo', 'Araling Panlipunan': 'Rhea Lim' },
+    6: { Mathematics: 'Paolo Tan', English: 'Divina Morales', Science: 'Allan Garcia', Filipino: 'Lorna Rivera', 'Araling Panlipunan': 'Rhea Lim' },
+  };
+  const SPECIAL = { MAPEH: 'Benjie Torres', EPP: 'Sheila Ramos', GMRC: 'Victor Gomez' };
   for (const sec of out) {
-    if (sec.gradeLevel === 'K' || Number(sec.gradeLevel) < 4) continue;
-    const sameGrade = out.filter((x) => x.gradeLevel === sec.gradeLevel && x.id !== sec.id).map((x) => x.teacherId);
-    sec.subjectTeacherIds = [...sameGrade, ...SAMPLE_TEACHERS.slice(-SPECIALISTS.length).map((t) => t.id)];
+    if (!hasSubjectTeachers(sec.gradeLevel)) continue;
+    const k = out.filter((x) => x.gradeLevel === sec.gradeLevel).indexOf(sec);
+    sec.program = sampleProgram(sec.schedule.startTime, k * 2, (sub) => byName(SUBJECT_TEACHERS[sec.gradeLevel][sub] ?? SPECIAL[sub]));
+    sec.subjectTeacherIds = [...new Set(sec.program.map((p) => p.teacherId).filter((t) => t && t !== sec.teacherId))];
+    sec.schedule = { ...sec.schedule, endTime: sec.program.at(-1).end }; // classes end with the last period
   }
   return out;
 })();

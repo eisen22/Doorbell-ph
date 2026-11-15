@@ -30,7 +30,7 @@ import { useState } from 'react';
 import { displayPhMobile, fromMinutes, to12h, toMinutes } from '../logic';
 import { toStudentInput, StudentModal, LeaveModal } from './Students';
 import { toTeacherInput, TeacherModal } from './Teachers';
-import { GRADE_LEVELS, gradeName } from '../logic';
+import { GRADE_LEVELS, gradeName, SUBJECTS, BREAKS, isBreak, hasSubjectTeachers, sampleProgram, ordinal } from '../logic';
 
 // =====================================================================
 // SECTIONS (/admin/sections): classes, their schedules, teachers and "Teacher absent" days.
@@ -52,7 +52,8 @@ export const bandOf = (g) => g || 'K';
 const blank = () => ({
   name: '',
   gradeLevel: 'K',
-  subjectTeacherIds: [], // Grades 4 to 6: teachers of other subjects who also see this class
+  subjectTeacherIds: [], // Grades 4 to 6: filled in from the class program
+  program: [], // Grades 4 to 6: periods with subject and teacher
   color: SECTION_COLORS[3],
   capacity: 25,
   teacherId: null,
@@ -100,7 +101,13 @@ export function Sections() {
       return;
     }
     try {
-      await repo.saveSection({ ...edit, name: edit.name.trim() });
+      const program = hasSubjectTeachers(edit.gradeLevel) ? (edit.program ?? []).filter((p) => p.start && p.end && p.subject) : [];
+      const bad = programProblem(program);
+      if (bad) throw new Error(bad);
+      const sorted = [...program].sort((x, y) => x.start.localeCompare(y.start));
+      // With a class program, the class starts at the first period and ends at the last one.
+      const schedule = sorted.length ? { ...edit.schedule, startTime: sorted[0].start, endTime: sorted[sorted.length - 1].end } : edit.schedule;
+      await repo.saveSection({ ...edit, name: edit.name.trim(), program, schedule });
       setEdit(null);
       flash('Section saved');
     } catch (e) {
@@ -180,6 +187,7 @@ export function Sections() {
                         teacherId: s.teacherId,
                         gradeLevel: s.gradeLevel ?? 'K',
                         subjectTeacherIds: s.subjectTeacherIds ?? [],
+                        program: (s.program ?? []).map((p) => ({ ...p })),
                         schedule: { ...s.schedule },
                       });
                       setError(null);
@@ -239,6 +247,7 @@ export function Sections() {
               teacherId: s.teacherId,
               gradeLevel: s.gradeLevel ?? 'K',
               subjectTeacherIds: s.subjectTeacherIds ?? [],
+              program: (s.program ?? []).map((p) => ({ ...p })),
               schedule: { ...s.schedule },
             });
             setError(null);
@@ -344,7 +353,14 @@ export function Sections() {
             <select
               className="input"
               value={edit.gradeLevel ?? 'K'}
-              onChange={(e) => setEdit({ ...edit, gradeLevel: e.target.value })}
+              onChange={(e) =>
+                setEdit({
+                  ...edit,
+                  gradeLevel: e.target.value,
+                  // Kindergarten to Grade 3: one teacher all day, so no class program and no subject teachers.
+                  ...(hasSubjectTeachers(e.target.value) ? {} : { program: [], subjectTeacherIds: [] }),
+                })
+              }
             >
               {GRADE_LEVELS.map((g) => (
                 <option key={g} value={g}>
@@ -357,33 +373,16 @@ export function Sections() {
             The gate opens and the absence texts go out at the same times for every class (Settings: gate opening time and first period
             length). Only a teacher confirms a class.
           </p>
-          {/* Subject teachers: Grades 4 to 6 may have a different teacher per subject. */}
-          <div className="field">
-            <span>Subject teachers (optional, usually Grades 4 to 6)</span>
-            <div className="chips-inline">
-              {data.teachers
-                .filter((t) => t.active !== false && t.id !== edit.teacherId)
-                .map((t) => {
-                  const on = (edit.subjectTeacherIds ?? []).includes(t.id);
-                  return (
-                    <label key={t.id} className="check">
-                      <input
-                        type="checkbox"
-                        checked={on}
-                        onChange={() =>
-                          setEdit({ ...edit, subjectTeacherIds: on ? edit.subjectTeacherIds.filter((x) => x !== t.id) : [...(edit.subjectTeacherIds ?? []), t.id] })
-                        }
-                      />{' '}
-                      {t.name}
-                    </label>
-                  );
-                })}
-            </div>
-            <span className="muted small">
-              They see this class's list (who was absent at first period) and can confirm a child who arrives during their period. The teacher
-              above takes the first-period attendance.
-            </span>
-          </div>
+          {/* Grades 4 to 6: the class program (periods, subjects and the teacher of each subject). */}
+          {hasSubjectTeachers(edit.gradeLevel) && (
+            <ProgramEditor
+              program={edit.program ?? []}
+              teachers={data.teachers.filter((t) => t.active !== false)}
+              adviserId={edit.teacherId}
+              startTime={edit.schedule.startTime}
+              onChange={(program) => setEdit({ ...edit, program })}
+            />
+          )}
           <label className="field">
             <span>Capacity</span>
             <input
@@ -624,6 +623,7 @@ function SectionDetail({ section, sections, teachers, rows, onClose, onEditSecti
             </p>
           )}
           <TeacherAwayList section={section} onAdd={() => setAway(true)} flash={flash} />
+          {hasSubjectTeachers(section.gradeLevel) && <ProgramTable section={section} teachers={teachers} onEdit={() => onEditSection(section)} />}
 
           <div className="sd-students-head">
             <h4 className="form-sub">
@@ -709,6 +709,165 @@ function SectionDetail({ section, sections, teachers, rows, onClose, onEditSecti
             flash('Teacher updated');
           }}
         />
+      )}
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------
+// CLASS PROGRAM (Grades 4 to 6)
+// ---------------------------------------------------------------------
+/** Returns a message if two periods overlap or a period ends before it starts, else null. */
+export function programProblem(program) {
+  const list = [...program].sort((a, b) => a.start.localeCompare(b.start));
+  for (let i = 0; i < list.length; i++) {
+    const p = list[i];
+    if (p.end <= p.start) return `${p.subject} (${to12h(p.start)}) ends before it starts.`;
+    const next = list[i + 1];
+    if (next && next.start < p.end) return `${p.subject} (${to12h(p.start)}–${to12h(p.end)}) overlaps ${next.subject} (${to12h(next.start)}).`;
+  }
+  return null;
+}
+
+// The teacher who usually takes a subject: the adviser if they teach it, else a teacher whose subjects include it.
+function teacherForSubject(teachers, adviserId, subject) {
+  const teachesIt = (t) => (t.subjects ?? []).includes(subject);
+  const adviser = teachers.find((t) => t.id === adviserId);
+  if (adviser && teachesIt(adviser)) return adviser.id;
+  return teachers.find(teachesIt)?.id ?? adviserId ?? null;
+}
+
+function ProgramEditor({ program, teachers, adviserId, startTime, onChange }) {
+  const rows = program;
+  const set = (i, patch) => onChange(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+  const remove = (i) => onChange(rows.filter((_, j) => j !== i));
+  const add = () => {
+    const last = [...rows].sort((a, b) => a.start.localeCompare(b.start)).at(-1);
+    const start = last?.end ?? startTime ?? '07:30';
+    onChange([...rows, { start, end: fromMinutes(toMinutes(start) + 50), subject: 'Mathematics', teacherId: teacherForSubject(teachers, adviserId, 'Mathematics') }]);
+  };
+  const fill = () => onChange(sampleProgram(startTime || '07:30', 0, (sub) => teacherForSubject(teachers, adviserId, sub)));
+  const problem = programProblem(rows.filter((p) => p.start && p.end));
+  let n = 0;
+  return (
+    <div className="field">
+      <span>Class program (Grades 4 to 6)</span>
+      {rows.length === 0 ? (
+        <p className="muted small">
+          No periods yet. Add each period with its subject and teacher, or start from a sample program and change it.
+        </p>
+      ) : (
+        <div className="program-edit">
+          {rows.map((r, i) => {
+            const brk = isBreak(r);
+            if (!brk) n += 1;
+            return (
+              <div key={i} className={`program-row ${brk ? 'program-break' : ''}`}>
+                <span className="program-n">{brk ? '' : ordinal(n)}</span>
+                <input type="time" className="input" value={r.start} onChange={(e) => set(i, { start: e.target.value })} aria-label="Starts" />
+                <input type="time" className="input" value={r.end} onChange={(e) => set(i, { end: e.target.value })} aria-label="Ends" />
+                <select
+                  className="input"
+                  value={r.subject}
+                  aria-label="Subject"
+                  onChange={(e) => {
+                    const subject = e.target.value;
+                    set(i, BREAKS.includes(subject) ? { subject, teacherId: undefined } : { subject, teacherId: r.teacherId ?? teacherForSubject(teachers, adviserId, subject) });
+                  }}
+                >
+                  <optgroup label="Subjects">
+                    {SUBJECTS.map((x) => (
+                      <option key={x}>{x}</option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="Breaks">
+                    {BREAKS.map((x) => (
+                      <option key={x}>{x}</option>
+                    ))}
+                  </optgroup>
+                </select>
+                {brk ? (
+                  <span className="muted small program-noteacher">No class</span>
+                ) : (
+                  <select className="input" value={r.teacherId ?? ''} aria-label="Teacher" onChange={(e) => set(i, { teacherId: e.target.value || null })}>
+                    <option value="">No teacher yet</option>
+                    {teachers.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                        {t.id === adviserId ? ' (adviser)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                <button type="button" className="icon-btn sm" onClick={() => remove(i)} aria-label="Remove this period">
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <div className="program-actions">
+        <button type="button" className="btn btn-sm" onClick={add}>
+          <Plus size={14} /> Add period
+        </button>
+        <button type="button" className="btn btn-sm" onClick={fill}>
+          {rows.length ? 'Replace with sample program' : 'Fill sample program'}
+        </button>
+      </div>
+      {problem && <p className="error small">{problem}</p>}
+      <span className="muted small">
+        The teacher above (the adviser) takes the 1st-period attendance. The absence texts go out when the 1st period ends. The teachers in this
+        program see the class list, including who was absent at the 1st period, and can mark a child who arrives during their period. The class
+        times above follow the first and last period when you save.
+      </span>
+    </div>
+  );
+}
+
+function ProgramTable({ section, teachers, onEdit }) {
+  const rows = [...(section.program ?? [])].sort((a, b) => a.start.localeCompare(b.start));
+  const name = (id) => teachers.find((t) => t.id === id)?.name ?? 'No teacher yet';
+  let n = 0;
+  return (
+    <>
+      <h4 className="form-sub">
+        <Clock size={16} /> Class program
+      </h4>
+      {!rows.length ? (
+        <p className="muted">
+          No class program yet.{' '}
+          <button className="link-btn" onClick={onEdit}>
+            Add periods
+          </button>
+        </p>
+      ) : (
+        <table className="program-table">
+          <thead>
+            <tr>
+              <th>Period</th>
+              <th>Time</th>
+              <th>Subject</th>
+              <th>Teacher</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((p, i) => {
+              const brk = isBreak(p);
+              if (!brk) n += 1;
+              return (
+                <tr key={i} className={brk ? 'program-break' : ''}>
+                  <td>{brk ? '' : ordinal(n)}</td>
+                  <td className="nowrap">
+                    {to12h(p.start)} – {to12h(p.end)}
+                  </td>
+                  <td>{p.subject}</td>
+                  <td>{brk ? '' : name(p.teacherId)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       )}
     </>
   );

@@ -67,3 +67,27 @@ const kinds = (w, id) => w.smsFor(id).map((m) => m.kind).join('+') || '-';
   check('T1 subject teacher confirms arrival: text names the period and time', /10:15/.test(m?.body) && /(2nd period|ika-2 na period)/.test(m?.body), m?.body);
   w.as('u-ana'); check('T1 other teachers do not see the class', !w.eng.session.sectionIds.includes(SEC));
 }
+// ---- class program (Grades 4 to 6) ----
+{
+  const w = world(); const D = w.clock.d; const [a, b] = w.roster(SEC); const sec = w.state.sections.get(SEC);
+  const program = [
+    { start: '07:30', end: '08:20', subject: 'Mathematics', teacherId: 't-maria' },
+    { start: '08:20', end: '09:10', subject: 'English', teacherId: 't-jose' },
+    { start: '09:10', end: '09:30', subject: 'Recess' },
+    { start: '09:30', end: '10:20', subject: 'Science', teacherId: 't-ana' },
+  ];
+  await w.eng.saveSection({ id: SEC, name: sec.name, color: sec.color, capacity: sec.capacity, teacherId: 't-maria', gradeLevel: '5', program, schedule: { ...sec.schedule, startTime: '07:30', endTime: '10:20' } });
+  const s1 = w.state.sections.get(SEC);
+  check('P1 subject teachers come from the program (not the adviser)', JSON.stringify([...s1.subjectTeacherIds].sort()) === '["t-ana","t-jose"]', JSON.stringify(s1.subjectTeacherIds));
+  check('P1 absence time = end of the 1st period', s1.schedule.autoFinalizeMins === 50, s1.schedule.autoFinalizeMins);
+  w.as('u-maria'); await w.scan(a, '07:20'); w.clock.t = '07:50'; await w.eng.confirmDay(SEC, D);
+  w.as('u-jose'); await w.scan(b, '08:40'); w.clock.t = '08:45'; await w.eng.setStatus({ studentId: b.id, sectionId: SEC, date: D, status: 'late', period: 2 });
+  const m = w.smsFor(b.id).find((x) => x.kind === 'late');
+  check('P1 later-period text names the subject', /English/.test(m?.body ?? '') || /English/.test(JSON.stringify(m ?? {})), m?.body);
+  w.as('u-admin');
+  await w.eng.saveSection({ id: SEC, name: sec.name, color: sec.color, capacity: sec.capacity, teacherId: 't-maria', gradeLevel: '2', program, schedule: s1.schedule });
+  const s2 = w.state.sections.get(SEC);
+  check('P1 moving the class to Grade 2 clears the program and subject teachers', !s2.program.length && !s2.subjectTeacherIds.length);
+  const s4 = [...w.state.sections.values()].find((x) => x.id === 'sec-4-rizal');
+  check('P1 sample Grade 4 class has a program with recess and lunch', s4?.program?.some((p) => p.subject === 'Recess') && s4.program.some((p) => p.subject === 'Lunch'));
+}

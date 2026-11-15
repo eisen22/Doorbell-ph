@@ -712,3 +712,49 @@ export function levelsLabel(levels) {
 }
 // Subjects of Grades 4 to 6 (MATATAG curriculum). Used to sort subject teachers ("Math teachers").
 export const SUBJECTS = ['English', 'Filipino', 'Mathematics', 'Science', 'Araling Panlipunan', 'MAPEH', 'EPP', 'GMRC'];
+
+/* =====================================================================
+   CLASS PROGRAM (Grades 4 to 6 only): the periods of the day, each with a subject and a teacher.
+     section.program = [{ start: '07:30', end: '08:20', subject: 'Mathematics', teacherId: 't-ana' },
+                        { start: '09:10', end: '09:30', subject: 'Recess' }, ...]
+   Kindergarten to Grade 3 have one teacher all day and no program.
+   The first period's end is when the absence texts go out for that class.
+   ===================================================================== */
+export const BREAKS = ['Recess', 'Lunch'];
+export const isBreak = (p) => BREAKS.includes(p?.subject);
+/** True for Grades 4 to 6 (the levels that may have subject teachers). */
+export const hasSubjectTeachers = (gradeLevel) => ['4', '5', '6'].includes(String(gradeLevel));
+/** The periods that are classes (no recess or lunch), in time order. */
+export const classPeriods = (program) => (program ?? []).filter((p) => !isBreak(p) && p.start && p.end).sort((a, b) => a.start.localeCompare(b.start));
+/** '1st', '2nd', '3rd', '4th' ... */
+export const ordinal = (n) => `${n}${n % 100 >= 11 && n % 100 <= 13 ? 'th' : n % 10 === 1 ? 'st' : n % 10 === 2 ? 'nd' : n % 10 === 3 ? 'rd' : 'th'}`;
+/** The class period going on at `time` (1-based number and the period), or the last one before it. */
+export function periodAt(program, time) {
+  const list = classPeriods(program);
+  let found = null;
+  list.forEach((p, i) => {
+    if (time >= p.start) found = { n: i + 1, period: p };
+  });
+  return found;
+}
+/**
+ * A sample DepEd-style class program for Grades 4 to 6 (MATATAG subjects, 50-minute periods), from
+ * `start`. `rotate` shifts the order of the subjects so the sections of one grade do not have the
+ * same subject (and the same subject teacher) at the same time. teacherFor(subject) picks the teacher.
+ */
+export function sampleProgram(start = '07:30', rotate = 0, teacherFor = () => null) {
+  const subjects = ['Mathematics', 'English', 'Science', 'Filipino', 'Araling Panlipunan', 'MAPEH', 'EPP', 'GMRC'];
+  const order = subjects.slice(rotate % subjects.length).concat(subjects.slice(0, rotate % subjects.length));
+  const out = [];
+  let t = toMinutes(start);
+  const add = (subject, mins) => {
+    out.push({ start: fromMinutes(t), end: fromMinutes(t + mins), subject, ...(BREAKS.includes(subject) ? {} : { teacherId: teacherFor(subject) }) });
+    t += mins;
+  };
+  order.forEach((sub, i) => {
+    add(sub, 50);
+    if (i === 1) add('Recess', 20); // after the 2nd period
+    if (i === 4) add('Lunch', 60); // after the 5th period
+  });
+  return out;
+}

@@ -836,3 +836,25 @@ a.kpi:hover { background: var(--surface) !important; }
 .pp-st-present { color: var(--ok); } .pp-st-late { color: var(--late); } .pp-st-absent { color: var(--absent); } .pp-st-excused { color: var(--excused); }
 .input.auto { width: auto; min-width: 180px; }
 .class-select { display: inline-flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+
+/* Class program (Grades 4 to 6): each period is two lines (times, then subject and teacher). */
+.program-edit { display: flex; flex-direction: column; gap: 8px; }
+.program-row { display: grid; grid-template-columns: 34px 1fr 1fr 32px; grid-template-areas: 'n s e x' '. sub t .'; gap: 6px; align-items: center; padding: 8px 6px; border: 1px solid var(--line); border-radius: var(--r-sm, 10px); }
+.program-row > :nth-child(1) { grid-area: n; }
+.program-row > :nth-child(2) { grid-area: s; }
+.program-row > :nth-child(3) { grid-area: e; }
+.program-row > :nth-child(4) { grid-area: sub; }
+.program-row > :nth-child(5) { grid-area: t; }
+.program-row > :nth-child(6) { grid-area: x; }
+.program-row .input { padding: 6px 8px; min-width: 0; }
+.program-row.program-break { background: rgba(0, 0, 0, 0.03); }
+.program-row.program-break .program-n::after { content: '—'; color: var(--muted, #888); }
+.program-n { font-size: 12px; font-weight: 600; color: var(--muted, #777); text-align: center; }
+.program-noteacher { padding-left: 4px; }
+.program-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+.program-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.program-table th { text-align: left; font-weight: 600; font-size: 12px; color: var(--muted, #777); padding: 6px 8px; border-bottom: 1px solid var(--line); }
+.program-table td { padding: 7px 8px; border-bottom: 1px solid var(--line); }
+.program-table tr.program-break td { color: var(--muted, #777); font-style: italic; }
+.program-table .nowrap { white-space: nowrap; }
+
