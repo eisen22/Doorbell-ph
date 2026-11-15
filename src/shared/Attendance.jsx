@@ -341,10 +341,22 @@ export function Attendance() {
                             · parent texted "{row.record.earlierText === 'missing' ? 'not in class' : 'absent'}" at {to12h(row.record.earlierTextAt)}, then "in class"
                           </span>
                         )}
-                        {row.record?.excusedPeriods?.length > 0 && (
-                          <span className="joined-note"> · excused for the {periodsLabel(row.record.excusedPeriods)}</span>
+                        {row.excuse ? (
+                          // Approved through the parent portal: every teacher of the class sees it, all day.
+                          <span className="portal-excuse">
+                            {' '}
+                            · Parent's request (portal): excused for {row.excuse.periods?.length ? `the ${periodsLabel(row.excuse.periods)}` : 'the whole day'} ·{' '}
+                            {row.excuse.reason}
+                            {row.excuse.by ? ` · approved by ${row.excuse.by}` : ''}
+                          </span>
+                        ) : (
+                          <>
+                            {row.record?.excusedPeriods?.length > 0 && (
+                              <span className="joined-note"> · excused for the {periodsLabel(row.record.excusedPeriods)}</span>
+                            )}
+                            {row.record?.excusedNote && ` · ${row.record.excusedNote}`}
+                          </>
                         )}
-                        {row.record?.excusedNote && ` · ${row.record.excusedNote}`}
                         {row.streak.count >= 2 && (
                           <>
                             {' '}

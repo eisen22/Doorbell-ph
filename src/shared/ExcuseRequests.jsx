@@ -99,7 +99,10 @@ export function ExcuseRequests() {
                     </>
                   )}
                 </dl>
-                {x.status === 'pending' && (
+                {x.status === 'pending' && !x.canDecide && (
+                  <p className="muted small">Waiting for the class adviser to answer. Once approved, it shows on your class list.</p>
+                )}
+                {x.status === 'pending' && x.canDecide && (
                   <div className="excuse-actions">
                     <input
                       className="input"

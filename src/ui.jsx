@@ -667,6 +667,7 @@ function DayDetail({ date, rec, look, picked }) {
         {!rec.scannedAt && (inClass ? 'Did not scan in at the gate (marked by the teacher). ' : 'No gate scan. ')}
         {inClass && !rec.scannedOut && 'Did not scan out. '}
         {rec.status === 'absent' && rec.scannedAt && 'Scanned in at the gate but was not found in class. '}
+        {rec.excuse && `Excused through the parent portal${rec.excuse.by ? `, approved by ${rec.excuse.by}` : ''}. `}
         {rec.excusedPeriods?.length > 0 && `Excused for the ${periodsLabel(rec.excusedPeriods)} only. `}
         {rec.excusedNote && `Excuse: ${rec.excusedNote}. `}
         {rec.editedReason && rec.status !== 'excused' && `Note: ${rec.editedReason}.`}

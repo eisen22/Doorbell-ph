@@ -252,9 +252,12 @@ class GateRepository(private val db: FirebaseFirestore = FirebaseFirestore.getIn
             "scannedAt" to time,
             "source" to "scanner",
         )
+        // Excused for part of the day (e.g. the morning, by the parent's request through the portal):
+        // merge = the excuse on the record stays; the alert says the child was expected.
+        val partExcused = already == "excused"
         if (confirmed) {
             record["needsCheck"] = true
-            record["editedReason"] = "Arrived after attendance was confirmed"
+            record["editedReason"] = if (partExcused) "Arrived after an excused part of the day" else "Arrived after attendance was confirmed"
         }
         save("attendance", dayId, mapOf("id" to dayId, "sectionId" to section.id, "date" to today, "records" to mapOf(student.id to record)), merge = true)
         scannedToday.getOrPut(section.id) { mutableMapOf() }[student.id] = time // show it at once, even offline
@@ -268,7 +271,8 @@ class GateRepository(private val db: FirebaseFirestore = FirebaseFirestore.getIn
                 mapOf(
                     "id" to nid, "kind" to "missing", "studentId" to student.id, "sectionId" to section.id,
                     "createdAt" to "${today}T$time:00+08:00", "read" to false,
-                    "title" to "${student.fullName} scanned at the gate at ${Rules.to12h(time)}, after attendance was confirmed",
+                    "title" to if (partExcused) "${student.fullName} arrived at ${Rules.to12h(time)} (excused earlier today by the parent's request)"
+                        else "${student.fullName} scanned at the gate at ${Rules.to12h(time)}, after attendance was confirmed",
                     "body" to "Check that ${student.firstName} is in ${section.name}, then mark Present or Late on the Attendance page. The parent is texted when you do.",
                 ),
             )

@@ -941,3 +941,4 @@ a.kpi:hover { background: var(--surface) !important; }
 .pp-period span { color: var(--muted, #666); }
 .pp-period.on { background: var(--ink); color: #fff; border-color: var(--ink); }
 .pp-period.on span { color: rgba(255, 255, 255, 0.8); }
+.portal-excuse { color: var(--excused, #464ca8); font-weight: 600; }

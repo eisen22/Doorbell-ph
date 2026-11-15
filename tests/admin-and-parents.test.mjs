@@ -128,3 +128,33 @@ const kinds = (w, id) => w.smsFor(id).map((m) => m.kind).join('+') || '-';
   await w.eng.setStatus({ studentId: a.id, sectionId: SEC, date: D, status: 'late' });
   check('E1 arrives later: Late, excuse kept', JSON.stringify(w.eng.record(SEC, D, a.id).excusedPeriods) === '[1,2]');
 }
+// ---- scenario: the parent excuses the morning (periods 1-5), the child comes after lunch ----
+{
+  const R = 'sec-4-rizal';
+  const w = world(); const D = w.clock.d; const [kid, other] = w.roster(R);
+  const ex = { id: 'ex-am', studentId: kid.id, sectionId: R, parentUid: 'p1', studentName: kid.firstName, dates: [D], reason: 'Doctor or dental appointment', note: 'Check-up in the morning', periods: [1, 2, 3, 4, 5], status: 'pending', createdAt: new Date().toISOString() };
+  w.state.excuses.set(ex.id, ex);
+  w.as('u-ramon-cruz'); // a subject teacher of the class
+  let refused = false; try { await w.eng.decideExcuse('ex-am', 'approved'); } catch { refused = true; }
+  check('S1 a subject teacher cannot answer the request', refused && w.state.excuses.get('ex-am').status === 'pending');
+  w.as('u-ana'); // the adviser
+  await w.eng.decideExcuse('ex-am', 'approved');
+  w.as('u-ramon-cruz');
+  const before = (await w.eng.getRoster(R, D)).find((r) => r.student.id === kid.id);
+  check('S1 before confirming, every teacher sees the approved portal excuse and who approved it', before.excuse?.periods?.join() === '1,2,3,4,5' && before.excuse.by === 'Ana Villanueva', JSON.stringify(before.excuse));
+  w.as('u-ana'); await w.scan(other, '07:20'); w.clock.t = '07:50'; await w.eng.confirmDay(R, D);
+  let r = w.eng.record(R, D, kid.id);
+  check('S1 at confirmation: excused for the morning, approved by the adviser', r.status === 'excused' && r.excusedPeriods.join() === '1,2,3,4,5' && r.excuse?.by === 'Ana Villanueva', JSON.stringify(r));
+  w.clock.t = '08:20'; w.eng.catchUp();
+  check('S1 no absence text', !w.smsFor(kid.id).some((m) => m.kind === 'absent'));
+  await w.scan(kid, '12:20');
+  r = w.eng.record(R, D, kid.id);
+  check('S1 arrives after lunch: waiting for a teacher, excuse kept', r.needsCheck && r.excusedPeriods.join() === '1,2,3,4,5' && r.excuse?.by === 'Ana Villanueva', JSON.stringify(r));
+  check('S1 the alert says the child was excused by the parent', w.notes(kid.id).some((n) => /excused for the 1st, 2nd, 3rd, 4th and 5th period/.test(n.title)));
+  w.as('u-benjie-torres'); w.clock.t = '12:35';
+  await w.eng.setStatus({ studentId: kid.id, sectionId: R, date: D, status: 'present', period: 6 });
+  r = w.eng.record(R, D, kid.id);
+  check('S1 6th-period teacher confirms: Present, excuse and approver kept, marked by Benjie', r.status === 'present' && r.excusedPeriods.join() === '1,2,3,4,5' && r.excuse?.by === 'Ana Villanueva' && r.markedBy === 'Benjie Torres', JSON.stringify(r));
+  const t = w.smsFor(kid.id).find((m) => /6th period/.test(m.body));
+  check('S1 parent is texted the arrival (6th period, MAPEH)', /MAPEH/.test(t?.body ?? ''), t?.body);
+}

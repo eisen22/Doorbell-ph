@@ -13,6 +13,7 @@ import {
   to12h,
   toMinutes,
   displayPhMobile,
+  periodsLabel,
 } from '../logic';
 import { dayId, byName } from './util';
 
@@ -30,6 +31,12 @@ export const attendanceMethods = {
         student,
         guardian: this.guardianOf(student.id),
         record,
+        // A parent's excuse for this day that the adviser approved (Parent portal): every teacher of the
+        // class sees it on the class list, even before the class is confirmed.
+        excuse: (() => {
+          const ex = this.approvedExcuse(student.id, date);
+          return ex ? { periods: ex.periods ?? null, reason: ex.reason, by: ex.decidedBy ?? null, note: ex.note ?? '' } : null;
+        })(),
         // Not scanned yet today: show the streak as of the previous school day.
         streak: record || !prev ? this.streakFor(sec, student.id, date) : this.streakFor(sec, student.id, prev),
       };
@@ -126,6 +133,8 @@ export const attendanceMethods = {
       return { kind: 'recorded', student, status: existing.status, time };
     }
     const status = decision.status;
+    // Excused for part of the day (e.g. the morning, by a parent's request): the excuse stays on the record.
+    const partExcused = existing?.status === 'excused' && existing.excusedPeriods?.length;
     this.writeRecord({
       date: today,
       studentId: student.id,
@@ -133,7 +142,10 @@ export const attendanceMethods = {
       status,
       scannedAt: time,
       source: 'scanner',
-      ...(locked ? { needsCheck: true, editedReason: 'Arrived after attendance was confirmed' } : {}),
+      ...(partExcused ? { excusedPeriods: existing.excusedPeriods, excusedNote: existing.excusedNote, excuse: existing.excuse } : {}),
+      ...(locked
+        ? { needsCheck: true, editedReason: partExcused ? 'Arrived after an excused part of the day' : 'Arrived after attendance was confirmed' }
+        : {}),
     });
     if (locked) {
       await this.logAudit('attendance.scan_after_lock', `${student.firstName} ${student.lastName}`, `scanned at ${time}, waiting for the teacher`);
@@ -144,7 +156,9 @@ export const attendanceMethods = {
         sectionId: sec.id,
         createdAt: this.nowIso(today),
         read: false,
-        title: `${student.firstName} ${student.lastName} scanned at the gate at ${to12h(time)}, after attendance was confirmed`,
+        title: partExcused
+          ? `${student.firstName} ${student.lastName} arrived at ${to12h(time)} (excused for the ${periodsLabel(existing.excusedPeriods)} by the parent's request)`
+          : `${student.firstName} ${student.lastName} scanned at the gate at ${to12h(time)}, after attendance was confirmed`,
         body: `Check that ${student.firstName} is in ${sec.name}, then mark Present or Late on the Attendance page. The parent is texted when you do.`,
       };
       this.s.notifications.set(n.id, n);
@@ -191,6 +205,9 @@ export const attendanceMethods = {
       excusedNote: input.status === 'excused' ? input.note : prev?.excusedNote && inClass && prev?.excusedPeriods?.length ? prev.excusedNote : undefined,
       // Excused for some class periods only (e.g. [1, 2]); empty/absent = the whole day. A child excused for
       // some periods and in class for the others keeps the list when the teacher marks them present or late.
+      // Excused through the parent portal: { id, by } (the request and who approved it). Kept while the
+      // child is excused or, for a period excuse, in class.
+      excuse: input.status === 'excused' ? input.excuse : inClass && prev?.excusedPeriods?.length ? prev.excuse : undefined,
       excusedPeriods:
         input.status === 'excused'
           ? (input.excusedPeriods ?? []).map(Number).filter((n) => n > 0).sort((a, b) => a - b)
@@ -389,6 +406,7 @@ export const attendanceMethods = {
         joinedSubject: r.joinedSubject ?? null,
         excusedNote: r.excusedNote ?? null,
         excusedPeriods: r.excusedPeriods ?? null,
+        excuse: r.excuse ?? null,
         editedReason: r.editedReason ?? null,
         needsCheck: !!r.needsCheck,
         sectionName: sec?.name ?? null,

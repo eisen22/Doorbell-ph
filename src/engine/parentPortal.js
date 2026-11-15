@@ -172,17 +172,27 @@ export const parentPortalMethods = {
     const vis = this.visibleSectionIds();
     return [...this.s.excuses.values()]
       .filter((x) => !vis || vis.has(x.sectionId))
-      .map((x) => ({ ...x, student: this.s.students.get(x.studentId), section: this.s.sections.get(x.sectionId) }))
+      .map((x) => ({ ...x, student: this.s.students.get(x.studentId), section: this.s.sections.get(x.sectionId), canDecide: this.canDecideExcuse(x.sectionId) }))
       // Waiting requests first, then newest first.
       .sort((a, b) => (b.status === 'pending') - (a.status === 'pending') || b.createdAt.localeCompare(a.createdAt));
   },
   // The teacher approves or declines a parent's excuse request. Approved: the days that already
   // happened become Excused (unless the child came to school); later days are excused when the
   // class is confirmed (finalize).
+  // Who answers a parent's excuse request: the class adviser, a teacher covering the class today, or an admin.
+  // (Subject teachers see the request and the approved excuse, but the adviser decides.)
+  canDecideExcuse(sectionId) {
+    const s = this.session;
+    if (!s) return false;
+    if (s.role === 'admin') return true;
+    const sec = this.s.sections.get(sectionId);
+    return !!sec && (sec.teacherId === s.teacherId || this.coveringToday(s.teacherId).some((c) => c.id === sectionId));
+  },
   async decideExcuse(id, decision, note) {
     await this.ready;
     const ex = this.s.excuses.get(id);
     if (!ex || ex.status !== 'pending') return;
+    if (!this.canDecideExcuse(ex.sectionId)) throw new Error("Only the class adviser (or the admin) can answer a parent's excuse request.");
     // The request must be for a child who is (or was) in that class.
     if (![...this.s.enrollments.values()].some((e) => e.studentId === ex.studentId && e.sectionId === ex.sectionId))
       throw new Error('This child is not in that class. Decline the request.');
@@ -206,6 +216,7 @@ export const parentPortalMethods = {
             ...(lateOk ? { lateExcused: true } : {}),
             ...(periods ? { excusedPeriods: periods } : {}),
             excusedNote: `Parent: ${ex.reason}`,
+            excuse: { id: ex.id, by: ex.decidedBy },
           });
           this.syncParentDays([ex.studentId], [date.slice(0, 7)]);
           continue;
@@ -219,6 +230,7 @@ export const parentPortalMethods = {
           note: `Parent: ${ex.reason}`,
           reason: 'Parent excuse approved',
           excusedPeriods: periods ?? [],
+          excuse: { id: ex.id, by: ex.decidedBy },
         });
       }
     }
