@@ -906,3 +906,4 @@ a.kpi:hover { background: var(--surface) !important; }
 .pp-demo a { color: inherit; font-weight: 600; }
 .pp-child .pp-big { margin-top: 12px; }
 .pp-more { margin-top: 6px; align-self: flex-start; font-weight: 600; }
+.pp-note-month { display: block; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted, #777); margin: 10px 0 4px; }

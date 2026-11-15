@@ -1228,6 +1228,7 @@ export class Engine {
       teacherName: (section && this.s.teachers.get(section.teacherId)?.name) ?? null,
       endTime: section?.schedule.endTime ?? null, // after this time, no scan out = "did not scan out"
       schoolName: this.settings.schoolName ?? null,
+      yearStart: this.year.start, // first day of classes: the portal's calendar goes back to it
       days,
       noClass,
       totals,

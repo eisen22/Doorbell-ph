@@ -197,7 +197,9 @@ function ChildView({ child, docs, excuses, onExcuse }) {
   const thisMonth = today.slice(0, 7);
   const byMonth = useMemo(() => new Map(docs.map((d) => [d.month, d])), [docs]);
   const latest = docs[docs.length - 1];
-  const first = docs[0]?.month ?? thisMonth;
+  // The calendar goes back to the first day of classes this school year (not only to the first month on record).
+  const yearStartMonth = latest?.yearStart?.slice(0, 7);
+  const first = [docs[0]?.month ?? thisMonth, yearStartMonth].filter(Boolean).sort()[0];
   const last = latest && latest.month > thisMonth ? latest.month : thisMonth;
   const [month, setMonth] = useState(byMonth.has(thisMonth) || !latest ? thisMonth : latest.month);
   const [picked, setPicked] = useState(today);
@@ -257,6 +259,7 @@ function ChildView({ child, docs, excuses, onExcuse }) {
           </button>
         </div>
         <MonthGrid month={month} doc={byMonth.get(month)} today={today} picked={picked} onPick={setPicked} />
+        {!byMonth.has(month) && month <= thisMonth && <p className="pp-muted pp-small pp-center">No attendance recorded for {monthName(month)}.</p>}
         <p className="pp-day-info" aria-live="polite">
           {dayInfo(picked, byMonth.get(picked.slice(0, 7)), today)}
         </p>
@@ -348,19 +351,21 @@ function DayTimes({ rec, date, today, endTime }) {
   );
 }
 // NOTIFICATIONS: the last school days, newest first, with the gate and teacher times.
+// Every school day on record since the start of classes, newest first, in pages of 10.
 function Notifications({ docs, today }) {
-  const [all, setAll] = useState(false);
+  const [shown, setShown] = useState(5);
   const rows = docs
     .flatMap((m) => Object.entries(m.days ?? {}).filter(([, r]) => r.s).map(([d, r]) => ({ d, r, end: m.endTime })))
-    .sort((a, b) => b.d.localeCompare(a.d))
-    .slice(0, 7);
+    .sort((a, b) => b.d.localeCompare(a.d));
   if (!rows.length) return null;
   return (
     <section className="pp-card">
-      <h2 className="pp-h2">Recent school days</h2>
+      <h2 className="pp-h2">School days</h2>
       <ul className="pp-notes">
-        {(all ? rows : rows.slice(0, 3)).map(({ d, r, end }) => (
+        {rows.slice(0, shown).map(({ d, r, end }, i, list) => (
           <li key={d}>
+            {/* A month heading where the month changes. */}
+            {(i === 0 || list[i - 1].d.slice(0, 7) !== d.slice(0, 7)) && <span className="pp-note-month">{monthName(d.slice(0, 7))}</span>}
             <strong>
               {d === today ? 'Today' : shortDay(d)} · <span className={`pp-st pp-st-${r.s}`}>{STATUS_WORD[r.s]}</span>
             </strong>
@@ -368,9 +373,17 @@ function Notifications({ docs, today }) {
           </li>
         ))}
       </ul>
-      {rows.length > 3 && (
-        <button type="button" className="link-btn pp-more" onClick={() => setAll(!all)}>
-          {all ? 'Show less' : `Show the last ${rows.length} days`}
+      <p className="pp-muted pp-small">
+        Showing {Math.min(shown, rows.length)} of {rows.length} school days since the start of classes.
+      </p>
+      {rows.length > shown && (
+        <button type="button" className="link-btn pp-more" onClick={() => setShown(shown + 10)}>
+          Show 10 more days
+        </button>
+      )}
+      {shown > 5 && (
+        <button type="button" className="link-btn pp-more" onClick={() => setShown(5)}>
+          Show less
         </button>
       )}
     </section>
