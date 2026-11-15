@@ -172,11 +172,11 @@ export function Attendance() {
       setError(e.message);
     }
   };
-  // "Confirm and lock": unscanned children become absent, streak alerts and texts are checked (engine.finalize).
+  // "Confirm and send texts": unscanned children become absent, streak alerts and texts are checked (engine.finalize).
   const confirm = async () => {
     await repo.confirmDay(section.id, day);
     setConfirmOpen(false);
-    flash('Attendance confirmed and locked');
+    flash('Attendance confirmed. Any teacher of this class can still change a status.');
   };
   return (
     <div className="page">
@@ -493,15 +493,25 @@ export function Attendance() {
                 Not yet
               </button>
               <button className="btn btn-ink" onClick={confirm}>
-                <Lock size={16} /> Confirm and lock
+                <ShieldCheck size={16} /> Confirm and send texts
               </button>
             </>
           }
         >
           <p>
-            Parents of the children marked Present or Late are texted now. {waiting} {waiting === 1 ? 'child has' : 'children have'} not been
-            scanned and will be marked <b>absent</b>; their parents are texted at {to12h(autoFinalizeTime(section.schedule))} if they have still
-            not arrived.
+            Parents of the children marked Present or Late are texted now.{' '}
+            {waiting === 0 ? (
+              'Every child is accounted for.'
+            ) : (
+              <>
+                {waiting} {waiting === 1 ? 'child has' : 'children have'} not been scanned and will be marked <b>absent</b>; their parents are
+                texted at {to12h(autoFinalizeTime(section.schedule))} if they have still not arrived.
+              </>
+            )}
+          </p>
+          <p className="muted small">
+            This is done once a day. After it, you or any teacher of this class can still change a status (for example, a child who arrives
+            later); each change is saved with the teacher&apos;s name, and the parent is texted again if needed.
           </p>
           <p className="muted small">
             Date: {format(parseISO(day), 'EEEE, MMMM d')}. A child who arrives later is scanned at the gate and waits on this list until a teacher marks Present or Late.
