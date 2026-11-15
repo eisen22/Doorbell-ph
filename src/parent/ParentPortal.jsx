@@ -263,9 +263,7 @@ function ChildView({ child, docs, excuses, onExcuse }) {
         </div>
         <MonthGrid month={month} doc={byMonth.get(month)} today={today} picked={picked} onPick={setPicked} />
         {!byMonth.has(month) && month <= thisMonth && <p className="pp-muted pp-small pp-center">No attendance recorded for {monthName(month)}.</p>}
-        <p className="pp-day-info" aria-live="polite">
-          {dayInfo(picked, byMonth.get(picked.slice(0, 7)), today)}
-        </p>
+        <PickedDay date={picked} doc={byMonth.get(picked.slice(0, 7))} today={today} />
         <div className="pp-legend" aria-hidden="true">
           <span><i className="d-present" />Present</span>
           <span><i className="d-late" />Late</span>
@@ -355,6 +353,51 @@ function timesOf(rec, date, today, endTime) {
   else if (date < today || (endTime && nowTime > endTime)) lines.push('Did not scan out');
   else lines.push('Not scanned out yet');
   return lines;
+}
+// The same day as a table (What | Time), for the day picked on the calendar.
+function rowsOf(rec, date, today, endTime) {
+  const rows = [];
+  if (rec.s === 'absent' && rec.t) rows.push(['Scanned in at the gate (not found in class)', to12h(rec.t)]);
+  if (rec.s === 'absent' && !rec.t) rows.push(['Did not come to school', '—']);
+  if (rec.s === 'excused') rows.push([rec.xp?.length ? `Excused for the ${periodsLabel(rec.xp)}` : 'Excused for the whole day', '—']);
+  if (rec.s === 'present' || rec.s === 'late') {
+    if (rec.xp?.length) rows.push([`Excused for the ${periodsLabel(rec.xp)}`, '—']);
+    rows.push(['Scanned in at the gate', rec.t ? to12h(rec.t) : 'Did not scan in']);
+    if (rec.e && rec.et) rows.push([rec.e === 'missing' ? 'Text sent: entered the school but not in class yet' : 'Text sent: absent at the 1st period', to12h(rec.et)]);
+    const joined = rec.p ? ` (joined at the ${ordinal(rec.p)} period${rec.j ? `, ${rec.j}` : ''})` : '';
+    rows.push([`Confirmed in class by the teacher${rec.s === 'late' ? ', late' : ''}${joined}`, rec.c ? to12h(rec.c) : '—']);
+    const nowTime = new Date().toLocaleTimeString('en-GB', { timeZone: 'Asia/Manila', hour: '2-digit', minute: '2-digit' });
+    rows.push(['Scanned out at the gate', rec.o ? to12h(rec.o) : date < today || (endTime && nowTime > endTime) ? 'Did not scan out' : 'Not yet']);
+  }
+  // Time order (rows without a time keep their place at the top).
+  return rows;
+}
+function PickedDay({ date, doc, today }) {
+  const rec = doc?.days?.[date]?.s ? doc.days[date] : undefined;
+  if (!rec)
+    return (
+      <p className="pp-day-info" aria-live="polite">
+        {dayInfo(date, doc, today)}
+      </p>
+    );
+  return (
+    <div className="pp-day-info pp-day-table" aria-live="polite">
+      <div className="pp-day-title">
+        <strong>{shortDay(date)}</strong>
+        <span className={`pp-pill pp-st-${rec.s}`}>{STATUS_WORD[rec.s]}</span>
+      </div>
+      <table>
+        <tbody>
+          {rowsOf(rec, date, today, doc.endTime).map(([what, time]) => (
+            <tr key={what}>
+              <td>{what}</td>
+              <td className="pp-time">{time}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 }
 function DayTimes({ rec, date, today, endTime }) {
   return (

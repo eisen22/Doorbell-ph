@@ -949,3 +949,14 @@ a.kpi:hover { background: var(--surface) !important; }
 .pp-day.is-chosen { background: var(--ink); color: #fff; border-color: var(--ink); }
 .pp-day:disabled { opacity: 0.35; cursor: default; }
 .pp-picked { margin: 10px 0 0; font-size: 13.5px; }
+
+/* Parent portal: the picked day as a table */
+.pp-day-table { padding: 12px 14px; }
+.pp-day-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.pp-day-table table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.pp-day-table td { padding: 7px 0; border-top: 1px solid rgba(0, 0, 0, 0.08); vertical-align: top; }
+.pp-day-table td.pp-time { text-align: right; white-space: nowrap; font-weight: 600; padding-left: 12px; font-variant-numeric: tabular-nums; }
+.pp-pill.pp-st-present { background: var(--ok-bg); color: var(--ok); }
+.pp-pill.pp-st-late { background: var(--late-bg); color: var(--late); }
+.pp-pill.pp-st-absent { background: var(--absent-bg); color: var(--absent); }
+.pp-pill.pp-st-excused { background: var(--excused-bg); color: var(--excused); }
