@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, useMemo } from 'react';
-import { GRADE_LEVELS, gradeName, bySectionGrade, levelsLabel, manilaToday, addDays, isoWeekday, DAY_KIND_META, dayKind, classNow, classPhase, shortClassName, sortByStart, to12h, isSchoolDay } from './logic';
+import { GRADE_LEVELS, gradeName, bySectionGrade, levelsLabel, manilaToday, addDays, isoWeekday, DAY_KIND_META, dayKind, classNow, classPhase, shortClassName, sortByStart, to12h, isSchoolDay, ordinal } from './logic';
 import { DemoClock, Engine, noopPersistence, buildDemoState, demoAuth } from './engine';
 import { cloudConfigured, createCloudEngine } from './firebase';
 import { CheckCircle2, Clock3, XCircle, FileCheck2, CircleDashed, X, CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react';
@@ -594,8 +594,88 @@ export function YearCalendar({ year, calendar, today, selection, onDayClick }) {
 // Days of the current absence streak get a dark outline.
 // ---------------------------------------------------------------------
 const STATUS_CLASS = { absent: 's-absent', late: 's-late', excused: 's-excused', present: 's-present' };
+// One day of a child's attendance history, as a short timeline (clicked on the calendar below it):
+// gate scan in, the class confirmation, a later-period arrival, the texts to the parent, gate scan out.
+const TEXT_LABEL = {
+  arrival: 'In-class text',
+  late: 'Late text',
+  laterPeriod: 'Arrived-later text',
+  absent: 'Absence text',
+  missing: '"Not in class" text',
+  streak: 'Days-in-a-row text',
+  total: 'Absence total text',
+};
+function DayDetail({ date, rec, look, picked }) {
+  if (!date) return <p className="muted small sa-hint">Click a day to see its times.</p>;
+  const when = format(parseISO(date), 'EEEE, MMMM d, yyyy');
+  if (!rec) {
+    const { text } = look(date);
+    return (
+      <div className="sa-detail">
+        <div className="sa-detail-head">
+          <strong>{when}</strong>
+          <span className="muted small">{text}</span>
+        </div>
+        {!picked && <p className="muted small">Click any day on the calendar to see its times.</p>}
+      </div>
+    );
+  }
+  const inClass = rec.status === 'present' || rec.status === 'late';
+  const events = [];
+  if (rec.scannedAt) events.push({ at: rec.scannedAt, text: 'Scanned in at the gate' });
+  // Who confirmed: the teacher who marked this child (a later period, or a correction), otherwise the
+  // teacher who confirmed the class.
+  const cc = rec.classConfirmed && !rec.classConfirmed.auto ? rec.classConfirmed : null;
+  const who = rec.markedBy ?? cc?.by;
+  const by = (name) => (name ? ` by ${name}` : '');
+  const joined = rec.joinedPeriod ? ` · joined at the ${ordinal(rec.joinedPeriod)} period${rec.joinedSubject ? ` (${rec.joinedSubject})` : ''}` : '';
+  const sameMoment = cc && (!rec.confirmedAt || rec.confirmedAt === cc.at) && !rec.joinedPeriod && !rec.markedBy;
+  if (rec.classConfirmed?.auto && rec.classConfirmed.at) events.push({ at: rec.classConfirmed.at, text: 'Class closed without a teacher confirming' });
+  if (inClass) {
+    if (sameMoment && cc.at) events.push({ at: cc.at, text: `Confirmed in class${rec.status === 'late' ? ' (late)' : ''}${by(cc.by)}`, strong: true });
+    else {
+      // Confirmed later than the class (arrived in a later period, or the teacher corrected it): both moments.
+      if (cc?.at) events.push({ at: cc.at, text: `Class attendance confirmed${by(cc.by)} (not in class yet)` });
+      if (rec.confirmedAt) events.push({ at: rec.confirmedAt, text: `Confirmed in class${rec.status === 'late' ? ' (late)' : ''}${joined}${by(who)}`, strong: true });
+    }
+  } else if (cc?.at) {
+    events.push({ at: cc.at, text: `Class attendance confirmed${by(cc.by)}: ${rec.status === 'excused' ? 'excused' : 'not in class'}`, strong: rec.status !== 'excused' });
+  }
+  for (const t of rec.texts ?? []) events.push({ at: t.at, text: `${TEXT_LABEL[t.kind] ?? 'Text'} to the parent${t.status === 'failed' ? ' (not delivered)' : ''}`, sms: true });
+  if (rec.scannedOut) events.push({ at: rec.scannedOut, text: 'Scanned out at the gate' });
+  events.sort((a, b) => a.at.localeCompare(b.at));
+  return (
+    <div className="sa-detail">
+      <div className="sa-detail-head">
+        <strong>{when}</strong>
+        <StatusChip status={rec.status} />
+        {rec.sectionName && <span className="muted small">{rec.sectionName}</span>}
+      </div>
+      {events.length ? (
+        <ol className="sa-timeline">
+          {events.map((e, i) => (
+            <li key={i} className={`${e.strong ? 'sa-ev-strong' : ''} ${e.sms ? 'sa-ev-sms' : ''}`}>
+              <span className="sa-ev-time">{to12h(e.at)}</span>
+              <span>{e.text}</span>
+            </li>
+          ))}
+        </ol>
+      ) : (
+        <p className="muted small">No times recorded for this day.</p>
+      )}
+      <p className="muted small sa-notes">
+        {!rec.scannedAt && (inClass ? 'Did not scan in at the gate (marked by the teacher). ' : 'No gate scan. ')}
+        {inClass && !rec.scannedOut && 'Did not scan out. '}
+        {rec.status === 'absent' && rec.scannedAt && 'Scanned in at the gate but was not found in class. '}
+        {rec.excusedNote && `Excuse: ${rec.excusedNote}. `}
+        {rec.editedReason && rec.status !== 'excused' && `Note: ${rec.editedReason}.`}
+      </p>
+    </div>
+  );
+}
 export function StudentAttendanceModal({ student, section, onClose }) {
   const { data } = useLive((r) => r.getStudentAttendance(student.id, section.id), [student.id, section.id]);
+  const [picked, setPicked] = useState(null); // the clicked day: its details show above the calendar
   const name = `${student.firstName} ${student.lastName}`;
   if (!data)
     return (
@@ -641,6 +721,7 @@ export function StudentAttendanceModal({ student, section, onClose }) {
           </span>
         ))}
       </div>
+      <DayDetail date={picked ?? (days[today] ? today : Object.keys(days).sort().at(-1))} rec={days[picked ?? (days[today] ? today : Object.keys(days).sort().at(-1))]} look={look} picked={!!picked} />
       <div className="sa-months">
         {months.map((first) => {
           const lead = isoWeekday(first) % 7; // Sunday-first grid
@@ -662,15 +743,19 @@ export function StudentAttendanceModal({ student, section, onClose }) {
                   const { cls, text } = look(d);
                   const label = `${format(parseISO(d), 'EEE, MMM d')}: ${text}`;
                   return (
-                    <span
+                    <button
+                      type="button"
                       key={d}
                       role="gridcell"
                       title={label}
                       aria-label={label}
-                      className={`cal-day sa-day ${cls} ${inStreak.has(d) ? 'sa-streak' : ''} ${d === today ? 'is-today' : ''}`}
+                      aria-pressed={d === picked}
+                      onClick={() => setPicked(d)}
+                      disabled={cls === 'sd-out'}
+                      className={`cal-day sa-day ${cls} ${inStreak.has(d) ? 'sa-streak' : ''} ${d === today ? 'is-today' : ''} ${d === picked ? 'sa-picked' : ''}`}
                     >
                       {Number(d.slice(8))}
-                    </span>
+                    </button>
                   );
                 })}
               </div>

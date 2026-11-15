@@ -187,6 +187,7 @@ export const attendanceMethods = {
             : this.clock.peek()
           : undefined,
       source: 'manual',
+      markedBy: this.actor(), // who set this status (shown in a child's attendance history)
       excusedNote: input.status === 'excused' ? input.note : undefined,
       editedReason: input.reason,
       ...joined,
@@ -366,8 +367,33 @@ export const attendanceMethods = {
       // records are not shown or counted, like in Absence Watch.
       const sec = this.s.sections.get(r.sectionId) ?? section;
       if (sec && !isSchoolDay(date, sec.schedule, this.s.calendar)) continue;
-      days[date] = { status: r.status, scannedAt: r.scannedAt ?? null };
+      // Everything the history shows when a day is clicked: gate times, the teacher's confirmation,
+      // a later-period arrival, and the texts the parent got that day.
+      const conf = this.s.confirmations.get(dayId(r.sectionId, date));
+      days[date] = {
+        status: r.status,
+        scannedAt: r.scannedAt ?? null,
+        scannedOut: r.scannedOut ?? null,
+        confirmedAt: r.confirmedAt ?? null,
+        markedBy: r.markedBy ?? null,
+        source: r.source ?? null,
+        joinedPeriod: r.joinedPeriod ?? null,
+        joinedSubject: r.joinedSubject ?? null,
+        excusedNote: r.excusedNote ?? null,
+        editedReason: r.editedReason ?? null,
+        needsCheck: !!r.needsCheck,
+        sectionName: sec?.name ?? null,
+        classConfirmed: conf ? { by: conf.confirmedBy ?? null, at: conf.confirmedAt?.slice(11, 16) ?? null, auto: !!conf.auto } : null,
+        texts: [],
+      };
     }
+    // The texts to this child's parent, by day (only the ones this device has loaded).
+    for (const m of this.s.sms.values()) {
+      if (m.studentId !== studentId || !m.createdAt) continue;
+      const d = days[m.createdAt.slice(0, 10)];
+      if (d) d.texts.push({ kind: m.kind, at: m.createdAt.slice(11, 16), status: m.status });
+    }
+    for (const d of Object.values(days)) d.texts.sort((a, b) => a.at.localeCompare(b.at));
     const today = this.clock.today();
     return {
       days,

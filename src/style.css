@@ -908,3 +908,20 @@ a.kpi:hover { background: var(--surface) !important; }
 .table .mono { white-space: nowrap; }
 .wordmark { display: block; width: auto; flex-shrink: 0; }
 .pp-head-text .wordmark { align-self: flex-start; margin-bottom: 3px; }
+
+/* A child's attendance history: the clicked day's timeline */
+.sa-day { cursor: pointer; font: inherit; border: 0; padding: 0; }
+.sa-day:disabled { cursor: default; }
+.sa-day.sa-picked { outline: 2.5px solid var(--ink); outline-offset: 1px; }
+.sa-detail { border: 1px solid var(--line); border-radius: var(--r-md, 14px); padding: 12px 14px; margin: 10px 0 14px; background: var(--frame, #fff); }
+.sa-detail-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.sa-timeline { list-style: none; margin: 0; padding: 0 0 0 4px; display: flex; flex-direction: column; gap: 6px; border-left: 2px solid var(--line); }
+.sa-timeline li { display: flex; gap: 12px; align-items: baseline; padding-left: 12px; position: relative; font-size: 14px; }
+.sa-timeline li::before { content: ''; position: absolute; left: -6px; top: 6px; width: 10px; height: 10px; border-radius: 50%; background: var(--line); }
+.sa-timeline li.sa-ev-strong::before { background: var(--ok, #1d7a45); }
+.sa-timeline li.sa-ev-strong { font-weight: 600; }
+.sa-timeline li.sa-ev-sms { color: var(--muted, #666); }
+.sa-ev-time { min-width: 72px; font-variant-numeric: tabular-nums; color: var(--ink); font-weight: 600; }
+.sa-notes { margin: 8px 0 0; }
+.sa-notes:empty { display: none; }
+.sa-hint { margin: 8px 0; }
