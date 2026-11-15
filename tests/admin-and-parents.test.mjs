@@ -141,7 +141,7 @@ const kinds = (w, id) => w.smsFor(id).map((m) => m.kind).join('+') || '-';
   await w.eng.decideExcuse('ex-am', 'approved');
   w.as('u-ramon-cruz');
   const before = (await w.eng.getRoster(R, D)).find((r) => r.student.id === kid.id);
-  check('S1 before confirming, every teacher sees the approved portal excuse and who approved it', before.excuse?.periods?.join() === '1,2,3,4,5' && before.excuse.by === 'Ana Villanueva', JSON.stringify(before.excuse));
+  check('S1 before confirming, every teacher sees the approved portal excuse and who approved it', before.excuse?.periods?.join() === '1,2,3,4,5' && before.excuse.by === 'Ana Villanueva' && !before.excuse.pending, JSON.stringify(before.excuse));
   w.as('u-ana'); await w.scan(other, '07:20'); w.clock.t = '07:50'; await w.eng.confirmDay(R, D);
   let r = w.eng.record(R, D, kid.id);
   check('S1 at confirmation: excused for the morning, approved by the adviser', r.status === 'excused' && r.excusedPeriods.join() === '1,2,3,4,5' && r.excuse?.by === 'Ana Villanueva', JSON.stringify(r));

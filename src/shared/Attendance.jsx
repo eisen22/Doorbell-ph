@@ -347,7 +347,7 @@ export function Attendance() {
                             {' '}
                             · Parent's request (portal): excused for {row.excuse.periods?.length ? `the ${periodsLabel(row.excuse.periods)}` : 'the whole day'} ·{' '}
                             {row.excuse.reason}
-                            {row.excuse.by ? ` · approved by ${row.excuse.by}` : ''}
+                            {row.excuse.pending ? ' · waiting for the adviser to confirm' : row.excuse.by ? ` · confirmed by ${row.excuse.by}` : ''}
                           </span>
                         ) : (
                           <>

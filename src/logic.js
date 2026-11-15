@@ -846,3 +846,10 @@ export function periodsLabel(periods) {
   if (!o.length) return '';
   return `${o.length > 1 ? `${o.slice(0, -1).join(', ')} and ${o.at(-1)}` : o[0]} period`;
 }
+
+/** The status of a parent's excuse request in words: "Waiting for the teacher to confirm",
+ *  "Confirmed by Ana Villanueva" or "Declined by Ana Villanueva". */
+export const excuseStatusLabel = (x) =>
+  x.status === 'pending'
+    ? 'Waiting for the teacher to confirm'
+    : `${x.status === 'approved' ? 'Confirmed' : 'Declined'}${x.decidedBy ? ` by ${x.decidedBy}` : ''}`;

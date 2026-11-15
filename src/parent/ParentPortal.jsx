@@ -11,7 +11,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { AlertTriangle, CalendarDays, ChevronLeft, ChevronRight, FileText, KeyRound, LogOut, Send } from 'lucide-react';
 import { Logo, Wordmark, StatusChip, longDate, useRepo } from '../ui';
-import { addDays, isoWeekday, manilaToday, to12h, ordinal, periodsLabel, EXCUSE_REASONS } from '../logic';
+import { addDays, isoWeekday, manilaToday, to12h, ordinal, periodsLabel, excuseStatusLabel, EXCUSE_REASONS } from '../logic';
 import { changeParentPassword, portalAvailable, sendExcuse, signOutParent, watchParent } from './parentCloud';
 
 const STATUS_WORD = { present: 'Present', late: 'Late', absent: 'Absent', excused: 'Excused' };
@@ -288,8 +288,6 @@ function ChildView({ child, docs, excuses, onExcuse }) {
         </div>
       </section>
 
-      <Notifications docs={docs} today={today} />
-
       {excuses.length > 0 && (
         <section className="pp-card">
           <h2 className="pp-h2">Excuse requests</h2>
@@ -306,7 +304,7 @@ function ChildView({ child, docs, excuses, onExcuse }) {
                     {x.teacherNote ? ` · Teacher: ${x.teacherNote}` : ''}
                   </span>
                 </div>
-                <span className={`pp-pill pp-pill-${x.status}`}>{x.status === 'pending' ? 'Waiting' : x.status === 'approved' ? 'Approved' : 'Declined'}</span>
+                <span className={`pp-pill pp-pill-${x.status}`}>{excuseStatusLabel(x)}</span>
               </li>
             ))}
           </ul>
@@ -406,45 +404,6 @@ function DayTimes({ rec, date, today, endTime }) {
         <li key={l}>{l}</li>
       ))}
     </ul>
-  );
-}
-// NOTIFICATIONS: the last school days, newest first, with the gate and teacher times.
-// Every school day on record since the start of classes, newest first, in pages of 10.
-function Notifications({ docs, today }) {
-  const [shown, setShown] = useState(5);
-  const rows = docs
-    .flatMap((m) => Object.entries(m.days ?? {}).filter(([, r]) => r.s).map(([d, r]) => ({ d, r, end: m.endTime })))
-    .sort((a, b) => b.d.localeCompare(a.d));
-  if (!rows.length) return null;
-  return (
-    <section className="pp-card">
-      <h2 className="pp-h2">School days</h2>
-      <ul className="pp-notes">
-        {rows.slice(0, shown).map(({ d, r, end }, i, list) => (
-          <li key={d}>
-            {/* A month heading where the month changes. */}
-            {(i === 0 || list[i - 1].d.slice(0, 7) !== d.slice(0, 7)) && <span className="pp-note-month">{monthName(d.slice(0, 7))}</span>}
-            <strong>
-              {d === today ? 'Today' : shortDay(d)} · <span className={`pp-st pp-st-${r.s}`}>{STATUS_WORD[r.s]}</span>
-            </strong>
-            <DayTimes rec={r} date={d} today={today} endTime={end} />
-          </li>
-        ))}
-      </ul>
-      <p className="pp-muted pp-small">
-        Showing {Math.min(shown, rows.length)} of {rows.length} school days since the start of classes.
-      </p>
-      {rows.length > shown && (
-        <button type="button" className="link-btn pp-more" onClick={() => setShown(shown + 10)}>
-          Show 10 more days
-        </button>
-      )}
-      {shown > 5 && (
-        <button type="button" className="link-btn pp-more" onClick={() => setShown(5)}>
-          Show less
-        </button>
-      )}
-    </section>
   );
 }
 

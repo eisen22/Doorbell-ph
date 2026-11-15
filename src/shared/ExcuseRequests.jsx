@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { format } from 'date-fns';
 import { Check, FileText, X } from 'lucide-react';
 import { useLive, useRepo, Card, Empty, Skeleton, Avatar, Toast, LevelChips, countByGrade } from '../ui';
-import { periodsLabel } from '../logic';
+import { periodsLabel, excuseStatusLabel } from '../logic';
 
 // =====================================================================
 // EXCUSE REQUESTS (/excuses for teachers, /admin/excuses for the admin)
@@ -34,7 +34,7 @@ export function ExcuseRequests() {
     setBusy(x.id);
     try {
       await repo.decideExcuse(x.id, decision, notes[x.id]);
-      setToast({ message: decision === 'approved' ? `Approved. ${x.studentName ?? 'The child'} is excused.` : 'Declined.' });
+      setToast({ message: decision === 'approved' ? `Confirmed. ${x.studentName ?? 'The child'} is excused, and every teacher of the class can see it.` : 'Declined.' });
     } catch (e) {
       setToast({ message: e.message });
     } finally {
@@ -47,7 +47,7 @@ export function ExcuseRequests() {
       <div className="page-head">
         <div>
           <h1>Excuse requests</h1>
-          <p className="page-sub">Sent by parents from the parent portal. Approved days become Excused and don't count toward alerts.</p>
+          <p className="page-sub">Sent by parents from the parent portal. The class adviser confirms or declines; confirmed days become Excused and don't count toward alerts.</p>
         </div>
       </div>
       <LevelChips value={level} onChange={setLevel} counts={countByGrade(data, (x) => x.section?.gradeLevel)} />
@@ -74,7 +74,7 @@ export function ExcuseRequests() {
                       {x.section?.name ?? ''} · from {x.guardianName || 'parent'} · {format(new Date(x.createdAt), 'EEE, MMM d · h:mm a')}
                     </span>
                   </div>
-                  <span className={`pp-pill pp-pill-${x.status}`}>{x.status === 'pending' ? 'Waiting' : x.status === 'approved' ? 'Approved' : 'Declined'}</span>
+                  <span className={`pp-pill pp-pill-${x.status}`}>{excuseStatusLabel(x)}</span>
                 </div>
                 <dl className="excuse-facts">
                   <dt>Days</dt>
@@ -100,7 +100,7 @@ export function ExcuseRequests() {
                   )}
                 </dl>
                 {x.status === 'pending' && !x.canDecide && (
-                  <p className="muted small">Waiting for the class adviser to answer. Once approved, it shows on your class list.</p>
+                  <p className="muted small">Waiting for the class adviser to confirm. Once confirmed, it shows on your class list.</p>
                 )}
                 {x.status === 'pending' && x.canDecide && (
                   <div className="excuse-actions">
@@ -113,7 +113,7 @@ export function ExcuseRequests() {
                       aria-label="Note to the parent"
                     />
                     <button className="btn btn-ink" disabled={busy === x.id} onClick={() => decide(x, 'approved')}>
-                      <Check size={16} aria-hidden="true" /> Approve
+                      <Check size={16} aria-hidden="true" /> Confirm excuse
                     </button>
                     <button className="btn" disabled={busy === x.id} onClick={() => decide(x, 'declined')}>
                       <X size={16} aria-hidden="true" /> Decline

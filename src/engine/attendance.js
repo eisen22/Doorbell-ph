@@ -34,8 +34,11 @@ export const attendanceMethods = {
         // A parent's excuse for this day that the adviser approved (Parent portal): every teacher of the
         // class sees it on the class list, even before the class is confirmed.
         excuse: (() => {
-          const ex = this.approvedExcuse(student.id, date);
-          return ex ? { periods: ex.periods ?? null, reason: ex.reason, by: ex.decidedBy ?? null, note: ex.note ?? '' } : null;
+          // Confirmed by the adviser, or still waiting for the adviser.
+          const ex =
+            this.approvedExcuse(student.id, date) ??
+            [...this.s.excuses.values()].find((x) => x.status === 'pending' && x.studentId === student.id && x.dates?.includes(date));
+          return ex ? { periods: ex.periods ?? null, reason: ex.reason, by: ex.decidedBy ?? null, note: ex.note ?? '', pending: ex.status === 'pending' } : null;
         })(),
         // Not scanned yet today: show the streak as of the previous school day.
         streak: record || !prev ? this.streakFor(sec, student.id, date) : this.streakFor(sec, student.id, prev),
