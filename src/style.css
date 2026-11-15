@@ -942,3 +942,10 @@ a.kpi:hover { background: var(--surface) !important; }
 .pp-period.on { background: var(--ink); color: #fff; border-color: var(--ink); }
 .pp-period.on span { color: rgba(255, 255, 255, 0.8); }
 .portal-excuse { color: var(--excused, #464ca8); font-weight: 600; }
+
+/* Parent portal: picking several days for an excuse */
+.pp-multical { margin-top: 10px; border: 1px solid var(--line); border-radius: var(--r-md, 14px); padding: 10px; }
+.pp-multical h3 { margin: 0; font-size: 15px; }
+.pp-day.is-chosen { background: var(--ink); color: #fff; border-color: var(--ink); }
+.pp-day:disabled { opacity: 0.35; cursor: default; }
+.pp-picked { margin: 10px 0 0; font-size: 13.5px; }

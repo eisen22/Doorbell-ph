@@ -9,8 +9,8 @@
 // =====================================================================
 import React, { useEffect, useMemo, useState } from 'react';
 import { Navigate } from 'react-router-dom';
-import { AlertTriangle, ChevronLeft, ChevronRight, FileText, KeyRound, LogOut, Send } from 'lucide-react';
-import { Logo, Wordmark, StatusChip, DatePicker, longDate, useRepo } from '../ui';
+import { AlertTriangle, CalendarDays, ChevronLeft, ChevronRight, FileText, KeyRound, LogOut, Send } from 'lucide-react';
+import { Logo, Wordmark, StatusChip, longDate, useRepo } from '../ui';
 import { addDays, isoWeekday, manilaToday, to12h, ordinal, periodsLabel, EXCUSE_REASONS } from '../logic';
 import { changeParentPassword, portalAvailable, sendExcuse, signOutParent, watchParent } from './parentCloud';
 
@@ -450,6 +450,61 @@ function MonthGrid({ month, doc, today, picked, onPick }) {
   );
 }
 
+// A month calendar where a parent taps several days (tap again to remove). Weekends and days outside
+// min..max can't be picked. Used by the excuse form ("More days…").
+function MultiDayCalendar({ today, selected, onToggle, min, max }) {
+  const [month, setMonth] = useState(today.slice(0, 7));
+  const step = (n) => {
+    const [y, m] = month.split('-').map(Number);
+    const d = new Date(Date.UTC(y, m - 1 + n, 1));
+    setMonth(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`);
+  };
+  const firstDay = `${month}-01`;
+  const lead = isoWeekday(firstDay) % 7;
+  const cells = [];
+  for (let i = 0; i < lead; i++) cells.push(null);
+  for (let d = firstDay; d.startsWith(month); d = addDays(d, 1)) cells.push(d);
+  return (
+    <div className="pp-multical">
+      <div className="pp-cal-head">
+        <button type="button" className="icon-btn" onClick={() => step(-1)} disabled={month <= min.slice(0, 7)} aria-label="Previous month">
+          <ChevronLeft size={18} />
+        </button>
+        <h3>{monthName(month)}</h3>
+        <button type="button" className="icon-btn" onClick={() => step(1)} disabled={month >= max.slice(0, 7)} aria-label="Next month">
+          <ChevronRight size={18} />
+        </button>
+      </div>
+      <div className="pp-grid" role="grid" aria-label={`Pick days in ${monthName(month)}`}>
+        {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((w, i) => (
+          <span key={i} className="pp-wd" aria-hidden="true">
+            {w}
+          </span>
+        ))}
+        {cells.map((d, i) => {
+          if (!d) return <span key={`x${i}`} />;
+          const off = isoWeekday(d) >= 6 || d < min || d > max;
+          const on = selected.includes(d);
+          return (
+            <button
+              key={d}
+              type="button"
+              className={`pp-day ${on ? 'is-chosen' : ''} ${d === today ? 'is-today' : ''}`}
+              disabled={off}
+              aria-pressed={on}
+              aria-label={`${shortDay(d)}${on ? ', picked' : ''}`}
+              onClick={() => onToggle(d)}
+            >
+              {Number(d.slice(8))}
+            </button>
+          );
+        })}
+      </div>
+      <p className="pp-muted pp-small">Tap each day your child will miss. Tap again to remove it.</p>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------
 // EXCUSE FORM: which day(s), the reason, an optional message. The teacher approves or declines.
 // ---------------------------------------------------------------------
@@ -470,7 +525,6 @@ function ExcuseForm({ child, docs, excuses, guardianName, onDone, onBack }) {
   while (isoWeekday(next) >= 6) next = addDays(next, 1);
   const quick = [...new Set([...recentAbsent, today, next])].sort();
   const [dates, setDates] = useState(recentAbsent.length ? [recentAbsent[0]] : [today]);
-  const [other, setOther] = useState('');
   const [reason, setReason] = useState(null);
   const [note, setNote] = useState('');
   const [whole, setWhole] = useState(true); // the whole day, or certain class periods only
@@ -480,12 +534,16 @@ function ExcuseForm({ child, docs, excuses, guardianName, onDone, onBack }) {
   // The class periods (from the class program); older saved months don't have them: 1st to 8th.
   const classPeriodList = latest?.periods?.length ? latest.periods : [1, 2, 3, 4, 5, 6, 7, 8].map((n) => ({ n }));
   const togglePeriod = (n) => setPeriods((xs) => (xs.includes(n) ? xs.filter((x) => x !== n) : [...xs, n].sort((a, b) => a - b)));
+  const [calOpen, setCalOpen] = useState(false);
+  // "Today", "Tomorrow", else "Mon, Nov 23".
+  const dayChip = (d) => (d === today ? 'Today' : d === addDays(today, 1) ? 'Tomorrow' : shortDay(d));
   const toggle = (d) => setDates((xs) => (xs.includes(d) ? xs.filter((x) => x !== d) : [...xs, d]));
   const submit = async (e) => {
     e.preventDefault();
     setError(null);
     if (!sectionId) return setError(`${child.firstName} is not in a class yet. Please contact the school.`);
     if (!dates.length) return setError('Pick at least one day.');
+    if (dates.length > 10) return setError('Up to 10 days in one request. Send another request for the rest.');
     if (!reason) return setError('Pick a reason.');
     if (!whole && !periods.length) return setError('Pick the class periods, or choose The whole day.');
     setBusy(true);
@@ -508,26 +566,25 @@ function ExcuseForm({ child, docs, excuses, guardianName, onDone, onBack }) {
         <fieldset className="pp-fieldset">
           <legend>Which day(s)?</legend>
           <div className="pp-chips">
-            {[...new Set([...quick, ...dates])].sort().map((d) => (
+            {[...new Set([...quick, ...dates.filter((d) => quick.includes(d))])].sort().map((d) => (
               <button key={d} type="button" className={`pp-chip ${dates.includes(d) ? 'on' : ''}`} aria-pressed={dates.includes(d)} onClick={() => toggle(d)}>
-                {d === today ? 'Today' : shortDay(d)}
+                {dayChip(d)}
               </button>
             ))}
+            <button type="button" className={`pp-chip ${calOpen ? 'on' : ''}`} aria-expanded={calOpen} onClick={() => setCalOpen(!calOpen)}>
+              <CalendarDays size={16} aria-hidden="true" /> More days…
+            </button>
           </div>
-          <div className="pp-other">
-            <DatePicker
-              value={other}
-              onChange={(v) => {
-                setOther('');
-                if (v && !dates.includes(v)) setDates((xs) => [...xs, v]);
-              }}
-              min={addDays(today, -30)}
-              max={addDays(today, 30)}
-              placeholder="Another day…"
-              ariaLabel="Add another day"
-              compact
-            />
-          </div>
+          {/* Several days: tap each day on the calendar (tap again to remove). Weekends can't be picked. */}
+          {calOpen && <MultiDayCalendar today={today} selected={dates} onToggle={toggle} min={addDays(today, -30)} max={addDays(today, 30)} />}
+          {dates.length > 0 && (
+            <p className="pp-picked">
+              <b>
+                {dates.length} {dates.length === 1 ? 'day' : 'days'}:
+              </b>{' '}
+              {[...dates].sort().map(dayChip).join(', ')}
+            </p>
+          )}
         </fieldset>
         <fieldset className="pp-fieldset">
           <legend>For how long?</legend>
