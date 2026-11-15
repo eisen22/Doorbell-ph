@@ -198,7 +198,10 @@ function ChildView({ child, docs, excuses, onExcuse }) {
   const byMonth = useMemo(() => new Map(docs.map((d) => [d.month, d])), [docs]);
   const latest = docs[docs.length - 1];
   // The calendar goes back to the first day of classes this school year (not only to the first month on record).
-  const yearStartMonth = latest?.yearStart?.slice(0, 7);
+  // Months saved before Nov 16, 2026 don't carry yearStart: fall back to June of this school year
+  // (Philippine classes start in June), so parents can always page back to the start of classes.
+  const [ty, tm] = thisMonth.split('-').map(Number);
+  const yearStartMonth = latest?.yearStart?.slice(0, 7) ?? `${tm >= 6 ? ty : ty - 1}-06`;
   const first = [docs[0]?.month ?? thisMonth, yearStartMonth].filter(Boolean).sort()[0];
   const last = latest && latest.month > thisMonth ? latest.month : thisMonth;
   const [month, setMonth] = useState(byMonth.has(thisMonth) || !latest ? thisMonth : latest.month);
