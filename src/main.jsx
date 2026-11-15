@@ -38,7 +38,7 @@ import { signInParent } from './parent/parentCloud';
 import ReactDOM from 'react-dom/client';
 // One file per screen: teacher/ (teacher only), admin/ (admin only), shared/ (both portals).
 import { Dashboard } from './teacher/Dashboard';
-import { Students } from './teacher/Students';
+import { MyClasses } from './teacher/MyClasses';
 import { CalendarPage } from './teacher/SchoolCalendar';
 import { Notifications } from './teacher/Alerts';
 import { SettingsPage } from './teacher/Settings';
@@ -288,9 +288,9 @@ export function Login() {
 // ---------------------------------------------------------------------
 const TEACHER_NAV = [
   { to: '/', label: 'Dashboard', Icon: LayoutGrid, end: true },
+  { to: '/classes', label: 'My Classes', Icon: Users },
   { to: '/attendance', label: 'Attendance', Icon: ClipboardCheck },
   { to: '/absences', label: 'Absence Watch', Icon: UserX, badge: 'watch' },
-  { to: '/students', label: 'My Students', Icon: Users },
   { to: '/calendar', label: 'Calendar', Icon: CalendarDays },
   { to: '/notifications', label: 'Alerts', Icon: Bell, badge: 'alerts' },
   { to: '/excuses', label: 'Excuse requests', Icon: FileText, badge: 'excuses' },
@@ -403,7 +403,7 @@ export function Shell() {
               className="search"
               onSubmit={(e) => {
                 e.preventDefault();
-                navigate(`${isAdmin ? '/admin/students' : '/students'}?q=${encodeURIComponent(q)}`);
+                navigate(`${isAdmin ? '/admin/students' : '/classes'}?q=${encodeURIComponent(q)}`);
               }}
             >
               <Search size={17} aria-hidden="true" />
@@ -470,6 +470,11 @@ export function Shell() {
 
 // ---------------------------------------------------------------------
 // START THE APP: draw everything inside <div id="root"> (index.html).
+// Old /students?q=... links -> /classes?q=... (same search).
+function StudentsRedirect() {
+  const loc = useLocation();
+  return <Navigate to={`/classes${loc.search}`} replace />;
+}
 // <RepoProvider> gives every page the engine; <Routes> maps each address to a screen.
 // basename: on GitHub Pages the site lives under /Doorbell-ph/ (set in vite.config.js).
 // ---------------------------------------------------------------------
@@ -483,7 +488,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <Route element={<Shell />}>
             <Route index element={<Dashboard />} />
             <Route path="attendance" element={<Attendance />} />
-            <Route path="students" element={<Students />} />
+            <Route path="classes" element={<MyClasses />} />
+            {/* "My Students" became part of My Classes (old links keep working). */}
+            <Route path="students" element={<StudentsRedirect />} />
             <Route path="calendar" element={<CalendarPage />} />
             <Route path="absences" element={<AbsenceWatch />} />
             <Route path="notifications" element={<Notifications />} />

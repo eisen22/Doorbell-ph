@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { format, parseISO } from 'date-fns';
 import {
   ArrowUpRight,
@@ -50,7 +50,8 @@ const PHASE = { now: 'In session now', next: 'Later today', done: 'Done for toda
 // ---------------------------------------------------------------------
 export function Dashboard() {
   const repo = useRepo();
-  const [classId, setClass] = useClassParam();
+  const [classId] = useClassParam();
+  const navigate = useNavigate();
   // Everything the dashboard needs, loaded together. The ?class= in the address bar (classId) picks the class; otherwise the class happening now.
   const { data } = useLive(
     async (r) => {
@@ -111,12 +112,7 @@ export function Dashboard() {
             const on = c.id === section.id;
             return (
               <div key={c.id} className={`tile class-tile ${on ? 'class-on' : ''}`} style={{ background: c.color, color: textOn(c.color) }}>
-                <button
-                  className="class-tile-main"
-                  onClick={() => setClass(c.id)}
-                  aria-pressed={on}
-                  title={multi ? 'Show this class on the dashboard' : undefined}
-                >
+                <button className="class-tile-main" onClick={() => navigate(`/classes?class=${c.id}`)} title="Open this class in My Classes">
                   <span className="date-chip">
                     {phase === 'now' && <span className="live-dot" aria-hidden="true" />}
                     {PHASE[phase]}

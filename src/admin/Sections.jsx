@@ -787,7 +787,7 @@ function ProgramEditor({ gradeLevel, program, teachers, adviserId, startTime, on
   );
 }
 
-function ProgramTable({ section, teachers, onEdit }) {
+export function ProgramTable({ section, teachers, onEdit, highlight }) {
   const rows = [...(section.program ?? [])].sort((a, b) => a.start.localeCompare(b.start));
   const name = (id) => teachers.find((t) => t.id === id)?.name ?? 'No teacher yet';
   const withTeachers = hasSubjectTeachers(section.gradeLevel); // Kindergarten to Grade 3: one teacher, no column
@@ -800,9 +800,11 @@ function ProgramTable({ section, teachers, onEdit }) {
       {!rows.length ? (
         <p className="muted">
           No class program yet.{' '}
-          <button className="link-btn" onClick={onEdit}>
-            Add periods
-          </button>
+          {onEdit && (
+            <button className="link-btn" onClick={onEdit}>
+              Add periods
+            </button>
+          )}
         </p>
       ) : (
         <table className="program-table">
@@ -819,7 +821,10 @@ function ProgramTable({ section, teachers, onEdit }) {
               const brk = isBreak(p);
               if (!brk) n += 1;
               return (
-                <tr key={i} className={brk ? 'program-break' : ''}>
+                <tr
+                  key={i}
+                  className={`${brk ? 'program-break' : ''} ${!brk && highlight && (p.teacherId === highlight || (!p.teacherId && section.teacherId === highlight)) ? 'program-mine' : ''}`}
+                >
                   <td>{brk ? '' : ordinal(n)}</td>
                   <td className="nowrap">
                     {to12h(p.start)} – {to12h(p.end)}

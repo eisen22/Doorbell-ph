@@ -129,7 +129,7 @@ export function Notifications() {
                     {n.studentId && (
                       <Link
                         className="link"
-                        to={`/students?q=${encodeURIComponent(
+                        to={`/classes?q=${encodeURIComponent(
                           n.title
                             .split(' was ')[0]
                             .replace(/^Text to | guardian.*$/g, '')
