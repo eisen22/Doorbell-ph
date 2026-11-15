@@ -518,7 +518,6 @@ export function DatePicker({
 // =====================================================================
 // 4. YEAR CALENDAR (Calendar pages): 10 small months, each day colored by its kind
 // =====================================================================
-export const LEGEND = ['class', 'exam', 'event', 'halfday', 'holiday', 'suspension', 'break', 'makeup'];
 /** Twelve-month view of the school year, color-coded by day type. */
 // onDayClick is given only on the admin page, where clicking a day edits it.
 export function YearCalendar({ year, calendar, today, selection, onDayClick }) {

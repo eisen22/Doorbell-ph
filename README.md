@@ -21,12 +21,13 @@ Press `Ctrl + C` in the terminal to stop it. `npm run build` makes the finished 
 |---|---|
 | `src/main.jsx` | Where the app starts: sign-in page, the frame around every page (menu), and the list of pages (routes) |
 | `src/logic.js` | **The rules**: late or on time, school days, 3-day streaks, SMS wording, phone numbers, DepEd calendar, auto-assign. No screens, no database: the best place to start debugging |
-| `src/engine.js` | **The engine**: holds the school's data and does every action (scan, confirm, alerts, texts, sections, students...). Also the sample school |
+| `src/engine.js` + `src/engine/` | **The engine**: holds the school's data and does every action (scan, confirm, alerts, texts, sections, students...). Split by topic, see [ARCHITECTURE.md](ARCHITECTURE.md). `src/engine/sample.js` is the sample school |
 | `src/firebase.js` | Connection to Firebase (sign-in and database), first-time setup, "Load sample school". **`MODE`** here switches cloud / demo |
 | `src/ui.jsx` | Shared pieces: cards, pop-ups, status chips, date picker, year calendar, class switcher |
-| `src/teacher/` | Teacher-only screens, one file each: `Dashboard`, `Students` (My Students), `SchoolCalendar`, `Alerts`, `Settings` |
+| `src/teacher/` | Teacher-only screens, one file each: `Dashboard`, `MyClasses` (classes + class lists), `SchoolCalendar`, `Alerts`, `Settings` |
 | `src/admin/` | Admin-only screens: `Overview`, `SchoolCalendar`, `Sections`, `Teachers`, `Students`, `IdCards`, `Settings` (& SMS), `AuditLog` |
-| `src/shared/` | Screens both portals use: `Attendance`, `AbsenceWatch`, `SmsMessages` |
+| `src/shared/` | Screens both portals use: `Attendance`, `AbsenceWatch`, `SmsMessages`, `ExcuseRequests`, `ProgramTable` |
+| `src/parent/` | The parent portal (`ParentPortal`) and its own Firebase connection (`parentCloud`) |
 | `src/style.css` | How everything looks (colors at the top) |
 | `firestore.rules` | Who may read and write what in the database |
 | `worker/` | Free Cloudflare Worker: real SMS through Semaphore, the absence texts at the end of first period and the quiet end-of-day close (see `worker/README.md`) |
@@ -39,7 +40,7 @@ Press `Ctrl + C` in the terminal to stop it. `npm run build` makes the finished 
 ```
 screen (teacher/, admin/, shared/)
    └─ useLive(r => r.getRoster(...))        ui.jsx: loads data and reloads on every change
-        └─ Engine method (engine.js)         rules from logic.js, data in memory (engine.s)
+        └─ Engine method (engine.js, engine/) rules from logic.js, data in memory (engine.s)
              └─ persistence.put(...)         firebase.js: saves to Firestore (cloud mode)
 ```
 
@@ -48,7 +49,7 @@ screen (teacher/, admin/, shared/)
 1. Firebase console → **Firestore Database → Rules** → paste `firestore.rules` → **Publish**.
 2. **Authentication → Settings → Authorized domains** → add `eisen22.github.io`.
 3. Open the app. The sign-in page shows **First-time setup**: create the admin account.
-4. As admin, the Overview page offers **Load sample school** (4 teachers, 4 sections, 89 children, attendance since June 8). Sample teachers sign in with password `Teacher-2026!`.
+4. As admin, the Overview page offers **Load sample school** (Kindergarten to Grade 6: 21 sections, 23 teachers, 20 pupils per section, about 3 weeks of attendance). Sample teachers sign in with password `Teacher-2026!`.
 
 **Demo mode** (no internet, sample data that resets): set `MODE = 'demo'` in `src/firebase.js`.
 

@@ -20,8 +20,9 @@ import {
   isBreak,
   isSchoolDay,
   ordinal,
-  classPeriods,
-  hasSubjectTeachers,
+  classRole,
+  teacherPeriods,
+  groupByClassRole,
 } from '../logic';
 import {
   useLive,
@@ -83,17 +84,9 @@ export function Dashboard() {
   const multi = classes.length > 1;
   // Which classes are mine as adviser, as a subject teacher (Grades 4 to 6), or covered today.
   const me = session.teacherId;
-  const roleOf = (c) => (c.teacherId === me ? 'advisory' : (c.subjectTeacherIds ?? []).includes(me) ? 'subject' : 'covering');
-  // My periods in one class's program (Grades 4 to 6), numbered as class periods (1st, 2nd ...).
-  const mine = (c) =>
-    classPeriods(c.program)
-      .map((p, i) => ({ ...p, n: i + 1 }))
-      .filter((p) => p.teacherId === me || (!p.teacherId && c.teacherId === me && !hasSubjectTeachers(c.gradeLevel)));
-  const groups = [
-    { id: 'advisory', title: 'Advisory class', items: perClass.filter((x) => roleOf(x.section) === 'advisory') },
-    { id: 'subject', title: 'Subject classes', items: perClass.filter((x) => roleOf(x.section) === 'subject') },
-    { id: 'covering', title: 'Covering today', items: perClass.filter((x) => roleOf(x.section) === 'covering') },
-  ].filter((g) => g.items.length);
+  const roleOf = (c) => classRole(c, me);
+  const mine = (c) => teacherPeriods(c, me);
+  const groups = groupByClassRole(perClass, me, (x) => x.section);
   // My schedule today: every period I teach, in time order, with recess and lunch of my advisory class.
   const schedule = classes
     .flatMap((c) => {

@@ -4,12 +4,18 @@
    Start here: the "design tokens" in :root below are the colors, corner
    roundness, shadows and spacing used everywhere. Change a color here and
    every screen follows (e.g. --lime is the green highlight).
-   The old look (before the Oct 2026 redesign) is saved in design-backup/v1.
-   Then the sections below style each part of the app, in this order:
-   layout, buttons, cards, dashboard, attendance, tables, forms and pop-ups,
-   alerts, reports, settings, SMS, phone-size screens (responsive), calendar
-   colors (.k-holiday, .k-exam ...), admin pages, ID cards and printing,
-   sign-in page, date picker, multiple classes, section details.
+   Contents, in order (search for the heading to jump there):
+     1. Basics: design tokens, layout, buttons, cards, chips, tables, forms,
+        pop-up windows, empty states, phone-size screens
+     2. Shared pages: attendance, alerts, settings, SMS, calendar colors
+        (.k-holiday, .k-exam ...), date picker, Absence Watch
+     3. Admin pages: overview, sections (class details), students, ID cards
+        and printing, level groups
+     4. Sign-in page; teacher dashboard (multiple classes, My schedule)
+     5. Parent portal (/parent) and excuse requests
+     6. Class program: the table, and the fixed DepEd day in the section form
+     7. My Classes (teacher)
+   Order matters: a later rule wins over an earlier one with the same selector.
    Tip: in the browser press F12, click an element, and the Styles panel
    shows which rule in this file styles it.
    ===================================================================== */
@@ -133,7 +139,6 @@ nav { display: flex; flex-direction: column; gap: 4px; }
 
 .card-row { display: flex; gap: 14px; overflow-x: auto; padding-bottom: 6px; scroll-snap-type: x mandatory; }
 .tile { flex: 0 0 248px; min-height: 182px; border-radius: var(--radius-md); padding: 16px 16px 14px; display: flex; flex-direction: column; gap: 8px; scroll-snap-align: start; color: var(--ink); }
-.tile-link:hover { filter: brightness(0.97); }
 .tile h3 { font-size: 18px; font-weight: 700; line-height: 1.2; letter-spacing: -0.01em; }
 .tile p { font-size: 13.5px; color: var(--ink-2); line-height: 1.45; flex: 1; }
 .tile-lime { background: var(--lime); }
@@ -489,8 +494,6 @@ a.kpi:hover { background: var(--surface) !important; }
 .boot { display: grid; place-items: center; }
 
 /* ---------- clickable dashboard ---------- */
-.tile-link { text-decoration: none; cursor: pointer; }
-.tile-link:focus-visible { outline-offset: 3px; }
 
 .chips .push { margin-left: auto; }
 .attention li { padding: 0; border: 0; display: block; }
@@ -742,10 +745,6 @@ a.kpi:hover { background: var(--surface) !important; }
 .pp-big { min-height: 52px; font-size: 16px; }
 .pp-link { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; border: 0; background: none; color: var(--lime-ink); font: inherit; font-size: 13.5px; font-weight: 700; cursor: pointer; padding: 0 4px; }
 .pp-back { align-self: flex-start; display: inline-flex; align-items: center; gap: 2px; min-height: 44px; border: 0; background: none; color: var(--lime-ink); font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; padding: 0; }
-.pp-help { background: var(--surface); border-radius: var(--r-md); padding: 14px; font-size: 13.5px; color: var(--ink-2); }
-.pp-help strong { color: var(--ink); }
-.pp-help p { margin: 6px 0 0; }
-.pp-help code { background: var(--frame); padding: 1px 6px; border-radius: var(--r-xs); font-weight: 700; }
 .pp-warn { display: flex; gap: 10px; align-items: flex-start; background: var(--late-bg); color: var(--late); border: 1px solid #f1d39a; border-radius: var(--r-md); padding: 12px 14px; }
 .pp-warn svg { flex-shrink: 0; margin-top: 1px; }
 .pp-warn p { margin: 4px 0 8px; font-size: 13.5px; line-height: 1.4; }
@@ -804,7 +803,6 @@ a.kpi:hover { background: var(--surface) !important; }
 .pp-chip.on { background: var(--ink); color: #fff; border-color: var(--ink); }
 .pp-other { max-width: 240px; }
 .pp-foot { display: flex; justify-content: center; }
-.center-text { text-align: center; margin-top: 14px; }
 
 /* ---------- excuse requests (teacher and admin: /excuses) ---------- */
 .excuse-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
@@ -846,22 +844,7 @@ a.kpi:hover { background: var(--surface) !important; }
 .input.auto { width: auto; min-width: 180px; }
 .class-select { display: inline-flex; align-items: center; gap: 8px; margin-bottom: 12px; }
 
-/* Class program (Grades 4 to 6): each period is two lines (times, then subject and teacher). */
-.program-edit { display: flex; flex-direction: column; gap: 8px; }
-.program-row { display: grid; grid-template-columns: 34px 1fr 1fr 32px; grid-template-areas: 'n s e x' '. sub t .'; gap: 6px; align-items: center; padding: 8px 6px; border: 1px solid var(--line); border-radius: var(--r-sm, 10px); }
-.program-row .pr-n { grid-area: n; }
-.program-row .pr-s { grid-area: s; }
-.program-row .pr-e { grid-area: e; }
-.program-row .pr-sub { grid-area: sub; }
-.program-row .pr-t { grid-area: t; }
-.program-row .pr-x { grid-area: x; }
-.program-row.program-solo { grid-template-areas: 'n s e x' '. sub sub .'; }
-.program-row .input { padding: 6px 8px; min-width: 0; }
-.program-row.program-break { background: rgba(0, 0, 0, 0.03); }
-.program-row.program-break .program-n::after { content: '—'; color: var(--muted, #888); }
-.program-n { font-size: 12px; font-weight: 600; color: var(--muted, #777); text-align: center; }
-.program-noteacher { padding-left: 4px; }
-.program-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+/* Class program table (admin class details, teacher My Classes) */
 .program-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .program-table th { text-align: left; font-weight: 600; font-size: 12px; color: var(--muted, #777); padding: 6px 8px; border-bottom: 1px solid var(--line); }
 .program-table td { padding: 7px 8px; border-bottom: 1px solid var(--line); }

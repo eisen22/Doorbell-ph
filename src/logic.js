@@ -189,10 +189,6 @@ export function decideScan(args) {
    4. 3-DAY STREAKS (absent several school days in a row; a late day ends it)
    ===================================================================== */
 
-/** Just the number of days in the streak. */
-export function computeStreak(date, statusByDate, schedule, calendar, lookback = 30) {
-  return streakInfo(date, statusByDate, schedule, calendar, lookback).count;
-}
 
 /**
  * Counts consecutive absent school days ending at `date`, going backwards.
@@ -361,12 +357,6 @@ export function displayPhMobile(normalized) {
 
 /* ---------- reports ---------- */
 
-/** Attendance rate in %: (present + late) out of (present + late + absent). Excused days are left out. */
-export function attendanceRate(counts) {
-  const counted = counts.present + counts.late + counts.absent;
-  if (counted === 0) return 0;
-  return Math.round(((counts.present + counts.late) / counted) * 100);
-}
 
 /** A fresh counter: { present: 0, late: 0, absent: 0, excused: 0 }. */
 export function emptyCounts() {
@@ -826,3 +816,26 @@ export function fitToSlots(program, gradeLevel, start, withTeachers = hasSubject
 export function sampleProgramFor(gradeLevel, start = '07:30', teacherFor = () => null, rotate = 0) {
   return fitToSlots([], gradeLevel, start, hasSubjectTeachers(gradeLevel), teacherFor, rotate);
 }
+
+/* =====================================================================
+   A TEACHER'S CLASSES (Dashboard and My Classes)
+   ===================================================================== */
+/** 'advisory' (they advise it), 'subject' (they teach a subject in it, Grades 4 to 6) or 'covering' (substitute today). */
+export const classRole = (section, teacherId) =>
+  section.teacherId === teacherId ? 'advisory' : (section.subjectTeacherIds ?? []).includes(teacherId) ? 'subject' : 'covering';
+/**
+ * The periods a teacher handles in one class, numbered as the class's periods (n: 1, 2, ...).
+ * Kindergarten to Grade 3 periods have no teacher: they belong to the adviser.
+ */
+export const teacherPeriods = (section, teacherId) =>
+  classPeriods(section.program)
+    .map((p, i) => ({ ...p, n: i + 1 }))
+    .filter((p) => p.teacherId === teacherId || (!p.teacherId && section.teacherId === teacherId && !hasSubjectTeachers(section.gradeLevel)));
+export const CLASS_ROLE_GROUPS = [
+  { id: 'advisory', title: 'Advisory class' },
+  { id: 'subject', title: 'Subject classes' },
+  { id: 'covering', title: 'Covering today' },
+];
+/** Splits a teacher's items into Advisory / Subject / Covering groups (empty groups left out). sectionOf(item) gives the class. */
+export const groupByClassRole = (items, teacherId, sectionOf = (x) => x) =>
+  CLASS_ROLE_GROUPS.map((g) => ({ ...g, items: items.filter((x) => classRole(sectionOf(x), teacherId) === g.id) })).filter((g) => g.items.length);

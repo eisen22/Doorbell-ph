@@ -12,7 +12,7 @@ import {
   GraduationCap,
   Users,
 } from 'lucide-react';
-import { classPeriods, displayPhMobile, gradeName, hasSubjectTeachers, ordinal, to12h } from '../logic';
+import { classRole, teacherPeriods, groupByClassRole, displayPhMobile, gradeName, ordinal, to12h } from '../logic';
 import {
   useLive,
   loadMyClasses,
@@ -26,7 +26,7 @@ import {
   StudentAttendanceModal,
   textOn,
 } from '../ui';
-import { ProgramTable } from '../admin/Sections';
+import { ProgramTable } from '../shared/ProgramTable';
 
 // =====================================================================
 // MY CLASSES (/classes): my classes and the children in them, on one page.
@@ -63,19 +63,10 @@ export function MyClasses() {
   const rows = data.roster.filter((r) => !q || `${r.student.firstName} ${r.student.lastName} ${r.guardian?.name ?? ''}`.toLowerCase().includes(q));
   const { session, today, classes, section, teachers, counts } = data;
   const me = session.teacherId;
-  const roleOf = (c) => (c.teacherId === me ? 'advisory' : (c.subjectTeacherIds ?? []).includes(me) ? 'subject' : 'covering');
-  const myPeriods = (c) =>
-    classPeriods(c.program)
-      .map((p, i) => ({ ...p, n: i + 1 }))
-      .filter((p) => p.teacherId === me || (!p.teacherId && c.teacherId === me && !hasSubjectTeachers(c.gradeLevel)));
+  const roleOf = (c) => classRole(c, me);
+  const myPeriods = (c) => teacherPeriods(c, me);
   const nameOf = (id) => teachers.find((t) => t.id === id)?.name;
-  const groups = [
-    { id: 'advisory', title: 'Advisory class' },
-    { id: 'subject', title: 'Subject classes' },
-    { id: 'covering', title: 'Covering today' },
-  ]
-    .map((g) => ({ ...g, items: classes.filter((c) => roleOf(c) === g.id) }))
-    .filter((g) => g.items.length);
+  const groups = groupByClassRole(classes, me);
   const adviser = teachers.find((t) => t.id === section.teacherId);
   const role = roleOf(section);
   const tally = { present: 0, late: 0, absent: 0, excused: 0 };

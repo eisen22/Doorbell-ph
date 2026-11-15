@@ -30,6 +30,7 @@ import { useState } from 'react';
 import { displayPhMobile, fromMinutes, to12h, toMinutes } from '../logic';
 import { toStudentInput, StudentModal, LeaveModal } from './Students';
 import { toTeacherInput, TeacherModal } from './Teachers';
+import { ProgramTable } from '../shared/ProgramTable';
 import { GRADE_LEVELS, gradeName, isBreak, hasSubjectTeachers, fitToSlots, subjectsFor, ordinal } from '../logic';
 
 // =====================================================================
@@ -784,59 +785,5 @@ function ProgramEditor({ gradeLevel, program, teachers, adviserId, startTime, on
         The absence texts go out when the 1st period ends.
       </span>
     </div>
-  );
-}
-
-export function ProgramTable({ section, teachers, onEdit, highlight }) {
-  const rows = [...(section.program ?? [])].sort((a, b) => a.start.localeCompare(b.start));
-  const name = (id) => teachers.find((t) => t.id === id)?.name ?? 'No teacher yet';
-  const withTeachers = hasSubjectTeachers(section.gradeLevel); // Kindergarten to Grade 3: one teacher, no column
-  let n = 0;
-  return (
-    <>
-      <h4 className="form-sub">
-        <Clock size={16} /> Class program
-      </h4>
-      {!rows.length ? (
-        <p className="muted">
-          No class program yet.{' '}
-          {onEdit && (
-            <button className="link-btn" onClick={onEdit}>
-              Add periods
-            </button>
-          )}
-        </p>
-      ) : (
-        <table className="program-table">
-          <thead>
-            <tr>
-              <th>Period</th>
-              <th>Time</th>
-              <th>Subject</th>
-              {withTeachers && <th>Teacher</th>}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((p, i) => {
-              const brk = isBreak(p);
-              if (!brk) n += 1;
-              return (
-                <tr
-                  key={i}
-                  className={`${brk ? 'program-break' : ''} ${!brk && highlight && (p.teacherId === highlight || (!p.teacherId && section.teacherId === highlight)) ? 'program-mine' : ''}`}
-                >
-                  <td>{brk ? '' : ordinal(n)}</td>
-                  <td className="nowrap">
-                    {to12h(p.start)} – {to12h(p.end)}
-                  </td>
-                  <td>{p.subject}</td>
-                  {withTeachers && <td>{brk ? '' : name(p.teacherId)}</td>}
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      )}
-    </>
   );
 }
