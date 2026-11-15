@@ -202,7 +202,22 @@ export function Teachers() {
               items: shown.filter((t) => !(t.subjects ?? []).length || !levelsOf(t).some((g) => Number(g) >= 4)).sort(byName),
             },
           ].filter((g) => g.items.length)
-        : [
+        : level !== 'all'
+          ? // One grade picked: its advisers, then the teachers who only teach a subject in that grade
+            // (advisers of other grades included, e.g. a Grade 5 adviser who teaches Filipino in Grade 4).
+            [
+              {
+                key: 'adv',
+                label: `${gradeName(level)} advisers`,
+                items: shown.filter((t) => adviserOf(t).some((x) => (x.gradeLevel ?? 'K') === level)).sort(byName),
+              },
+              {
+                key: 'sub',
+                label: `Subject teachers in ${gradeName(level)}`,
+                items: shown.filter((t) => !adviserOf(t).some((x) => (x.gradeLevel ?? 'K') === level)).sort(byName),
+              },
+            ].filter((g) => g.items.length)
+          : [
             ...GRADE_LEVELS.map((g) => ({
               key: g,
               label: `${gradeName(g)} advisers`,
