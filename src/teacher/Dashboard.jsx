@@ -7,6 +7,7 @@ import {
   BookOpenCheck,
   CalendarClock,
   Check,
+  Clock,
 } from 'lucide-react';
 import {
   autoFinalizeTime,
@@ -16,6 +17,10 @@ import {
   toMinutes,
   classPhase,
   shortClassName,
+  isBreak,
+  isSchoolDay,
+  ordinal,
+  classPeriods,
 } from '../logic';
 import {
   useLive,
@@ -74,6 +79,88 @@ export function Dashboard() {
   const greet = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
   const todayEntry = calendar.find((c) => c.date === today.date);
   const multi = classes.length > 1;
+  // Which classes are mine as adviser, as a subject teacher (Grades 4 to 6), or covered today.
+  const me = session.teacherId;
+  const roleOf = (c) => (c.teacherId === me ? 'advisory' : (c.subjectTeacherIds ?? []).includes(me) ? 'subject' : 'covering');
+  // My periods in one class's program (Grades 4 to 6), numbered as class periods (1st, 2nd ...).
+  const mine = (c) =>
+    classPeriods(c.program)
+      .map((p, i) => ({ ...p, n: i + 1 }))
+      .filter((p) => p.teacherId === me);
+  const groups = [
+    { id: 'advisory', title: 'Advisory class', items: perClass.filter((x) => roleOf(x.section) === 'advisory') },
+    { id: 'subject', title: 'Subject classes', items: perClass.filter((x) => roleOf(x.section) === 'subject') },
+    { id: 'covering', title: 'Covering today', items: perClass.filter((x) => roleOf(x.section) === 'covering') },
+  ].filter((g) => g.items.length);
+  // My schedule today: every period I teach, in time order, with recess and lunch of my advisory class.
+  const schedule = classes
+    .flatMap((c) => {
+      const off = !isSchoolDay(today.date, c.schedule, calendar);
+      const own = mine(c).map((p) => ({ ...p, section: c, advisory: c.teacherId === me, off }));
+      const breaks = c.teacherId === me ? (c.program ?? []).filter(isBreak).map((p) => ({ ...p, section: c, brk: true })) : [];
+      return [...own, ...breaks];
+    })
+    .sort((x, y) => x.start.localeCompare(y.start));
+  const tile = ({ section: c, roster, confirmation }) => {
+            const s = c.schedule;
+            const arrived = roster.filter((r) => r.record?.scannedAt).length;
+            const pct = Math.round((arrived / Math.max(1, roster.length)) * 100);
+            const phase = classPhase(c, today.time, today.actualDate);
+            const on = c.id === section.id;
+            return (
+              <div key={c.id} className={`tile class-tile ${on ? 'class-on' : ''}`} style={{ background: c.color, color: textOn(c.color) }}>
+                <button
+                  className="class-tile-main"
+                  onClick={() => setClass(c.id)}
+                  aria-pressed={on}
+                  title={multi ? 'Show this class on the dashboard' : undefined}
+                >
+                  <span className="date-chip">
+                    {phase === 'now' && <span className="live-dot" aria-hidden="true" />}
+                    {PHASE[phase]}
+                  </span>
+                  <h3>{c.name}</h3>
+                  {roleOf(c) === 'subject' ? (
+                    <p>
+                      {mine(c)
+                        .map((p) => `${p.subject} ${to12h(p.start)}–${to12h(p.end)}`)
+                        .join(' · ') || 'Subject teacher'}
+                    </p>
+                  ) : (
+                    <p>
+                      {to12h(s.startTime)} to {to12h(s.endTime)} · late after {to12h(fromMinutes(toMinutes(s.startTime) + s.lateCutoffMins))}
+                    </p>
+                  )}
+                  <Progress value={pct} label={`${arrived} of ${roster.length} arrived`} />
+                  <p className="class-tile-foot">
+                    <span>
+                      {arrived} of {roster.length} arrived
+                    </span>
+                    <span>
+                      {confirmation ? (
+                        <>
+                          <Lock size={12} /> Confirmed
+                        </>
+                      ) : (
+                        `Confirm before ${to12h(autoFinalizeTime(s))}`
+                      )}
+                    </span>
+                  </p>
+                </button>
+                <Link to={`/attendance?class=${c.id}`} className="class-tile-link">
+                  Take attendance <ArrowUpRight size={14} />
+                </Link>
+              </div>
+            );
+  };
+  const smsTile = (
+    <Link to="/sms" className="tile tile-link tile-sky">
+      <span className="date-chip">Parent SMS</span>
+      <h3>{sms.length} sent today</h3>
+      <p>{failed ? `${failed} failed. Check the numbers on file.` : 'Every text delivered.'}</p>
+      <Progress value={sms.length ? Math.round(((sms.length - failed) / sms.length) * 100) : 0} label="delivered" />
+    </Link>
+  );
   return (
     <div className="page">
       <div className="page-head">
@@ -122,61 +209,81 @@ export function Dashboard() {
         </Link>
       )}
 
-      {/* One card per class (the class in session is marked). */}
+      {/* My classes: the class I advise, the classes I teach a subject in (Grades 4 to 6), and classes I cover today. */}
       <Card title={multi ? 'My classes today' : 'My class today'}>
-        <div className="card-row">
-          {perClass.map(({ section: c, roster, confirmation }) => {
-            const s = c.schedule;
-            const arrived = roster.filter((r) => r.record?.scannedAt).length;
-            const pct = Math.round((arrived / Math.max(1, roster.length)) * 100);
-            const phase = classPhase(c, today.time, today.actualDate);
-            const on = c.id === section.id;
-            return (
-              <div key={c.id} className={`tile class-tile ${on ? 'class-on' : ''}`} style={{ background: c.color, color: textOn(c.color) }}>
-                <button
-                  className="class-tile-main"
-                  onClick={() => setClass(c.id)}
-                  aria-pressed={on}
-                  title={multi ? 'Show this class on the dashboard' : undefined}
-                >
-                  <span className="date-chip">
-                    {phase === 'now' && <span className="live-dot" aria-hidden="true" />}
-                    {PHASE[phase]}
-                  </span>
-                  <h3>{c.name}</h3>
-                  <p>
-                    {to12h(s.startTime)} to {to12h(s.endTime)} · late after {to12h(fromMinutes(toMinutes(s.startTime) + s.lateCutoffMins))}
-                  </p>
-                  <Progress value={pct} label={`${arrived} of ${roster.length} arrived`} />
-                  <p className="class-tile-foot">
-                    <span>
-                      {arrived} of {roster.length} arrived
-                    </span>
-                    <span>
-                      {confirmation ? (
-                        <>
-                          <Lock size={12} /> Confirmed
-                        </>
-                      ) : (
-                        `Confirm before ${to12h(autoFinalizeTime(s))}`
-                      )}
-                    </span>
-                  </p>
-                </button>
-                <Link to={`/attendance?class=${c.id}`} className="class-tile-link">
-                  Take attendance <ArrowUpRight size={14} />
-                </Link>
+        {groups.length > 1 ? (
+          groups.map((g, i) => (
+            <div key={g.id} className="class-group">
+              <h3 className="class-group-title">
+                {g.title} <span className="muted small">{g.items.length}</span>
+              </h3>
+              <div className="card-row">
+                {g.items.map(tile)}
+                {i === 0 && smsTile}
               </div>
-            );
-          })}
-          <Link to="/sms" className="tile tile-link tile-sky">
-            <span className="date-chip">Parent SMS</span>
-            <h3>{sms.length} sent today</h3>
-            <p>{failed ? `${failed} failed. Check the numbers on file.` : 'Every text delivered.'}</p>
-            <Progress value={sms.length ? Math.round(((sms.length - failed) / sms.length) * 100) : 0} label="delivered" />
-          </Link>
-        </div>
+            </div>
+          ))
+        ) : (
+          <div className="card-row">
+            {perClass.map(tile)}
+            {smsTile}
+          </div>
+        )}
       </Card>
+
+      {/* Grades 4 to 6: my periods today in every class (from the class programs). */}
+      {schedule.some((p) => !p.brk) && (
+        <Card
+          title={
+            <>
+              <Clock size={18} aria-hidden="true" /> My schedule today
+            </>
+          }
+        >
+          <table className="program-table my-schedule">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Subject</th>
+                <th>Class</th>
+                <th>Period</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {schedule.map((p, i) => {
+                const now = today.time >= p.start && today.time < p.end;
+                const done = today.time >= p.end;
+                return (
+                  <tr key={i} className={`${now ? 'sched-now' : ''} ${done ? 'sched-done' : ''} ${p.brk ? 'program-break' : ''}`}>
+                    <td className="nowrap">
+                      {now && <span className="live-dot" aria-hidden="true" />} {to12h(p.start)} – {to12h(p.end)}
+                    </td>
+                    <td>{p.subject}</td>
+                    <td>
+                      {p.brk ? '' : (
+                        <>
+                          <span className="sched-dot" style={{ background: p.section.color }} aria-hidden="true" />
+                          {shortClassName(p.section.name)}
+                          {p.advisory && <span className="sched-tag">Adviser</span>}
+                        </>
+                      )}
+                    </td>
+                    <td className="muted">{p.brk ? '' : `${ordinal(p.n)}${p.off ? ' · no class today' : ''}`}</td>
+                    <td>
+                      {!p.brk && !p.off && (
+                        <Link className="link" to={`/attendance?class=${p.section.id}`}>
+                          Attendance <ArrowUpRight size={13} />
+                        </Link>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </Card>
+      )}
 
       {/* Children absent 2+ school days in a row in any of my classes. At the streak limit (default 3) the parent is texted. */}
       <Card

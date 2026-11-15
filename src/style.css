@@ -859,3 +859,13 @@ a.kpi:hover { background: var(--surface) !important; }
 .program-table .nowrap { white-space: nowrap; }
 
 .joined-note { color: var(--ink, inherit); font-weight: 600; }
+/* Teacher dashboard: class groups and "My schedule today" */
+.class-group + .class-group { margin-top: 14px; }
+.class-group-title { font-size: 14px; font-weight: 700; margin: 0 0 8px; display: flex; align-items: baseline; gap: 6px; }
+.my-schedule td { vertical-align: middle; }
+.my-schedule tr.sched-now td { background: color-mix(in srgb, var(--accent, #c8e6a0) 35%, transparent); font-weight: 600; }
+.my-schedule tr.sched-done td { color: var(--muted, #888); }
+.sched-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; border: 1px solid rgba(0, 0, 0, 0.15); }
+.sched-tag { margin-left: 6px; font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 999px; background: var(--ink, #222); color: #fff; }
+.card-title svg { vertical-align: -3px; margin-right: 4px; }
+@media (max-width: 640px) { .my-schedule th:nth-child(4), .my-schedule td:nth-child(4) { display: none; } }
