@@ -262,7 +262,7 @@ export function AdminStudents() {
                               {r.student.lastName}, {r.student.firstName}
                             </button>
                             <span className="muted small">
-                              {r.student.sex === 'M' ? 'Boy' : 'Girl'} · {r.student.birthdate}
+                              {r.student.sex === 'M' ? 'Boy' : 'Girl'} · <span className="nowrap">{r.student.birthdate}</span>
                               {r.student.lrn ? ` · LRN ${r.student.lrn}` : ''}
                             </span>
                           </span>

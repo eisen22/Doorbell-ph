@@ -228,6 +228,7 @@ export function Dashboard() {
             </>
           }
         >
+          <div className="table-wrap">
           <table className="program-table my-schedule">
             <thead>
               <tr>
@@ -261,7 +262,7 @@ export function Dashboard() {
                     <td>
                       {!p.brk && !p.off && (
                         <Link className="link" to={`/attendance?class=${p.section.id}`}>
-                          Attendance <ArrowUpRight size={13} />
+                          <span className="hide-xs">Attendance</span> <ArrowUpRight size={13} aria-label="Attendance" />
                         </Link>
                       )}
                     </td>
@@ -270,6 +271,7 @@ export function Dashboard() {
               })}
             </tbody>
           </table>
+          </div>
         </Card>
       )}
 
@@ -289,7 +291,7 @@ export function Dashboard() {
         className="attention-card"
       >
         {attention.length === 0 ? (
-          <Empty title="Everyone is on track" hint="No child is absent two school days in a row." />
+          <Empty compact title="Everyone is on track" hint="No child is absent two school days in a row." />
         ) : (
           <ul className="attention">
             {attention.map((r) => (

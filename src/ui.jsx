@@ -195,7 +195,14 @@ export function Card({ title, action, children, className = '' }) {
   );
 }
 // Friendly "nothing here" message with a small drawing.
-export function Empty({ title, hint }) {
+export function Empty({ title, hint, compact = false }) {
+  if (compact)
+    return (
+      <div className="empty empty-compact">
+        <strong>{title}</strong>
+        {hint && <span>{hint}</span>}
+      </div>
+    );
   return (
     <div className="empty">
       <svg width="88" height="60" viewBox="0 0 88 60" aria-hidden="true">

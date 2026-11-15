@@ -28,6 +28,7 @@ export function ProgramTable({ section, teachers, onEdit, highlight }) {
           )}
         </p>
       ) : (
+        <div className="table-wrap">
         <table className="program-table">
           <thead>
             <tr>
@@ -57,6 +58,7 @@ export function ProgramTable({ section, teachers, onEdit, highlight }) {
             })}
           </tbody>
         </table>
+        </div>
       )}
     </>
   );

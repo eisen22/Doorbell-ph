@@ -218,7 +218,7 @@ export function MyClasses() {
                             {student.lastName}, {student.firstName}
                           </strong>
                           <span className="muted small">
-                            {student.sex === 'M' ? 'Boy' : 'Girl'} · born {student.birthdate}
+                            {student.sex === 'M' ? 'Boy' : 'Girl'} · <span className="nowrap">born {student.birthdate}</span>
                           </span>
                         </span>
                       </div>

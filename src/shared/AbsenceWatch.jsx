@@ -186,16 +186,16 @@ export function AbsenceWatch() {
       </div>
       )}
       <Card title={`${t} or more school days in a row (${hot.length})`}>
-        {hot.length ? table(hot) : <Empty title="No one right now" hint={`Children appear here after ${t} school days absent in a row.`} />}
+        {hot.length ? table(hot) : <Empty compact title="No one right now" hint={`Children appear here after ${t} school days absent in a row.`} />}
       </Card>
       <Card title={`Watch list: ${t - 1} days in a row (${watch.length})`}>
-        {watch.length ? table(watch) : <Empty title="No one on the watch list" />}
+        {watch.length ? table(watch) : <Empty compact title="No one on the watch list" />}
       </Card>
       <Card title={`Totals this month and semester, not in a row (${data.totals.filter(match).length})`}>
         {data.totals.filter(match).length ? (
           <TotalsTable rows={data.totals.filter(match)} onOpen={setOpen} />
         ) : (
-          <Empty title="Everyone is within the limits" />
+          <Empty compact title="Everyone is within the limits" />
         )}
         <p className="muted small">
           Limits: absent {data.limits.absentMonth.watch} days a month (watch) or {data.limits.absentMonth.alert} (parent texted), {data.limits.absentSemester.watch}{' '}
