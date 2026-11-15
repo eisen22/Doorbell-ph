@@ -11,7 +11,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { AlertTriangle, ChevronLeft, ChevronRight, FileText, KeyRound, LogOut, Send } from 'lucide-react';
 import { Logo, StatusChip, DatePicker, longDate } from '../ui';
-import { addDays, isoWeekday, manilaToday, to12h, EXCUSE_REASONS } from '../logic';
+import { addDays, isoWeekday, manilaToday, to12h, ordinal, EXCUSE_REASONS } from '../logic';
 import { changeParentPassword, portalAvailable, sendExcuse, signOutParent, watchParent } from './parentCloud';
 
 const STATUS_WORD = { present: 'Present', late: 'Late', absent: 'Absent', excused: 'Excused' };
@@ -294,8 +294,19 @@ function timesOf(rec, date, today, endTime) {
     lines.push(rec.s === 'absent' ? (rec.t ? `Scanned in at the gate ${to12h(rec.t)}, but not in class` : 'Absent: did not come to school') : 'Excused');
     return lines;
   }
-  lines.push(rec.t ? `Scanned in at the gate: ${to12h(rec.t)}` : 'Did not scan in (marked by the teacher)');
-  lines.push(rec.c ? `Confirmed in class by the teacher: ${to12h(rec.c)}${rec.s === 'late' ? ' (late)' : ''}` : `In class${rec.s === 'late' ? ' (late)' : ''}`);
+  // Before the teacher's confirmation, in time order: the gate scan and any earlier text
+  // ("absent" at the end of the 1st period, or "entered the school but not in class").
+  const before = [];
+  before.push([rec.t ?? '', rec.t ? `Scanned in at the gate: ${to12h(rec.t)}` : 'Did not scan in (marked by the teacher)']);
+  if (rec.e && rec.et)
+    before.push([rec.et, rec.e === 'missing' ? `Text sent ${to12h(rec.et)}: entered the school but not in class yet` : `Text sent ${to12h(rec.et)}: absent at the 1st period`]);
+  before.sort((a, b) => a[0].localeCompare(b[0])).forEach(([, l]) => lines.push(l));
+  const joined = rec.p ? ` · joined at the ${ordinal(rec.p)} period${rec.j ? ` (${rec.j})` : ''}` : '';
+  lines.push(
+    rec.c
+      ? `Confirmed in class by the teacher: ${to12h(rec.c)}${rec.s === 'late' ? ' (late)' : ''}${joined}`
+      : `In class${rec.s === 'late' ? ' (late)' : ''}${joined}`,
+  );
   const nowTime = new Date().toLocaleTimeString('en-GB', { timeZone: 'Asia/Manila', hour: '2-digit', minute: '2-digit' });
   if (rec.o) lines.push(`Scanned out at the gate: ${to12h(rec.o)}`);
   else if (date < today || (endTime && nowTime > endTime)) lines.push('Did not scan out');

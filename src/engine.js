@@ -364,6 +364,16 @@ export class Engine {
   record(sectionId, date, studentId) {
     return this.s.attendance.get(dayId(sectionId, date))?.records[studentId];
   }
+  // The "absent" / "not in class" text this child's parent got today before being found in class
+  // ({ earlierText: 'absent' | 'missing', earlierTextAt: '08:20' }), or {} if none.
+  earlierText(studentId, date, prev) {
+    if (prev?.earlierText) return { earlierText: prev.earlierText, earlierTextAt: prev.earlierTextAt };
+    for (const [kind, id] of [['missing', `mis_${studentId}_${date}`], ['absent', `abs_${studentId}_${date}`], ['absent', `stk_${studentId}_${date}`]]) {
+      const m = this.s.sms.get(id);
+      if (m && m.status !== 'failed') return { earlierText: kind, earlierTextAt: manilaTime(new Date(m.createdAt)) };
+    }
+    return {};
+  }
   // Saves one child's record inside that day's attendance document.
   writeRecord(rec) {
     const id = dayId(rec.sectionId, rec.date);
@@ -899,6 +909,17 @@ export class Engine {
     const prev = this.record(input.sectionId, input.date, input.studentId);
     const live = input.date === this.clock.today();
     const section = this.s.sections.get(input.sectionId);
+    const inClass = input.status === 'present' || input.status === 'late';
+    // A subject teacher confirmed the child in a later period (2, 3, ...): saved with the record so the
+    // class list and the parent portal show "joined at the 2nd period (English)".
+    const joined = inClass && locked && Number(input.period) > 1
+      ? { joinedPeriod: Number(input.period), joinedSubject: classPeriods(section?.program)[Number(input.period) - 1]?.subject }
+      : inClass && prev?.joinedPeriod
+        ? { joinedPeriod: prev.joinedPeriod, joinedSubject: prev.joinedSubject }
+        : {};
+    // The parent was already texted "absent" (or "entered the school but not in class") before the child
+    // was found in class: kept with the record so the portal shows both texts in order.
+    const earlier = inClass ? this.earlierText(input.studentId, input.date, prev) : {};
     this.writeRecord({
       date: input.date,
       studentId: input.studentId,
@@ -916,6 +937,8 @@ export class Engine {
       source: 'manual',
       excusedNote: input.status === 'excused' ? input.note : undefined,
       editedReason: input.reason,
+      ...joined,
+      ...earlier,
     });
     const stu = this.s.students.get(input.studentId);
     await this.logAudit(
@@ -1155,7 +1178,15 @@ export class Engine {
       // and not while a late arrival is still waiting for the teacher to confirm the child in class.
       if (date >= today && (!this.s.confirmations.has(dayId(r.sectionId, date)) || r.needsCheck)) continue;
       // s status, t scanned in at the gate, c confirmed in class by the teacher, o scanned out at the gate
-      days[date] = { s: r.status, t: r.scannedAt ?? null, c: r.confirmedAt ?? null, o: r.scannedOut ?? null };
+      // p/j joined at a later period (number, subject); e/et the earlier "absent" or "not in class" text and its time
+      days[date] = {
+        s: r.status,
+        t: r.scannedAt ?? null,
+        c: r.confirmedAt ?? null,
+        o: r.scannedOut ?? null,
+        ...(r.joinedPeriod ? { p: r.joinedPeriod, j: r.joinedSubject ?? null } : {}),
+        ...(r.earlierText ? { e: r.earlierText, et: r.earlierTextAt } : {}),
+      };
     }
     // Class days with no class (holidays, breaks, suspensions, teacher absent), with their names.
     const noClass = {};

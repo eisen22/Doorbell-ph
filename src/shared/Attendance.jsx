@@ -263,7 +263,7 @@ export function Attendance() {
         <Card>
           {!confirmation && day === today.date && (
             <p className="hint">
-              Only you can confirm this class: parents are texted when you do. Children still absent at{' '}
+              Any teacher of this class can confirm it (usually the 1st-period teacher). Parents are texted when it is confirmed. Children still absent at{' '}
               {to12h(autoFinalizeTime(section.schedule))} (end of first period) get the absence text.
             </p>
           )}
@@ -322,6 +322,18 @@ export function Attendance() {
                             : 'Not yet scanned'}
                         {row.record?.needsCheck && <span className="check-note"> · arrived after confirming: check in class, then press Present or Late</span>}
                         {st === 'absent' && row.record?.scannedAt && <span className="missing-note"> · not in class: look for the child</span>}
+                        {(st === 'present' || st === 'late') && row.record?.joinedPeriod && (
+                          <span className="joined-note">
+                            {' '}
+                            · joined at the {ordinal(row.record.joinedPeriod)} period{row.record.joinedSubject ? ` (${row.record.joinedSubject})` : ''}
+                          </span>
+                        )}
+                        {(st === 'present' || st === 'late') && row.record?.earlierText && (
+                          <span>
+                            {' '}
+                            · parent texted "{row.record.earlierText === 'missing' ? 'not in class' : 'absent'}" at {to12h(row.record.earlierTextAt)}, then "in class"
+                          </span>
+                        )}
                         {row.record?.excusedNote && ` · ${row.record.excusedNote}`}
                         {row.streak.count >= 2 && (
                           <>

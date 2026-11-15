@@ -858,3 +858,4 @@ a.kpi:hover { background: var(--surface) !important; }
 .program-table tr.program-break td { color: var(--muted, #777); font-style: italic; }
 .program-table .nowrap { white-space: nowrap; }
 
+.joined-note { color: var(--ink, inherit); font-weight: 600; }
