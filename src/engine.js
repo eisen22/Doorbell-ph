@@ -18,6 +18,7 @@ import {
   classPeriods,
   hasSubjectTeachers,
   sampleProgram,
+  sampleProgramFor,
   ordinal,
   autoFinalizeTime,
   streakInfo,
@@ -163,8 +164,8 @@ export class Engine {
     const gate = toMinutes(st.gateOpens || '06:00');
     sec.schedule.gradeLevel = sec.gradeLevel ?? 'K';
     sec.schedule.autoFinalizeMins = Number(st.firstPeriodMins) > 0 ? Number(st.firstPeriodMins) : 60;
-    // Grades 4 to 6 with a class program: the absence texts go out when THEIR first period ends.
-    const first = hasSubjectTeachers(sec.gradeLevel) ? classPeriods(sec.program)[0] : null;
+    // A class with a class program: the absence texts go out when ITS first period ends.
+    const first = classPeriods(sec.program)[0] ?? null;
     if (first && first.end > sec.schedule.startTime) sec.schedule.autoFinalizeMins = toMinutes(first.end) - toMinutes(sec.schedule.startTime);
     sec.schedule.scanWindowMins = Math.max(0, toMinutes(sec.schedule.startTime) - gate);
     return sec;
@@ -205,6 +206,14 @@ export class Engine {
       const map = s[col];
       if (data === null) map.delete(id);
       else map.set(id, col === 'sections' ? this.normalizeSection(data) : data);
+      // Classes added or removed (e.g. "Remove all school data", then "Load sample school"): the signed-in
+      // person's class list must follow, or pages keep asking for classes that no longer exist.
+      if (col === 'sections') this.sessionStale = true;
+    }
+    if (this.sessionStale && this.session) {
+      const ids = this.session.role === 'admin' ? [...this.s.sections.values()].filter((x) => !x.archived).map((x) => x.id) : this.myClasses(this.session.teacherId).map((c) => c.id);
+      if ([...ids].sort().join(',') !== [...this.session.sectionIds].sort().join(',')) this.refreshSession();
+      this.sessionStale = false;
     }
     this.emit();
   }
@@ -1581,7 +1590,8 @@ export class Engine {
         }
       : { id: uid('sec'), schoolYearId: this.year.id, gradeLevel: 'K', archived: false, ...input };
     if (!hasSubjectTeachers(section.gradeLevel)) {
-      section.program = [];
+      // Kindergarten to Grade 3: one teacher all day. The program keeps its periods but no teachers.
+      section.program = (section.program ?? []).filter((p) => p.start && p.end && p.subject).map(({ teacherId, ...p }) => p).sort((a, b) => a.start.localeCompare(b.start));
       section.subjectTeacherIds = [];
     } else if (section.program?.length) {
       // The subject teachers are the teachers in the class program (the adviser is not one of them).
@@ -2068,7 +2078,7 @@ export const sections = (() => {
       });
     });
   }
-  // Grades 4 to 6: a class program. Who teaches each subject in each grade (the advisers teach their own
+  // Every class gets a class program (Kindergarten to Grade 3: no teachers in it). Grades 4 to 6: who teaches each subject in each grade (the advisers teach their own
   // subject; MAPEH, EPP and GMRC have specialists). The order of subjects is shifted for each section.
   const byName = (n) => SAMPLE_TEACHERS.find((t) => t.name === n)?.id ?? null;
   const SUBJECT_TEACHERS = {
@@ -2078,9 +2088,9 @@ export const sections = (() => {
   };
   const SPECIAL = { MAPEH: 'Benjie Torres', EPP: 'Sheila Ramos', GMRC: 'Victor Gomez' };
   for (const sec of out) {
-    if (!hasSubjectTeachers(sec.gradeLevel)) continue;
     const k = out.filter((x) => x.gradeLevel === sec.gradeLevel).indexOf(sec);
-    sec.program = sampleProgram(sec.schedule.startTime, k * 2, (sub) => byName(SUBJECT_TEACHERS[sec.gradeLevel][sub] ?? SPECIAL[sub]));
+    const teacherFor = (sub) => byName(SUBJECT_TEACHERS[sec.gradeLevel]?.[sub] ?? SPECIAL[sub]);
+    sec.program = sampleProgramFor(sec.gradeLevel, sec.schedule.startTime, teacherFor, k * 2);
     sec.subjectTeacherIds = [...new Set(sec.program.map((p) => p.teacherId).filter((t) => t && t !== sec.teacherId))];
     sec.schedule = { ...sec.schedule, endTime: sec.program.at(-1).end }; // classes end with the last period
   }

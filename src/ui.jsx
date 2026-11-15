@@ -226,6 +226,14 @@ export function Modal({ title, onClose, children, footer, wide }) {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
+  // The page behind does not scroll while a window is open.
+  useEffect(() => {
+    const before = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = before;
+    };
+  }, []);
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
       <div
@@ -717,7 +725,8 @@ export async function loadMyClasses(r, requested) {
   const session = await r.getSession();
   const today = await r.getToday();
   // A teacher's few classes in time order; many classes (the admin, a subject teacher) Kindergarten to Grade 6.
-  const all = await Promise.all(session.sectionIds.map((id) => r.getSection(id)));
+  // A class removed a moment ago is skipped (the class list catches up right after).
+  const all = (await Promise.all(session.sectionIds.map((id) => r.getSection(id).catch(() => null)))).filter(Boolean);
   const classes = all.length > 6 ? [...all].sort(bySectionGrade) : sortByStart(all);
   const current = classNow(classes, today.time, today.actualDate);
   const section = classes.find((c) => c.id === requested) ?? current ?? classes[0];

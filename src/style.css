@@ -409,7 +409,8 @@ a.kpi:hover { background: var(--surface) !important; }
 .assign-preview h4 { display: flex; align-items: center; gap: 6px; font-size: 14px; }
 .assign-row { display: grid; grid-template-columns: auto 1fr auto auto; gap: 10px; align-items: center; font-size: 14.5px; }
 .modal { max-height: calc(100vh - 32px); display: flex; flex-direction: column; }
-.modal-body { overflow-y: auto; }
+.modal-body { overflow-y: auto; overscroll-behavior: contain; }
+.modal-body > * { flex-shrink: 0; }
 
 /* ---------- ID cards and print (the @media print rules decide what appears on paper) ---------- */
 .print-sheet { display: flex; flex-wrap: wrap; gap: 12px; }
@@ -654,7 +655,7 @@ a.kpi:hover { background: var(--surface) !important; }
 .sd-teacher { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-sm); }
 .sd-students-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 8px; }
 .sd-students-head .input { max-width: 240px; height: 38px; }
-.sd-list { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; max-height: 44vh; overflow-y: auto; }
+.sd-list { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; flex-shrink: 0; }
 .sd-list li { display: flex; align-items: center; gap: 12px; padding: 10px 4px; border-bottom: 1px solid var(--line); }
 .sd-list li:last-child { border-bottom: 0; }
 .sd-name { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
@@ -840,12 +841,13 @@ a.kpi:hover { background: var(--surface) !important; }
 /* Class program (Grades 4 to 6): each period is two lines (times, then subject and teacher). */
 .program-edit { display: flex; flex-direction: column; gap: 8px; }
 .program-row { display: grid; grid-template-columns: 34px 1fr 1fr 32px; grid-template-areas: 'n s e x' '. sub t .'; gap: 6px; align-items: center; padding: 8px 6px; border: 1px solid var(--line); border-radius: var(--r-sm, 10px); }
-.program-row > :nth-child(1) { grid-area: n; }
-.program-row > :nth-child(2) { grid-area: s; }
-.program-row > :nth-child(3) { grid-area: e; }
-.program-row > :nth-child(4) { grid-area: sub; }
-.program-row > :nth-child(5) { grid-area: t; }
-.program-row > :nth-child(6) { grid-area: x; }
+.program-row .pr-n { grid-area: n; }
+.program-row .pr-s { grid-area: s; }
+.program-row .pr-e { grid-area: e; }
+.program-row .pr-sub { grid-area: sub; }
+.program-row .pr-t { grid-area: t; }
+.program-row .pr-x { grid-area: x; }
+.program-row.program-solo { grid-template-areas: 'n s e x' '. sub sub .'; }
 .program-row .input { padding: 6px 8px; min-width: 0; }
 .program-row.program-break { background: rgba(0, 0, 0, 0.03); }
 .program-row.program-break .program-n::after { content: '—'; color: var(--muted, #888); }

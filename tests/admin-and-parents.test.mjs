@@ -94,7 +94,9 @@ const kinds = (w, id) => w.smsFor(id).map((m) => m.kind).join('+') || '-';
   w.as('u-admin');
   await w.eng.saveSection({ id: SEC, name: sec.name, color: sec.color, capacity: sec.capacity, teacherId: 't-maria', gradeLevel: '2', program, schedule: s1.schedule });
   const s2 = w.state.sections.get(SEC);
-  check('P1 moving the class to Grade 2 clears the program and subject teachers', !s2.program.length && !s2.subjectTeacherIds.length);
+  check('P1 moving the class to Grade 2 keeps the periods but drops the teachers', s2.program.length === 4 && s2.program.every((p) => !p.teacherId) && !s2.subjectTeacherIds.length);
+  const k1 = w.state.sections.get('sec-k-rosal');
+  check('P1 sample Kindergarten class has a program without teachers', k1.program.length > 3 && k1.program.every((p) => !p.teacherId), JSON.stringify(k1.program[0]));
   const s4 = [...w.state.sections.values()].find((x) => x.id === 'sec-4-rizal');
   check('P1 sample Grade 4 class has a program with recess and lunch', s4?.program?.some((p) => p.subject === 'Recess') && s4.program.some((p) => p.subject === 'Lunch'));
 }

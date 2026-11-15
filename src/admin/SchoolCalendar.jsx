@@ -109,7 +109,7 @@ export function AdminCalendar() {
     flash(`${dates.length} day${dates.length > 1 ? 's' : ''} updated. Teachers were notified, and attendance and streaks follow the new calendar.`);
     setDraft(null);
   };
-  const upcoming = calendar.filter((c) => c.date >= today.date && c.type !== 'event').slice(0, 10);
+  const upcoming = calendar.filter((c) => c.date >= (today.actualDate ?? today.date) && c.type !== 'event').slice(0, 10);
   return (
     <div className="page">
       <div className="page-head">
@@ -123,7 +123,7 @@ export function AdminCalendar() {
           <button className="btn" onClick={() => setResetOpen(true)}>
             <RotateCcw size={17} /> Reset to DepEd template
           </button>
-          <button className="btn btn-danger" onClick={() => setSuspend({ date: today.date, label: 'Class suspension: weather', scope: 'all', levels: [] })}>
+          <button className="btn btn-danger" onClick={() => setSuspend({ date: today.actualDate ?? today.date, label: 'Class suspension: weather', scope: 'all', levels: [] })}>
             <CloudRain size={17} /> Declare suspension
           </button>
         </div>
@@ -173,7 +173,7 @@ export function AdminCalendar() {
         <YearCalendar
           year={year}
           calendar={calendar}
-          today={today.date}
+          today={today.actualDate ?? today.date}
           selection={draft ? { from: draft.from, to: draft.to } : null}
           onDayClick={open}
         />

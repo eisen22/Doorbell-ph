@@ -714,12 +714,21 @@ export function levelsLabel(levels) {
 export const SUBJECTS = ['English', 'Filipino', 'Mathematics', 'Science', 'Araling Panlipunan', 'MAPEH', 'EPP', 'GMRC'];
 
 /* =====================================================================
-   CLASS PROGRAM (Grades 4 to 6 only): the periods of the day, each with a subject and a teacher.
+   CLASS PROGRAM: the periods of the day, each with a subject (and, for Grades 4 to 6, a teacher).
      section.program = [{ start: '07:30', end: '08:20', subject: 'Mathematics', teacherId: 't-ana' },
                         { start: '09:10', end: '09:30', subject: 'Recess' }, ...]
-   Kindergarten to Grade 3 have one teacher all day and no program.
+   Kindergarten to Grade 3 have one teacher all day, so their periods have no teacher.
    The first period's end is when the absence texts go out for that class.
    ===================================================================== */
+// What each level studies (DepEd MATATAG curriculum). Kindergarten uses daily activity blocks.
+export const SUBJECTS_BY_GRADE = {
+  K: ['Meeting Time', 'Work Period', 'Story Time', 'Indoor/Outdoor Play', 'Wrap-up'],
+  1: ['Language', 'Reading and Literacy', 'Mathematics', 'Makabansa', 'GMRC'],
+  2: ['Filipino', 'English', 'Mathematics', 'Makabansa', 'GMRC'],
+  3: ['Filipino', 'English', 'Mathematics', 'Science', 'Makabansa', 'GMRC'],
+};
+/** The subjects to choose from for a grade level (Grades 4 to 6: SUBJECTS). */
+export const subjectsFor = (gradeLevel) => SUBJECTS_BY_GRADE[String(gradeLevel)] ?? SUBJECTS;
 export const BREAKS = ['Recess', 'Lunch'];
 export const isBreak = (p) => BREAKS.includes(p?.subject);
 /** True for Grades 4 to 6 (the levels that may have subject teachers). */
@@ -742,8 +751,8 @@ export function periodAt(program, time) {
  * `start`. `rotate` shifts the order of the subjects so the sections of one grade do not have the
  * same subject (and the same subject teacher) at the same time. teacherFor(subject) picks the teacher.
  */
-export function sampleProgram(start = '07:30', rotate = 0, teacherFor = () => null) {
-  const subjects = ['Mathematics', 'English', 'Science', 'Filipino', 'Araling Panlipunan', 'MAPEH', 'EPP', 'GMRC'];
+export function sampleProgram(start = '07:30', rotate = 0, teacherFor = () => null, list) {
+  const subjects = list ?? ['Mathematics', 'English', 'Science', 'Filipino', 'Araling Panlipunan', 'MAPEH', 'EPP', 'GMRC'];
   const order = subjects.slice(rotate % subjects.length).concat(subjects.slice(0, rotate % subjects.length));
   const out = [];
   let t = toMinutes(start);
@@ -757,4 +766,29 @@ export function sampleProgram(start = '07:30', rotate = 0, teacherFor = () => nu
     if (i === 4) add('Lunch', 60); // after the 5th period
   });
   return out;
+}
+
+// Sample periods for Kindergarten to Grade 3 (one teacher, so no teacherId).
+const K3_DAY = {
+  1: ['Reading and Literacy', 'Language', 'Mathematics', 'Makabansa', 'GMRC', 'Reading and Literacy', 'Mathematics', 'Makabansa'],
+  2: ['Filipino', 'English', 'Mathematics', 'Makabansa', 'GMRC', 'Filipino', 'English', 'Mathematics'],
+  3: ['English', 'Filipino', 'Mathematics', 'Science', 'Makabansa', 'GMRC', 'Mathematics', 'English'],
+};
+/**
+ * A sample class program for any grade from `start`. Kindergarten: a 3-hour session of activity blocks.
+ * Grades 1 to 3: 8 periods of 50 minutes with recess and lunch. Grades 4 to 6: sampleProgram (with teachers).
+ */
+export function sampleProgramFor(gradeLevel, start = '07:30', teacherFor = () => null, rotate = 0) {
+  const g = String(gradeLevel);
+  if (g === 'K') {
+    const blocks = [['Meeting Time', 30], ['Work Period', 60], ['Recess', 20], ['Story Time', 30], ['Indoor/Outdoor Play', 30], ['Wrap-up', 10]];
+    let t = toMinutes(start);
+    return blocks.map(([subject, mins]) => {
+      const p = { start: fromMinutes(t), end: fromMinutes(t + mins), subject };
+      t += mins;
+      return p;
+    });
+  }
+  if (K3_DAY[g]) return sampleProgram(start, 0, () => null, K3_DAY[g]).map(({ teacherId, ...p }) => p);
+  return sampleProgram(start, rotate, teacherFor);
 }

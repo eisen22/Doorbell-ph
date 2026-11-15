@@ -6,7 +6,7 @@ export function world(start = '2026-11-16', time = '07:00') {
   for (const [k, v] of [...state.attendance]) if (v.date >= start) state.attendance.delete(k);
   for (const [k, v] of [...state.confirmations]) if (v.date >= start) state.confirmations.delete(k);
   // The tests below were written for 8:00 to 11:30 classes: give the two classes they use those hours.
-  for (const id of ['sec-k-sampaguita', 'sec-2-narra']) Object.assign(state.sections.get(id).schedule, { startTime: '08:00', endTime: '11:30' });
+  for (const id of ['sec-k-sampaguita', 'sec-2-narra']) { Object.assign(state.sections.get(id).schedule, { startTime: '08:00', endTime: '11:30' }); state.sections.get(id).program = []; }
   const log = [];
   const auth = { createTeacherAccount: async () => ({ uid: 'u-' + Math.random().toString(36).slice(2, 8), tempPassword: 'x' }), signIn: async () => {}, signOut: async () => {}, demoAccounts: () => [] };
   const eng = new Engine('cloud', state, { put: (c, i, d) => log.push(['put', c, i, structuredClone(d)]), remove: (c, i) => log.push(['rm', c, i]) }, auth, clock);

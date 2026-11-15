@@ -21,6 +21,7 @@ import {
   isSchoolDay,
   ordinal,
   classPeriods,
+  hasSubjectTeachers,
 } from '../logic';
 import {
   useLive,
@@ -86,7 +87,7 @@ export function Dashboard() {
   const mine = (c) =>
     classPeriods(c.program)
       .map((p, i) => ({ ...p, n: i + 1 }))
-      .filter((p) => p.teacherId === me);
+      .filter((p) => p.teacherId === me || (!p.teacherId && c.teacherId === me && !hasSubjectTeachers(c.gradeLevel)));
   const groups = [
     { id: 'advisory', title: 'Advisory class', items: perClass.filter((x) => roleOf(x.section) === 'advisory') },
     { id: 'subject', title: 'Subject classes', items: perClass.filter((x) => roleOf(x.section) === 'subject') },
@@ -231,7 +232,7 @@ export function Dashboard() {
         )}
       </Card>
 
-      {/* Grades 4 to 6: my periods today in every class (from the class programs). */}
+      {/* My periods today in every class (from the class programs). */}
       {schedule.some((p) => !p.brk) && (
         <Card
           title={

@@ -41,8 +41,8 @@ export function CalendarPage() {
       if (d <= today.date) held++;
     }
   }
-  const upcoming = calendar.filter((c) => c.date > today.date && !['event', 'exam'].includes(c.type)).slice(0, 8);
-  const events = calendar.filter((c) => c.date >= today.date && (c.type === 'event' || c.type === 'exam')).slice(0, 8);
+  const upcoming = calendar.filter((c) => c.date > (today.actualDate ?? today.date) && !['event', 'exam'].includes(c.type)).slice(0, 8);
+  const events = calendar.filter((c) => c.date >= (today.actualDate ?? today.date) && (c.type === 'event' || c.type === 'exam')).slice(0, 8);
   return (
     <div className="page">
       <div className="page-head">
@@ -69,7 +69,7 @@ export function CalendarPage() {
       </div>
       <Card>
         <CalendarLegend counts={counts} />
-        <YearCalendar year={year} calendar={calendar} today={today.date} />
+        <YearCalendar year={year} calendar={calendar} today={today.actualDate ?? today.date} />
       </Card>
       <div className="grid-2">
         <Card title="Coming up: no class or changed schedule">
