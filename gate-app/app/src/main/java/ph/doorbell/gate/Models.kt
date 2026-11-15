@@ -36,7 +36,7 @@ data class Schedule(
     }
 }
 
-data class Section(val id: String, val name: String, val color: String, val schedule: Schedule) {
+data class Section(val id: String, val name: String, val color: String, val schedule: Schedule, val gradeLevel: String = "K") {
     companion object {
         @Suppress("UNCHECKED_CAST")
         fun from(id: String, m: Map<String, Any?>) = Section(
@@ -44,6 +44,7 @@ data class Section(val id: String, val name: String, val color: String, val sche
             name = m["name"] as? String ?: id,
             color = m["color"] as? String ?: "#D8F29F",
             schedule = Schedule.from(m["schedule"] as? Map<String, Any?>),
+            gradeLevel = m["gradeLevel"] as? String ?: "K",
         )
     }
 }
@@ -138,6 +139,8 @@ sealed class ScanResult {
     data class Recorded(val student: Student, val section: Section, val status: String, val time: String, val waitsForTeacher: Boolean) : ScanResult()
     /** The child was already scanned today (first scan kept). */
     data class AlreadyIn(val student: Student, val section: Section, val firstScanAt: String) : ScanResult()
+    // Scanned again when going home: the time out is saved (shown to the parent in the parent portal).
+    data class Out(val student: Student, val section: Section, val time: String) : ScanResult()
     /** The code is not on any Doorbell ID card. */
     data class Unknown(val code: String) : ScanResult()
     /** An old card that was replaced (lost card). */

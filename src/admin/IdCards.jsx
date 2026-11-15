@@ -7,6 +7,8 @@ import {
   useRepo,
   textOn,
   Logo,
+  LevelChips,
+  countByGrade,
 } from '../ui';
 import { useState, useEffect, useRef } from 'react';
 import QRCode from 'qrcode';
@@ -25,6 +27,7 @@ import JsBarcode from 'jsbarcode';
 export function QrCards() {
   const repo = useRepo();
   const [sectionId, setSectionId] = useState(null);
+  const [level, setLevel] = useState('all');
   const [layout, setLayout] = useState('card');
   const [format, setFormat] = useState('qr');
   const [printId, setPrintId] = useState(null);
@@ -51,7 +54,9 @@ export function QrCards() {
         <Skeleton h={400} />
       </div>
     );
-  const sec = data.sections.find((s) => s.id === (sectionId ?? data.sections[0]?.id));
+  // Sections of the chosen grade level (Kindergarten to Grade 6, in order).
+  const levelSecs = data.sections.filter((s) => level === 'all' || s.gradeLevel === level);
+  const sec = levelSecs.find((s) => s.id === sectionId) ?? levelSecs[0];
   const enrolled = data.rows.filter((r) => r.enrollment?.status === 'active');
   const rows = enrolled.filter((r) => r.enrollment.sectionId === sec?.id);
   const matches =
@@ -59,7 +64,10 @@ export function QrCards() {
       ? enrolled.filter((r) => `${r.student.firstName} ${r.student.lastName}`.toLowerCase().includes(find.toLowerCase())).slice(0, 6)
       : [];
   const printOne = async (r) => {
-    if (r.enrollment && r.enrollment.sectionId !== sec?.id) setSectionId(r.enrollment.sectionId);
+    if (r.enrollment && r.enrollment.sectionId !== sec?.id) {
+      setLevel('all');
+      setSectionId(r.enrollment.sectionId);
+    }
     await repo.logAudit('cards.print_one', `${r.student.firstName} ${r.student.lastName}`, layout);
     setFind('');
     setPrintId(r.student.id);
@@ -109,8 +117,16 @@ export function QrCards() {
             </ul>
           )}
         </div>
+        <LevelChips
+          value={level}
+          onChange={(v) => {
+            setLevel(v);
+            setSectionId(null);
+          }}
+          counts={countByGrade(data.sections, (s) => s.gradeLevel)}
+        />
         <div className="chips">
-          {data.sections.map((s) => (
+          {levelSecs.map((s) => (
             <button key={s.id} className={`fchip ${s.id === sec?.id ? 'fchip-on' : ''}`} onClick={() => setSectionId(s.id)}>
               <span className="sec-dot sm" style={{ background: s.color }} />
               {s.name}

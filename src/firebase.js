@@ -21,7 +21,7 @@ import {
   signInWithEmailAndPassword,
   signOut as fbSignOut,
 } from 'firebase/auth';
-import { collection, doc, getDoc, initializeFirestore, limit, onSnapshot, orderBy, query, where, writeBatch } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, initializeFirestore, limit, onSnapshot, orderBy, query, where, writeBatch } from 'firebase/firestore';
 import { DEPED_SY_2026_2027, manilaToday } from './logic';
 import { Engine, emptyState, realClock, schoolYear as defaultYear, settings as defaultSettings, buildDemoState } from './engine';
 
@@ -415,7 +415,24 @@ export function createCloudEngine() {
         uidFor.set(t.uid, uid);
         t.uid = uid;
       } catch (e) {
-        problems.push(`${t.email}: ${e.code === 'auth/email-already-in-use' ? 'account already exists' : e.message}`);
+        // Loaded before (then removed with "Remove all school data"): the sign-in still exists, so it is
+        // reused if it still has the sample password.
+        let reused = null;
+        if (e.code === 'auth/email-already-in-use') {
+          try {
+            const second = getApps().find((a) => a.name === 'account-maker') ?? initializeApp(firebaseConfig, 'account-maker');
+            const secondAuth = getAuth(second);
+            const cred = await signInWithEmailAndPassword(secondAuth, t.email, SAMPLE_TEACHER_PASSWORD);
+            reused = cred.user.uid;
+            await fbSignOut(secondAuth);
+          } catch {
+            reused = null;
+          }
+        }
+        if (reused) {
+          uidFor.set(t.uid, reused);
+          t.uid = reused;
+        } else problems.push(`${t.email}: ${e.code === 'auth/email-already-in-use' ? 'account already exists with another password' : e.message}`);
       }
     }
     // Everything to write, as [collection, id, data].
@@ -436,6 +453,31 @@ export function createCloudEngine() {
       await batch.commit();
     }
     return { documents: writes.length, teachers: [...sample.teachers.values()].map((t) => t.email), problems };
+  };
+
+  /* =================================================================
+     START OVER (Settings -> Sample data -> "Remove all school data"): deletes the sections, teachers,
+     students, guardians, attendance, texts, alerts and parent portal data, so the sample school can
+     be loaded again. Kept: the admin accounts, the gate account, the settings, the calendar and the
+     audit log (which can never be deleted). Teacher sign-ins stay in Firebase Authentication
+     (only their Doorbell profile is removed); sample teachers are reused when the sample is loaded again.
+     ================================================================= */
+  engine.clearSchoolData = async (onProgress = () => {}) => {
+    const cols = ['attendance', 'confirmations', 'sms', 'notifications', 'excuses', 'parentDays', 'parentKeys', 'parents', 'enrollments', 'guardians', 'students', 'sections', 'teachers'];
+    let removed = 0;
+    for (const col of [...cols, 'users']) {
+      onProgress(`Removing ${col}…`);
+      const snap = await getDocs(collection(db, col));
+      const docs = col === 'users' ? snap.docs.filter((d) => d.data().role === 'teacher') : snap.docs;
+      for (let i = 0; i < docs.length; i += 450) {
+        const batch = writeBatch(db);
+        docs.slice(i, i + 450).forEach((d) => batch.delete(d.ref));
+        await batch.commit();
+      }
+      removed += docs.length;
+    }
+    await engine.logAudit('school.clear', 'all school data', `${removed} documents removed`);
+    return removed;
   };
 
   return engine;

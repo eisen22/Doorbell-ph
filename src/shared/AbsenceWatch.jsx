@@ -9,9 +9,11 @@ import {
   Empty,
   StreakChip,
   StudentAttendanceModal,
+  LevelChips,
+  countByGrade,
 } from '../ui';
 import { useState } from 'react';
-import { displayPhMobile } from '../logic';
+import { displayPhMobile, bySectionGrade } from '../logic';
 
 // =====================================================================
 // ABSENCE WATCH (/admin/absences for the admin, /absences for teachers): children absent or
@@ -31,7 +33,8 @@ export function AbsenceWatch() {
   const [params, setParams] = useSearchParams();
   const [picked, setOpen] = useState(null); // the learner whose attendance calendar is open
   const [sectionId, setSectionId] = useState('all');
-  const [sort, setSort] = useState('days');
+  const [sort, setSort] = useState('grade');
+  const [level, setLevel] = useState('all');
   const { data } = useLive(async (r) => {
     const rows = await r.listAttention(2);
     const session = await r.getSession();
@@ -54,11 +57,12 @@ export function AbsenceWatch() {
       </div>
     );
   const t = data.settings.streakDays;
-  const match = (r) =>
-    sectionId === 'all' || r.section.id === sectionId;
+  const match = (r) => (level === 'all' || r.section.gradeLevel === level) && (sectionId === 'all' || r.section.id === sectionId);
   const byName = (a, b) => a.student.lastName.localeCompare(b.student.lastName) || a.student.firstName.localeCompare(b.student.firstName);
   const sorter = (a, b) =>
-    sort === 'section'
+    sort === 'grade'
+      ? bySectionGrade(a.section, b.section) || b.streak.count - a.streak.count || byName(a, b)
+      : sort === 'section'
       ? a.section.name.localeCompare(b.section.name) || b.streak.count - a.streak.count || byName(a, b)
       : sort === 'name'
         ? byName(a, b)
@@ -151,18 +155,28 @@ export function AbsenceWatch() {
         <label className="sort-pick">
           <ArrowDownUp size={16} />
           <select className="input" value={sort} onChange={(e) => setSort(e.target.value)} aria-label="Sort by">
+            <option value="grade">Sort: Kindergarten to Grade 6</option>
             <option value="days">Sort: most days first</option>
             <option value="section">Sort: by section</option>
             <option value="name">Sort: by name</option>
           </select>
         </label>
       </div>
-      {data.sections.length > 1 && (
+      <LevelChips
+        value={level}
+        onChange={(v) => {
+          setLevel(v);
+          setSectionId('all');
+        }}
+        counts={countByGrade(data.sections, (s) => s.gradeLevel)}
+      />
+      {/* Section chips: for one grade level (or a teacher's few classes). */}
+      {(level !== 'all' || data.sections.length <= 6) && data.sections.filter((s) => level === 'all' || s.gradeLevel === level).length > 1 && (
       <div className="chips">
         <button className={`fchip ${sectionId === 'all' ? 'fchip-on' : ''}`} onClick={() => setSectionId('all')}>
           All sections
         </button>
-        {data.sections.map((s) => (
+        {data.sections.filter((s) => level === 'all' || s.gradeLevel === level).map((s) => (
           <button key={s.id} className={`fchip ${sectionId === s.id ? 'fchip-on' : ''}`} onClick={() => setSectionId(s.id)}>
             <span className="sec-dot sm" style={{ background: s.color }} />
             {s.name.replace('Kindergarten', 'Kinder')}

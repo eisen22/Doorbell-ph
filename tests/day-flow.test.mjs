@@ -1,5 +1,5 @@
 import { world, check } from './helpers.mjs';
-const SEC = 'sec-apple';
+const SEC = 'sec-k-sampaguita';
 const kinds = (w, id) => w.smsFor(id).map((m) => m.kind).join('+') || '-';
 // ===== The new flow, one full day =====
 {
@@ -42,9 +42,9 @@ const kinds = (w, id) => w.smsFor(id).map((m) => m.kind).join('+') || '-';
   check('N1 missing child found: alert resolved + parent told in class', w.notes(c.id).find((n) => n.id.startsWith('miss_')).resolved && kinds(w, c.id) === 'missing+arrival');
   // a: told "in class", later not in room
   w.clock.t = '10:40'; await w.eng.setStatus({ studentId: a.id, sectionId: SEC, date: D, status: 'absent', reason: 'gone' });
-  check('N1 withdrawn "in class": parent gets "not in class" text', kinds(w, a.id) === 'arrival+missing');
+  check('N1 withdrawn "in class": parent gets "not in class" text', kinds(w, a.id).replace(/\+(total|streak)/g, '') === 'arrival+missing');
   await w.eng.setStatus({ studentId: a.id, sectionId: SEC, date: D, status: 'present', reason: 'found' });
-  check('N1 ...and a new "in class" text when found again', kinds(w, a.id) === 'arrival+missing+arrival');
+  check('N1 ...and a new "in class" text when found again', kinds(w, a.id).replace(/\+(total|streak)/g, '') === 'arrival+missing+arrival');
   // d manual present scans card later
   await w.scan(d, '11:00'); check('N1 manual-present child scanning later stays present, no text', w.eng.record(SEC, D, d.id).status === 'present' && kinds(w, d.id) === 'arrival');
   // g: marked absent AFTER absence step (teacher mis-tap present at confirm) -> immediate absent text
@@ -99,4 +99,42 @@ const kinds = (w, id) => w.smsFor(id).map((m) => m.kind).join('+') || '-';
   await w2.eng.removeCalendarDays(hol); w2.eng.catchUp();
   const day = w2.state.attendance.get(`${SEC}_2026-11-02`);
   check('N5 removed past holiday: nobody marked absent, no texts', !day && w2.state.sms.size === s0);
+}
+// ===== School-wide times and level-limited suspensions =====
+{
+  const w = world(); const D = w.clock.d; w.as('u-admin');
+  await w.eng.updateSettings({ gateOpens: '06:30', firstPeriodMins: 45 });
+  const sec = w.state.sections.get(SEC);
+  check('L1 absence time = start + school first period length', sec.schedule.autoFinalizeMins === 45);
+  check('L1 gate opening applies to every class', sec.schedule.scanWindowMins === 90);
+  await w.eng.declareSuspension(D, 'Signal No. 1', ['K']);
+  const kSec = w.state.sections.get('sec-k-rosal'), g2 = w.state.sections.get('sec-2-narra');
+  const t = await w.eng.getToday();
+  const { isSchoolDay } = await import('../src/logic.js');
+  check('L2 Kindergarten-only suspension: no class for Kindergarten', !isSchoolDay(D, kSec.schedule, w.state.calendar));
+  check('L2 ...but Grade 2 has class', isSchoolDay(D, g2.schedule, w.state.calendar));
+  const kid = w.eng.rosterOn('sec-2-narra', D)[0]; const r = await w.scan(kid, '07:40');
+  check('L2 Grade 2 pupil scans normally', r.kind === 'recorded');
+  const kk = w.eng.rosterOn('sec-k-rosal', D)[0]; const r2 = await w.scan(kk, '07:41');
+  check('L2 Kindergarten pupil: no class today', r2.kind === 'not_school_day');
+  check('L2 the alert says Kindergarten only', [...w.state.notifications.values()].some((n) => /Kindergarten only/.test(n.title)));
+}
+// ===== Gate scan-out and the times the parent sees =====
+{
+  const w = world(); const D = w.clock.d; const [a, b, c] = w.roster(SEC); w.as('u-maria');
+  await w.scan(a, '07:42'); await w.scan(c, '07:50');
+  w.clock.t = '08:10'; await w.eng.confirmDay(SEC, D);
+  const r1 = await w.scan(a, '07:55'); // a second beep 13 minutes later: still "already in"
+  check('O1 second scan soon after = already in', r1.kind === 'duplicate');
+  const r2 = await w.scan(a, '11:40');
+  check('O1 scan after class = scanned out', r2.kind === 'out' && w.eng.record(SEC, D, a.id).scannedOut === '11:40');
+  check('O1 scan-out sends no text and no alert', kinds(w, a.id) === 'arrival' && !w.notes(a.id).length);
+  const day = w.eng.parentMonthDoc(a.id, D.slice(0, 7)).days[D];
+  check('O1 parent portal: in, confirmed, out times', day.t === '07:42' && day.c === '08:10' && day.o === '11:40', JSON.stringify(day));
+  const dc = w.eng.parentMonthDoc(c.id, D.slice(0, 7)).days[D];
+  check('O1 child who did not scan out: no out time (portal says "did not scan out")', dc.o === null && dc.c === '08:10');
+  // manual present (forgot ID) scanning at dismissal = out, not in
+  await w.eng.setStatus({ studentId: b.id, sectionId: SEC, date: D, status: 'present', reason: 'forgot ID' });
+  const r3 = await w.scan(b, '11:20');
+  check('O1 teacher-marked child scanning near dismissal = out', r3.kind === 'out' && w.eng.record(SEC, D, b.id).status === 'present');
 }

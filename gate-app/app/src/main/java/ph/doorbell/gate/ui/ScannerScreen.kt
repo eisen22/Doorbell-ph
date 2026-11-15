@@ -172,6 +172,7 @@ private fun lookOf(r: ScanResult?, scanning: Boolean, hint: String?): BannerLook
     } else {
         BannerLook(Doorbell.okBg, Doorbell.ok, Icons.Rounded.CheckCircle, r.student.fullName, "Arrived ${Rules.to12h(r.time)} · ${r.section.name}")
     }
+    is ScanResult.Out -> BannerLook(Doorbell.infoBg, Doorbell.info, Icons.Rounded.Replay, r.student.fullName, "Going home · out at ${Rules.to12h(r.time)}")
     is ScanResult.AlreadyIn -> BannerLook(Doorbell.infoBg, Doorbell.info, Icons.Rounded.Replay, r.student.fullName, "Already in since ${Rules.to12h(r.firstScanAt)}")
     is ScanResult.NoClassToday -> BannerLook(Doorbell.surface, Doorbell.muted, Icons.Rounded.EventBusy, r.student.fullName, "No class today for ${r.section.name}")
     is ScanResult.Unknown -> BannerLook(Doorbell.badBg, Doorbell.bad, Icons.AutoMirrored.Rounded.HelpOutline, "Card not recognized", "This is not a Doorbell ID.")

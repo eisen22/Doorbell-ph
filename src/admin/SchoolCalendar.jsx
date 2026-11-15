@@ -26,6 +26,9 @@ import {
   eachDate,
   addDays,
   isoWeekday,
+  levelsLabel,
+  GRADE_LEVELS,
+  gradeName,
 } from '../logic';
 
 // =====================================================================
@@ -120,7 +123,7 @@ export function AdminCalendar() {
           <button className="btn" onClick={() => setResetOpen(true)}>
             <RotateCcw size={17} /> Reset to DepEd template
           </button>
-          <button className="btn btn-danger" onClick={() => setSuspend({ date: today.date, label: 'Class suspension: weather' })}>
+          <button className="btn btn-danger" onClick={() => setSuspend({ date: today.date, label: 'Class suspension: weather', scope: 'all', levels: [] })}>
             <CloudRain size={17} /> Declare suspension
           </button>
         </div>
@@ -181,7 +184,10 @@ export function AdminCalendar() {
             <li key={c.date}>
               <span className={`swatch k-${c.type} ${c.scope === 'local' ? 'is-local' : ''}`} />
               <time>{format(parseISO(c.date), 'EEE, MMM d')}</time>
-              <span>{c.label}</span>
+              <span>
+                {c.label}
+                {c.levels?.length ? <b className="muted small"> · {levelsLabel(c.levels)}</b> : null}
+              </span>
               <button className="icon-btn sm" onClick={() => open(c.date)} aria-label={`Edit ${c.date}`}>
                 <Pencil size={15} />
               </button>
@@ -295,9 +301,13 @@ export function AdminCalendar() {
               <button
                 className="btn btn-danger"
                 onClick={async () => {
-                  await repo.declareSuspension(suspend.date, suspend.label);
+                  const levels = suspend.scope === 'all' ? [] : suspend.scope === 'k' ? ['K'] : suspend.levels;
+                  if (suspend.scope === 'pick' && !levels.length) return;
+                  await repo.declareSuspension(suspend.date, suspend.label, levels);
                   setSuspend(null);
-                  flash('Suspension saved and teachers notified. No absences or streak SMS for that day.');
+                  flash(
+                    `Suspension saved${levels.length ? ` (${levelsLabel(levels)})` : ''} and teachers notified. No absences or streak SMS for that day.`,
+                  );
                 }}
               >
                 Declare suspension
@@ -324,6 +334,48 @@ export function AdminCalendar() {
               ]}
             />
           </div>
+          {/* Which levels: DepEd Order 22, s. 2024: Signal No. 1 suspends Kindergarten only;
+              Signal No. 2 Kindergarten to Grade 10 (all of Doorbell's levels); Signal No. 3 all levels. */}
+          <fieldset className="checks">
+            <legend>Which classes are suspended?</legend>
+            <label>
+              <input type="radio" name="scope" checked={suspend.scope === 'all'} onChange={() => setSuspend({ ...suspend, scope: 'all' })} /> All
+              levels (Kindergarten to Grade 6)
+            </label>
+            <label>
+              <input
+                type="radio"
+                name="scope"
+                checked={suspend.scope === 'k'}
+                onChange={() =>
+                  setSuspend({ ...suspend, scope: 'k', label: suspend.label === 'Class suspension: weather' ? 'Tropical Cyclone Wind Signal No. 1' : suspend.label })
+                }
+              />{' '}
+              Kindergarten only (DepEd: Signal No. 1)
+            </label>
+            <label>
+              <input type="radio" name="scope" checked={suspend.scope === 'pick'} onChange={() => setSuspend({ ...suspend, scope: 'pick' })} /> Choose
+              the levels
+            </label>
+            {suspend.scope === 'pick' && (
+              <div className="chips-inline">
+                {GRADE_LEVELS.map((g) => {
+                  const on = suspend.levels.includes(g);
+                  return (
+                    <label key={g} className="check">
+                      <input
+                        type="checkbox"
+                        checked={on}
+                        onChange={() => setSuspend({ ...suspend, levels: on ? suspend.levels.filter((x) => x !== g) : [...suspend.levels, g] })}
+                      />{' '}
+                      {gradeName(g)}
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+            <p className="muted small">The other levels have class as usual: their children are scanned and marked as on any school day.</p>
+          </fieldset>
           <label className="field">
             <span>Reason</span>
             <input className="input" value={suspend.label} onChange={(e) => setSuspend({ ...suspend, label: e.target.value })} />

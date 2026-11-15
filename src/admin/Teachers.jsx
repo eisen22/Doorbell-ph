@@ -13,9 +13,11 @@ import {
   useRepo,
   Modal,
   Toast,
+  LevelChips,
+  countByGrade,
 } from '../ui';
 import { useState } from 'react';
-import { displayPhMobile, to12h, normalizePhMobile } from '../logic';
+import { displayPhMobile, to12h, normalizePhMobile, GRADE_LEVELS, gradeName, gradeRank, SUBJECTS } from '../logic';
 
 // =====================================================================
 // TEACHERS (/admin/teachers): teacher accounts and the classes they handle.
@@ -31,6 +33,7 @@ export const toTeacherInput = (t) => ({
   name: t.name,
   email: t.email,
   mobile: t.mobile ? displayPhMobile(t.mobile) : '',
+  subjects: t.subjects ?? [],
 });
 /** Add or edit a teacher, including which classes they handle. */
 export function TeacherModal({ input, sections, teachers, onClose, onSaved }) {
@@ -65,6 +68,8 @@ export function TeacherModal({ input, sections, teachers, onClose, onSaved }) {
           color: s.color,
           capacity: s.capacity,
           schedule: s.schedule,
+          gradeLevel: s.gradeLevel,
+          subjectTeacherIds: s.subjectTeacherIds ?? [],
           teacherId: want ? id : null,
         });
       }
@@ -101,8 +106,25 @@ export function TeacherModal({ input, sections, teachers, onClose, onSaved }) {
         <span>Mobile (optional, for alerts)</span>
         <input className="input" value={edit.mobile} onChange={(e) => setEdit({ ...edit, mobile: e.target.value })} placeholder="0917 123 4567" />
       </label>
+      {/* Subjects: Grades 4 to 6 may have a teacher per subject. Used to sort ("Mathematics teachers"). */}
+      <fieldset className="checks subject-checks">
+        <legend>Subjects taught (Grades 4 to 6, optional)</legend>
+        {SUBJECTS.map((sub) => {
+          const on = (edit.subjects ?? []).includes(sub);
+          return (
+            <label key={sub}>
+              <input
+                type="checkbox"
+                checked={on}
+                onChange={() => setEdit({ ...edit, subjects: on ? edit.subjects.filter((x) => x !== sub) : [...(edit.subjects ?? []), sub] })}
+              />{' '}
+              {sub}
+            </label>
+          );
+        })}
+      </fieldset>
       <fieldset className="checks class-checks">
-        <legend>Classes handled</legend>
+        <legend>Classes handled (as adviser)</legend>
         {live.length === 0 && <p className="muted small">No sections yet. Add one on the Sections page.</p>}
         {live.map((s) => {
           const other = s.teacherId && s.teacherId !== edit.id ? nameOf(s.teacherId) : undefined;
@@ -141,6 +163,8 @@ export function Teachers() {
   const [edit, setEdit] = useState(null);
   const [toast, setToast] = useState(null);
   const [created, setCreated] = useState(null);
+  const [level, setLevel] = useState('all');
+  const [sortBy, setSortBy] = useState('grade');
   const { data } = useLive(async (r) => ({ teachers: await r.listTeachers(), sections: await r.listSections() }));
   if (!data)
     return (
@@ -152,32 +176,46 @@ export function Teachers() {
     setToast(m);
     setTimeout(() => setToast(null), 2800);
   };
-  return (
-    <div className="page">
-      <div className="page-head">
-        <div>
-          <h1>Teachers</h1>
-          <p className="page-sub">{data.teachers.filter((t) => t.active !== false).length} active</p>
-        </div>
-        <button className="btn btn-ink" onClick={() => setEdit({ name: '', email: '', mobile: '' })}>
-          <Plus size={17} /> Add teacher
-        </button>
-      </div>
-      <Card>
-        <div className="table-wrap">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Teacher</th>
-                <th>Email</th>
-                <th>Mobile</th>
-                <th>Classes</th>
-                <th>Status</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {data.teachers.map((t) => {
+  const live = data.sections.filter((x) => !x.archived);
+  const adviserOf = (t) => live.filter((x) => x.teacherId === t.id);
+  const subjectOf = (t) => live.filter((x) => (x.subjectTeacherIds ?? []).includes(t.id));
+  // The grade levels a teacher teaches (as adviser or subject teacher).
+  const levelsOf = (t) => [...adviserOf(t), ...subjectOf(t)].map((x) => x.gradeLevel ?? 'K');
+  const firstLevel = (t) => Math.min(99, ...adviserOf(t).map((x) => gradeRank(x.gradeLevel)));
+  const shown = data.teachers.filter((t) => level === 'all' || levelsOf(t).includes(level));
+  const byName = (a, b) => a.name.localeCompare(b.name);
+  // Groups: by the grade they advise (subject teachers with no class of their own after Grade 6),
+  // by subject (teachers of Grades 4 to 6), or one list by name.
+  const groups =
+    sortBy === 'name'
+      ? [{ key: 'all', label: 'All teachers', items: [...shown].sort(byName) }]
+      : sortBy === 'subject'
+        ? [
+            ...SUBJECTS.map((sub) => ({
+              key: sub,
+              label: `${sub} teachers`,
+              items: shown.filter((t) => (t.subjects ?? []).includes(sub) && levelsOf(t).some((g) => Number(g) >= 4)).sort(byName),
+            })),
+            {
+              key: 'none',
+              label: 'No subject set (Kindergarten to Grade 3, or not filled in)',
+              items: shown.filter((t) => !(t.subjects ?? []).length || !levelsOf(t).some((g) => Number(g) >= 4)).sort(byName),
+            },
+          ].filter((g) => g.items.length)
+        : [
+            ...GRADE_LEVELS.map((g) => ({
+              key: g,
+              label: `${gradeName(g)} advisers`,
+              items: shown.filter((t) => firstLevel(t) === gradeRank(g)).sort(byName),
+            })),
+            {
+              key: 'subject',
+              label: 'Subject teachers (no class of their own)',
+              items: shown.filter((t) => firstLevel(t) === 99 && subjectOf(t).length).sort(byName),
+            },
+            { key: 'none', label: 'No class', items: shown.filter((t) => firstLevel(t) === 99 && !subjectOf(t).length).sort(byName) },
+          ].filter((g) => g.items.length);
+  const row = (t) => {
                 const secs = data.sections
                   .filter((s) => s.teacherId === t.id && !s.archived)
                   .sort((a, b) => a.schedule.startTime.localeCompare(b.schedule.startTime));
@@ -195,13 +233,21 @@ export function Teachers() {
                     <td>{t.email}</td>
                     <td className="mono">{t.mobile ? displayPhMobile(t.mobile) : '—'}</td>
                     <td>
-                      {secs.length ? (
+                      {secs.length || subjectOf(t).length ? (
                         <div className="tag-stack">
                           {secs.map((sec) => (
                             <span key={sec.id} className="tag" style={{ background: sec.color }}>
                               {sec.name} · {to12h(sec.schedule.startTime)}
                             </span>
                           ))}
+                          {subjectOf(t).length > 0 && (
+                            <span className="muted small">
+                              {(t.subjects ?? []).length ? `${t.subjects.join(', ')} in ` : 'Subject teacher in '}
+                              {subjectOf(t)
+                                .map((x) => x.name.replace(/^Grade /, 'G'))
+                                .join(', ')}
+                            </span>
+                          )}
                         </div>
                       ) : (
                         <span className="muted">Unassigned</span>
@@ -227,11 +273,45 @@ export function Teachers() {
                     </td>
                   </tr>
                 );
-              })}
-            </tbody>
-          </table>
+                };
+  return (
+    <div className="page">
+      <div className="page-head">
+        <div>
+          <h1>Teachers</h1>
+          <p className="page-sub">{data.teachers.filter((t) => t.active !== false).length} active</p>
         </div>
-      </Card>
+        <button className="btn btn-ink" onClick={() => setEdit({ name: '', email: '', mobile: '' })}>
+          <Plus size={17} /> Add teacher
+        </button>
+      </div>
+      <LevelChips value={level} onChange={setLevel} counts={countByGrade(data.teachers.flatMap((t) => [...new Set(levelsOf(t))].map((g) => ({ g }))), (x) => x.g)} />
+      <div className="chips">
+        <select className="input auto" value={sortBy} onChange={(e) => setSortBy(e.target.value)} aria-label="Group teachers">
+          <option value="grade">Group: by grade (Kindergarten to Grade 6)</option>
+          <option value="subject">Group: by subject (Grades 4 to 6)</option>
+          <option value="name">Sort: by name</option>
+        </select>
+      </div>
+      {groups.map((grp) => (
+        <Card key={grp.key} title={`${grp.label} (${grp.items.length})`}>
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Teacher</th>
+                  <th>Email</th>
+                  <th>Mobile</th>
+                  <th>Classes</th>
+                  <th>Status</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>{grp.items.map((t) => row(t))}</tbody>
+            </table>
+          </div>
+        </Card>
+      ))}
       <p className="muted small note-row">
         <Info size={14} /> Click a teacher's name to edit their details and classes. Adding a teacher creates their sign-in account with a temporary
         password. They can change it with Forgot password.

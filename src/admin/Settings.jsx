@@ -114,6 +114,27 @@ export function AdminSettings() {
             <input type="checkbox" checked={s.absentSmsEnabled !== false} onChange={(e) => setS({ ...s, absentSmsEnabled: e.target.checked })} /> Text
             parents on the day their child is absent (sent at the end of first period, only for classes a teacher confirmed)
           </label>
+          <div className="form-row">
+            <label className="field">
+              <span>School gate opens (scanning starts)</span>
+              <input type="time" className="input" value={s.gateOpens ?? '06:00'} onChange={(e) => setS({ ...s, gateOpens: e.target.value || '06:00' })} />
+            </label>
+            <label className="field">
+              <span>First period length (minutes)</span>
+              <input
+                type="number"
+                min={20}
+                max={180}
+                className="input"
+                value={s.firstPeriodMins ?? 60}
+                onChange={(e) => setS({ ...s, firstPeriodMins: Number(e.target.value) || 60 })}
+              />
+            </label>
+          </div>
+          <p className="muted small">
+            The same for every class. DepEd sets no national gate time, so each school sets its own. Absence texts go out when the first period
+            ends (class start + this length), for example 8:30 AM for a 7:30 AM class with a 60-minute first period.
+          </p>
           <label className="field">
             <span>Text parents after this many school days absent in a row</span>
             <input
@@ -220,6 +241,7 @@ export function AdminSettings() {
         </div>
       </Card>
       <AdminsCard flash={flash} />
+      {repo.clearSchoolData && <StartOverCard />}
       <GateAccountCard flash={flash} />
       <ParentPortalCard flash={flash} />
       <Toast message={toast} />
@@ -420,6 +442,71 @@ function AdminsCard({ flash }) {
           <p>
             {confirm.name} ({confirm.email}) will no longer be able to open the website. Their past changes stay in the Audit Log.
           </p>
+        </Modal>
+      )}
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------
+// START OVER: removes all school data (to load the new sample school, or to start the real school
+// year with an empty database). Kept: admin and gate accounts, settings, calendar and audit log.
+// ---------------------------------------------------------------------
+function StartOverCard() {
+  const repo = useRepo();
+  const [open, setOpen] = useState(false);
+  const [typed, setTyped] = useState('');
+  const [status, setStatus] = useState(null);
+  const [error, setError] = useState('');
+  return (
+    <Card title="Start over">
+      <p className="muted small">
+        Removes all sections, teachers, students, guardians, attendance, texts, alerts and parent portal data. Kept: admin accounts, the gate
+        account, these settings, the calendar and the audit log. Use it to load the new sample school (Overview, then "Load sample school") or
+        before the real school year starts.
+      </p>
+      <button className="btn btn-danger" onClick={() => setOpen(true)}>
+        <Trash2 size={16} aria-hidden="true" /> Remove all school data
+      </button>
+      {open && (
+        <Modal
+          title="Remove all school data?"
+          onClose={() => !status && setOpen(false)}
+          footer={
+            <>
+              <button className="btn" onClick={() => setOpen(false)} disabled={!!status}>
+                Cancel
+              </button>
+              <button
+                className="btn btn-danger"
+                disabled={typed !== 'DELETE' || !!status}
+                onClick={async () => {
+                  setError('');
+                  try {
+                    const n = await repo.clearSchoolData((m) => setStatus(m));
+                    setStatus(`Done: ${n} documents removed. Go to Overview to load the sample school.`);
+                  } catch (e) {
+                    setError(e.message);
+                    setStatus(null);
+                  }
+                }}
+              >
+                Remove everything
+              </button>
+            </>
+          }
+        >
+          <p>This cannot be undone. Teachers will no longer be able to sign in, and parents will lose access to the parent portal.</p>
+          <label className="field">
+            <span>Type DELETE to confirm</span>
+            <input className="input" value={typed} onChange={(e) => setTyped(e.target.value)} autoFocus />
+          </label>
+          {status && <p className="muted">{status}</p>}
+          {error && (
+            <p className="error" role="alert">
+              {error}
+            </p>
+          )}
         </Modal>
       )}
     </Card>

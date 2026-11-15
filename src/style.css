@@ -824,3 +824,15 @@ a.kpi:hover { background: var(--surface) !important; }
 .missing-note { color: var(--absent); font-weight: 700; }
 .absent-strip { background: var(--surface); border-radius: var(--r-md); padding: 10px 14px; font-size: 13.5px; margin: 0 0 12px; }
 .kind-absent { background: var(--absent-bg); } .kind-missing { background: var(--absent-bg); } .kind-total { background: var(--late-bg); }
+
+/* parent portal: the gate and teacher times of a day */
+.pp-times { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 2px; font-size: 13.5px; }
+.pp-times li::before { content: '\2022'; margin-right: 6px; opacity: 0.6; }
+.pp-notes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.pp-notes li { border-bottom: 1px solid var(--line); padding-bottom: 10px; }
+.pp-notes li:last-child { border-bottom: 0; padding-bottom: 0; }
+.pp-notes .pp-times { color: var(--ink-2); }
+.pp-st { font-weight: 700; }
+.pp-st-present { color: var(--ok); } .pp-st-late { color: var(--late); } .pp-st-absent { color: var(--absent); } .pp-st-excused { color: var(--excused); }
+.input.auto { width: auto; min-width: 180px; }
+.class-select { display: inline-flex; align-items: center; gap: 8px; margin-bottom: 12px; }

@@ -181,7 +181,7 @@ function ChildView({ child, docs, excuses, onExcuse }) {
     setPicked(today);
   }, [child.id, today]);
   const cur = byMonth.get(thisMonth);
-  const todayRec = cur?.days?.[today];
+  const todayRec = cur?.days?.[today]?.s ? cur.days[today] : undefined; // a day with only a gate "out" time is not confirmed yet
   const todayNoClass = cur?.noClass?.[today];
   const weekend = isoWeekday(today) >= 6;
   const totals = cur?.totals ?? latest?.totals;
@@ -204,15 +204,17 @@ function ChildView({ child, docs, excuses, onExcuse }) {
         </div>
         <div className={`pp-today ${todayRec ? `pp-today-${todayRec.s}` : ''}`}>
           <strong>Today, {shortDay(today)}</strong>
-          <span>
-            {todayRec
-              ? `${STATUS_WORD[todayRec.s]}${todayRec.t ? `, arrived ${to12h(todayRec.t)}` : ''}. Confirmed by the teacher.`
-              : todayNoClass
+          {todayRec ? (
+            <DayTimes rec={todayRec} date={today} today={today} endTime={cur?.endTime} />
+          ) : (
+            <span>
+              {todayNoClass
                 ? `No class: ${todayNoClass}.`
                 : weekend
                   ? 'No class today.'
                   : 'Not confirmed yet. It shows here after the teacher confirms attendance.'}
-          </span>
+            </span>
+          )}
         </div>
       </section>
 
@@ -254,6 +256,8 @@ function ChildView({ child, docs, excuses, onExcuse }) {
         </div>
       </section>
 
+      <Notifications docs={docs} today={today} />
+
       {excuses.length > 0 && (
         <section className="pp-card">
           <h2 className="pp-h2">Excuse requests</h2>
@@ -282,9 +286,58 @@ function ChildView({ child, docs, excuses, onExcuse }) {
   );
 }
 
+// The times of one day: in at the gate, confirmed in class by the teacher, out at the gate.
+// After class, a child with no "out" scan shows "Did not scan out" (just information, no alert).
+function timesOf(rec, date, today, endTime) {
+  const lines = [];
+  if (rec.s === 'absent' || rec.s === 'excused') {
+    lines.push(rec.s === 'absent' ? (rec.t ? `Scanned in at the gate ${to12h(rec.t)}, but not in class` : 'Absent: did not come to school') : 'Excused');
+    return lines;
+  }
+  lines.push(rec.t ? `Scanned in at the gate: ${to12h(rec.t)}` : 'Did not scan in (marked by the teacher)');
+  lines.push(rec.c ? `Confirmed in class by the teacher: ${to12h(rec.c)}${rec.s === 'late' ? ' (late)' : ''}` : `In class${rec.s === 'late' ? ' (late)' : ''}`);
+  const nowTime = new Date().toLocaleTimeString('en-GB', { timeZone: 'Asia/Manila', hour: '2-digit', minute: '2-digit' });
+  if (rec.o) lines.push(`Scanned out at the gate: ${to12h(rec.o)}`);
+  else if (date < today || (endTime && nowTime > endTime)) lines.push('Did not scan out');
+  else lines.push('Not scanned out yet');
+  return lines;
+}
+function DayTimes({ rec, date, today, endTime }) {
+  return (
+    <ul className="pp-times">
+      {timesOf(rec, date, today, endTime).map((l) => (
+        <li key={l}>{l}</li>
+      ))}
+    </ul>
+  );
+}
+// NOTIFICATIONS: the last school days, newest first, with the gate and teacher times.
+function Notifications({ docs, today }) {
+  const rows = docs
+    .flatMap((m) => Object.entries(m.days ?? {}).filter(([, r]) => r.s).map(([d, r]) => ({ d, r, end: m.endTime })))
+    .sort((a, b) => b.d.localeCompare(a.d))
+    .slice(0, 7);
+  if (!rows.length) return null;
+  return (
+    <section className="pp-card">
+      <h2 className="pp-h2">Notifications</h2>
+      <ul className="pp-notes">
+        {rows.map(({ d, r, end }) => (
+          <li key={d}>
+            <strong>
+              {d === today ? 'Today' : shortDay(d)} · <span className={`pp-st pp-st-${r.s}`}>{STATUS_WORD[r.s]}</span>
+            </strong>
+            <DayTimes rec={r} date={d} today={today} endTime={end} />
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 function dayInfo(d, doc, today) {
-  const rec = doc?.days?.[d];
-  if (rec) return `${shortDay(d)} · ${STATUS_WORD[rec.s]}${rec.t ? `, arrived ${to12h(rec.t)}` : ''}`;
+  const rec = doc?.days?.[d]?.s ? doc.days[d] : undefined;
+  if (rec) return `${shortDay(d)} · ${STATUS_WORD[rec.s]} · ${timesOf(rec, d, today, doc.endTime).join(' · ')}`;
   if (doc?.noClass?.[d]) return `${shortDay(d)} · No class (${doc.noClass[d]})`;
   if (d > today) return `${shortDay(d)} · Upcoming`;
   if (isoWeekday(d) >= 6) return `${shortDay(d)} · Weekend`;
@@ -307,7 +360,7 @@ function MonthGrid({ month, doc, today, picked, onPick }) {
       ))}
       {cells.map((d, i) => {
         if (!d) return <span key={`x${i}`} />;
-        const rec = doc?.days?.[d];
+        const rec = doc?.days?.[d]?.s ? doc.days[d] : undefined;
         const kind = rec ? `d-${rec.s}` : doc?.noClass?.[d] ? 'd-noclass' : '';
         const label = dayInfo(d, doc, today);
         return (

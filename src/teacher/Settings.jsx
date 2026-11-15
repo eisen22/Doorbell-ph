@@ -89,11 +89,11 @@ export function SettingsPage() {
               <dd>
                 {to12h(s.startTime)} to {to12h(s.endTime)}
               </dd>
-              <dt>Scanning opens</dt>
+              <dt>School gate opens</dt>
               <dd>{to12h(fromMinutes(toMinutes(s.startTime) - s.scanWindowMins))}</dd>
               <dt>Late after</dt>
               <dd>{to12h(fromMinutes(toMinutes(s.startTime) + s.lateCutoffMins))}</dd>
-              <dt>Absence texts sent</dt>
+              <dt>Absence texts sent (end of first period)</dt>
               <dd>{to12h(autoFinalizeTime(s))}</dd>
               <dt>Parents texted after</dt>
               <dd>{settings.streakDays} school days absent in a row, or too many absences or lates this month or semester (see Absence Watch)</dd>

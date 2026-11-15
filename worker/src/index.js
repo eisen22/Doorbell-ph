@@ -168,6 +168,10 @@ async function dailyWork(db, now) {
   const days = cal?.data.days ?? [];
   const calendar = new Map(days.map((c) => [c.date, c]));
   const sections = secs.map((s) => ({ ...s.data, id: s.id })).filter((s) => !s.archived && s.schedule);
+  // The school-wide times (Settings: gate opens, first period length) and each class's grade level are
+  // copied into every schedule, exactly like the website does (engine.normalizeSection).
+  const norm = new Engine('cloud', emptyState(meta, days), { put() {}, remove() {} }, {}, { today: () => today, peek: () => time });
+  sections.forEach((s) => norm.normalizeSection(s));
 
   // 1. Which class days need work?
   const due = [];

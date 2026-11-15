@@ -1,5 +1,5 @@
 import { format, parseISO } from 'date-fns';
-import { DAY_KIND_META, dayKind, eachDate } from '../logic';
+import { DAY_KIND_META, dayKind, eachDate, levelsLabel } from '../logic';
 import {
   useLive,
   Card,
@@ -78,7 +78,10 @@ export function CalendarPage() {
               <li key={c.date}>
                 <span className={`swatch k-${c.type} ${c.scope === 'local' ? 'is-local' : ''}`} />
                 <time>{format(parseISO(c.date), 'EEE, MMM d')}</time>
-                <span>{c.label}</span>
+                <span>
+                  {c.label}
+                  {c.levels?.length ? <b className="muted small"> · {levelsLabel(c.levels)}</b> : null}
+                </span>
               </li>
             ))}
           </ul>
@@ -89,7 +92,10 @@ export function CalendarPage() {
               <li key={c.date}>
                 <span className={`swatch k-${c.type}`} />
                 <time>{format(parseISO(c.date), 'EEE, MMM d')}</time>
-                <span>{c.label}</span>
+                <span>
+                  {c.label}
+                  {c.levels?.length ? <b className="muted small"> · {levelsLabel(c.levels)}</b> : null}
+                </span>
               </li>
             ))}
           </ul>

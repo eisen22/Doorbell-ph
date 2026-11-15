@@ -23,11 +23,14 @@ import {
   Toast,
   DatePicker,
   textOn,
+  LevelChips,
+  countByGrade,
 } from '../ui';
 import { useState } from 'react';
 import { displayPhMobile, fromMinutes, to12h, toMinutes } from '../logic';
 import { toStudentInput, StudentModal, LeaveModal } from './Students';
 import { toTeacherInput, TeacherModal } from './Teachers';
+import { GRADE_LEVELS, gradeName } from '../logic';
 
 // =====================================================================
 // SECTIONS (/admin/sections): classes, their schedules, teachers and "Teacher absent" days.
@@ -40,18 +43,11 @@ import { toTeacherInput, TeacherModal } from './Teachers';
 // ---------------------------------------------------------------------
 // Colors offered for sections. Add any hex color here to offer it.
 export const SECTION_COLORS = ['#FFD9A8', '#D8F5A2', '#E4D6FA', '#CDE8F7', '#FBD3E0', '#FFF0A8', '#C9F0E4', '#F2D9C4'];
-// Grade levels the school can have: Kindergarten to Grade 10 (Junior High School).
-// Doorbell covers Kindergarten to Grade 6.
-export const GRADE_LEVELS = ['K', '1', '2', '3', '4', '5', '6'];
-// The admin pages group classes by level: Kindergarten, Grades 1 to 3 (one teacher all day) and
-// Grades 4 to 6 (may have subject teachers).
-export const LEVEL_BANDS = [
-  { id: 'k', label: 'Kindergarten' },
-  { id: 'lower', label: 'Grades 1 to 3' },
-  { id: 'upper', label: 'Grades 4 to 6' },
-];
-export const bandOf = (g) => (!g || g === 'K' ? 'k' : Number(g) <= 3 ? 'lower' : 'upper');
-export const gradeName = (g) => (g === 'K' || !g ? 'Kindergarten' : `Grade ${g}`);
+// Doorbell covers Kindergarten to Grade 6 (GRADE_LEVELS and gradeName come from logic.js).
+export { GRADE_LEVELS, gradeName };
+// The admin pages group classes by grade: Kindergarten, Grade 1, Grade 2 ... Grade 6.
+export const LEVEL_BANDS = GRADE_LEVELS.map((g) => ({ id: g, label: gradeName(g) }));
+export const bandOf = (g) => g || 'K';
 // Default values for a new section (a morning class).
 const blank = () => ({
   name: '',
@@ -64,9 +60,7 @@ const blank = () => ({
     classDays: [1, 2, 3, 4, 5],
     startTime: '08:00',
     endTime: '11:30',
-    scanWindowMins: 30,
     lateCutoffMins: 15,
-    autoFinalizeMins: 60, // absence texts: 60 minutes after class starts (end of first period)
   },
 });
 export function Sections() {
@@ -75,6 +69,7 @@ export function Sections() {
   const [error, setError] = useState(null);
   const [toast, setToast] = useState(null);
   const [showArchived, setShowArchived] = useState(false);
+  const [level, setLevel] = useState('all');
   const [openId, setOpenId] = useState(null);
   const { data } = useLive(async (r) => {
     const [sections, teachers, rows] = await Promise.all([r.listSections(), r.listTeachers(), r.listStudentRows()]);
@@ -143,7 +138,8 @@ export function Sections() {
         </div>
       </div>
       {/* Classes grouped by level: Kindergarten, Grades 1 to 3, Grades 4 to 6. */}
-      {LEVEL_BANDS.map((band) => {
+      <LevelChips value={level} onChange={setLevel} counts={countByGrade(list, (s) => s.gradeLevel ?? 'K')} />
+      {LEVEL_BANDS.filter((band) => level === 'all' || band.id === level).map((band) => {
         const items = list.filter((s) => bandOf(s.gradeLevel) === band.id);
         if (!items.length) return null;
         return (
@@ -342,30 +338,7 @@ export function Sections() {
               />
             </label>
           </div>
-          <div className="form-row">
-            <label className="field">
-              <span>Scanning opens (min before)</span>
-              <input
-                type="number"
-                min={0}
-                max={120}
-                className="input"
-                value={edit.schedule.scanWindowMins}
-                onChange={(e) => setEdit({ ...edit, schedule: { ...edit.schedule, scanWindowMins: Number(e.target.value) } })}
-              />
-            </label>
-            <label className="field">
-              <span>Absence texts (min after start)</span>
-              <input
-                type="number"
-                min={15}
-                max={240}
-                className="input"
-                value={edit.schedule.autoFinalizeMins}
-                onChange={(e) => setEdit({ ...edit, schedule: { ...edit.schedule, autoFinalizeMins: Number(e.target.value) } })}
-              />
-            </label>
-          </div>
+
           <label className="field">
             <span>Grade level</span>
             <select
@@ -381,8 +354,8 @@ export function Sections() {
             </select>
           </label>
           <p className="muted small">
-            Absence texts: children still absent at that time (the end of first period) are texted "has not arrived at school". Only a teacher
-            confirms a class; there is no automatic confirmation.
+            The gate opens and the absence texts go out at the same times for every class (Settings: gate opening time and first period
+            length). Only a teacher confirms a class.
           </p>
           {/* Subject teachers: Grades 4 to 6 may have a different teacher per subject. */}
           <div className="field">

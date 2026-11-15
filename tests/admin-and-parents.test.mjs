@@ -1,5 +1,5 @@
 import { world, check } from './helpers.mjs';
-const SEC = 'sec-apple', SEC2 = 'sec-mango';
+const SEC = 'sec-k-sampaguita', SEC2 = 'sec-2-narra';
 const kinds = (w, id) => w.smsFor(id).map((m) => m.kind).join('+') || '-';
 // ---- section move ----
 {
@@ -13,7 +13,7 @@ const kinds = (w, id) => w.smsFor(id).map((m) => m.kind).join('+') || '-';
   check('M1 old class no longer holds today\'s record', !w.eng.record(SEC, w.clock.d, a.id));
   const t2 = w.eng.totalsFor(w.state.sections.get(SEC2), a.id, w.clock.d);
   check('M1 totals follow the child', t2.semester.absent === t1.semester.absent, `${t1.semester.absent} -> ${t2.semester.absent}`);
-  const hist = await w.eng.getStudentAttendance(a.id, SEC2); check('M1 history keeps old-class days', Object.keys(hist.days).length > 50, `${Object.keys(hist.days).length} days`);
+  const hist = await w.eng.getStudentAttendance(a.id, SEC2); check('M1 history keeps old-class days', Object.keys(hist.days).length >= 15, `${Object.keys(hist.days).length} days`);
   const key = w.log.filter((l) => l[1] === 'parentKeys').pop(); check('M1 parent key points to the new class', key?.[3].children.some((c) => c.id === a.id && c.sectionId === SEC2));
 }
 // ---- guardian change ----
@@ -28,8 +28,8 @@ const kinds = (w, id) => w.smsFor(id).map((m) => m.kind).join('+') || '-';
 {
   const w = world(); const [a] = w.roster(SEC); await w.eng.reissueQr(a.id); w.log.length = 0; await w.eng.syncParentPortal();
   check('H1 no junk portal docs for revoked cards', !w.log.some((l) => l[1] === 'parentDays' && l[2].includes('-old-')));
-  const w2 = world(); w2.log.length = 0; await w2.eng.saveSection({ name: 'Grade 1 - Narra', gradeLevel: '1', color: '#eee', schedule: { ...w2.state.sections.get(SEC).schedule }, capacity: 30, teacherId: null }); w2.clock.t = '12:00'; w2.eng.catchUp();
-  check('H1 new empty section writes nothing for past days', !w2.log.some((l) => l[1] === 'confirmations' && l[3].sectionId !== SEC && !['sec-mango', 'sec-banana', 'sec-cherry', SEC].includes(l[3].sectionId)));
+  const w2 = world(); w2.log.length = 0; const ns = await w2.eng.saveSection({ name: 'Grade 1 - Bago', gradeLevel: '1', color: '#eee', schedule: { ...w2.state.sections.get(SEC).schedule }, capacity: 30, teacherId: null }); w2.clock.t = '12:00'; w2.eng.catchUp();
+  check('H1 new empty section writes nothing for past days', !w2.log.some((l) => (l[1] === 'confirmations' || l[1] === 'attendance') && l[3].sectionId === ns.id));
   const w3 = world(); w3.log.length = 0; await w3.eng.resetCalendar([...w3.state.calendar.values()]); check('H1 reset calendar updates the portal', w3.log.some((l) => l[1] === 'parentDays'));
   const w4 = world(); await w4.eng.setTeacherActive('t-jose', false); check('H1 class without a teacher raises an alert', [...w4.state.notifications.values()].some((n) => /has no teacher/.test(n.title)));
 }

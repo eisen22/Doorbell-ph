@@ -19,6 +19,7 @@ class Feedback(context: Context) {
     fun play(r: ScanResult) {
         when (r) {
             is ScanResult.Recorded -> if (r.status == "late") beep(ToneGenerator.TONE_PROP_BEEP2, 60) else beep(ToneGenerator.TONE_PROP_BEEP, 40)
+            is ScanResult.Out -> beep(ToneGenerator.TONE_PROP_BEEP, 40)
             is ScanResult.AlreadyIn, is ScanResult.NoClassToday -> beep(ToneGenerator.TONE_PROP_BEEP2, 60)
             is ScanResult.Unknown, is ScanResult.Revoked, is ScanResult.NotEnrolled -> beep(ToneGenerator.TONE_SUP_ERROR, 300)
             ScanResult.Ignored -> {}

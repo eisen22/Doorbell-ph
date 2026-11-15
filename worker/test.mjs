@@ -21,13 +21,15 @@ const put = (path, data) => db.set(path, { data: JSON.parse(JSON.stringify(data)
 const today = '2026-11-16';
 const clock = { t: '08:30', today: () => today, peek() { return this.t; }, scanTime() { return this.t; }, simulated: () => false };
 const state = buildDemoState(today, clock);
+// Give the two classes used here 8:00 to 11:30 hours (the times below assume them).
+for (const id of ['sec-k-sampaguita', 'sec-2-narra']) Object.assign(state.sections.get(id).schedule, { startTime: '08:00', endTime: '11:30' });
 // Apple: the teacher confirms at 8:30 AM (children scanned so far are in class, the rest absent).
 // Mango: nobody confirms all day.
 const teacherEngine = new Engine('cloud', state, { put() {}, remove() {} }, {}, clock);
 teacherEngine.setSession(users.find((u) => u.uid === 'u-maria'));
 for (const [k, v] of [...state.sms]) if (v.createdAt.startsWith(today)) state.sms.delete(k);
-await teacherEngine.confirmDay('sec-apple', today);
-const appleAbsent = teacherEngine.rosterOn('sec-apple', today).filter((k) => state.attendance.get(`sec-apple_${today}`).records[k.id].status === 'absent');
+await teacherEngine.confirmDay('sec-k-sampaguita', today);
+const appleAbsent = teacherEngine.rosterOn('sec-k-sampaguita', today).filter((k) => state.attendance.get(`sec-k-sampaguita_${today}`).records[k.id].status === 'absent');
 const textable = appleAbsent.filter((k) => teacherEngine.guardianOf(k.id)?.smsConsent);
 put('meta/school', { ...state.meta, settings: { ...state.meta.settings, smsProvider: 'semaphore', senderName: 'SUNNYSIDE' } });
 put('meta/calendar', { days: [...state.calendar.values()] });
@@ -89,9 +91,9 @@ async function fakeFetch(url, init = {}) {
 
 const env = { FIREBASE_PROJECT_ID: 'demo', FIREBASE_API_KEY: 'k', GATE_EMAIL: 'w@x', GATE_PASSWORD: 'p', SEMAPHORE_API_KEY: 'secret' };
 const smsOf = (kid) => [...db.keys()].filter((k) => k.startsWith('sms/') && k !== 'sms/bad1' && db.get(k).data.studentId === kid.id && db.get(k).data.createdAt.startsWith(today)).map((k) => db.get(k).data);
-const mangoDay = `attendance/sec-mango_${today}`;
+const mangoDay = `attendance/sec-2-narra_${today}`;
 // Parent portal: a parent's excuse for today (Mango), approved by the teacher.
-const exEnr = [...state.enrollments.values()].find((e) => e.status === 'active' && e.sectionId === 'sec-mango');
+const exEnr = [...state.enrollments.values()].find((e) => e.status === 'active' && e.sectionId === 'sec-2-narra');
 {
   const d = db.get(mangoDay).data;
   delete d.records[exEnr.studentId];
@@ -106,27 +108,27 @@ ok(toSemaphoreNumber('+639171234567') === '639171234567' && toSemaphoreNumber('0
 ok(db.get('sms/test1').data.status === 'sent' && db.get('sms/test1').data.providerId === '777', 'queued text sent through Semaphore');
 ok(semaphoreCalls[0]?.sendername === 'SUNNYSIDE' && semaphoreCalls[0]?.number === '639171234567' && semaphoreCalls[0]?.apikey === 'secret', 'Semaphore got the number, sender name and key');
 ok(db.get('sms/bad1').data.status === 'failed' && !semaphoreCalls.some((c) => c.number === '639998887777'), 'a text to a number that is not the guardian\'s is refused');
-ok(!db.has(`confirmations/sec-mango_${today}`), 'no auto-confirm in the morning (Mango stays unconfirmed)');
+ok(!db.has(`confirmations/sec-2-narra_${today}`), 'no auto-confirm in the morning (Mango stays unconfirmed)');
 ok(textable.every((k) => smsOf(k).length === 0), 'no absence text before the absence text time');
 
 // ---- 9:00 AM: the absence step for the class the teacher confirmed ----
 report = await run(env, new Date(`${today}T01:00:00Z`), fakeFetch);
 console.log('09:00 report:', JSON.stringify(report));
 ok(textable.length > 0 && textable.every((k) => smsOf(k).some((m) => m.kind === 'absent' || m.kind === 'streak')), `absence texts queued for the confirmed class (${textable.length})`);
-ok(db.has(`notifications/absrun_sec-apple_${today}`), 'absence step remembered');
+ok(db.has(`notifications/absrun_sec-k-sampaguita_${today}`), 'absence step remembered');
 const count = [...db.keys()].filter((k) => k.startsWith('sms/')).length;
 await run(env, new Date(`${today}T01:05:00Z`), fakeFetch);
 ok([...db.keys()].filter((k) => k.startsWith('sms/')).length === count, 'absence texts are not made twice');
-ok(!db.has(`confirmations/sec-mango_${today}`), 'unconfirmed class still open during class');
+ok(!db.has(`confirmations/sec-2-narra_${today}`), 'unconfirmed class still open during class');
 
 // ---- 11:35 AM: the class nobody confirmed is closed quietly ----
 const before = [...db.keys()].filter((k) => k.startsWith('sms/')).length;
 report = await run(env, new Date(`${today}T03:35:00Z`), fakeFetch);
 console.log('11:35 report:', JSON.stringify(report));
-const conf = db.get(`confirmations/sec-mango_${today}`)?.data;
+const conf = db.get(`confirmations/sec-2-narra_${today}`)?.data;
 ok(conf?.auto === true && conf.confirmedBy === 'Not confirmed', 'class nobody confirmed is closed after it ends');
 ok([...db.keys()].filter((k) => k.startsWith('sms/')).length === before, 'closing it sends no parent texts');
-ok(db.has(`notifications/unc_sec-mango_${today}`), 'staff are told the class was not confirmed');
+ok(db.has(`notifications/unc_sec-2-narra_${today}`), 'staff are told the class was not confirmed');
 const recs = Object.values(db.get(mangoDay).data.records);
 ok(recs.some((r) => r.status === 'absent') && recs.some((r) => r.status === 'present'), 'records completed: scanned present, the rest absent');
 const exRec = db.get(mangoDay).data.records[exEnr.studentId];

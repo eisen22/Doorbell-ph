@@ -309,7 +309,7 @@ export function Attendance() {
                       </strong>
                       <span className="muted small">
                         {row.record?.scannedAt
-                          ? `Scanned at the gate ${to12h(row.record.scannedAt)}`
+                          ? `Scanned at the gate ${to12h(row.record.scannedAt)}${row.record.scannedOut ? ` · out ${to12h(row.record.scannedOut)}` : ''}`
                           : row.record
                             ? row.record.source === 'auto'
                               ? 'Not scanned'

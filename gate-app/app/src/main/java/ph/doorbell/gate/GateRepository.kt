@@ -30,6 +30,7 @@ class GateRepository(private val db: FirebaseFirestore = FirebaseFirestore.getIn
     private var sections = mapOf<String, Section>()
     private var sectionOf = mapOf<String, String>() // student id -> section id (active enrollments only)
     private var calendar = mapOf<String, String>() // date -> day type ('holiday', 'suspension', ...)
+    private var calendarLevels = mapOf<String, List<String>>() // date -> grade levels it applies to (empty = all)
     private var settings = SchoolSettings()
 
     // ----- today -----
@@ -88,6 +89,12 @@ class GateRepository(private val db: FirebaseFirestore = FirebaseFirestore.getIn
             @Suppress("UNCHECKED_CAST")
             val days = snap?.get("days") as? List<Map<String, Any?>> ?: emptyList()
             calendar = days.mapNotNull { e -> (e["date"] as? String)?.let { it to (e["type"] as? String ?: "") } }.toMap()
+            @Suppress("UNCHECKED_CAST")
+            calendarLevels = days.mapNotNull { e ->
+                val d = e["date"] as? String
+                val lv = (e["levels"] as? List<Any?>)?.mapNotNull { it as? String }
+                if (d != null && !lv.isNullOrEmpty()) d to lv else null
+            }.toMap()
             refreshStatus()
         }
         listenToToday(Rules.today())
@@ -142,7 +149,7 @@ class GateRepository(private val db: FirebaseFirestore = FirebaseFirestore.getIn
     // Counts for the top of the scanner screen.
     private fun refreshStatus() {
         val today = Rules.today()
-        val withClass = sections.values.filter { Rules.isSchoolDay(today, it.schedule, calendar) && today in settings.yearStart..settings.yearEnd }.map { it.id }.toSet()
+        val withClass = sections.values.filter { Rules.isSchoolDay(today, it.schedule, calendar, calendarLevels, it.gradeLevel) && today in settings.yearStart..settings.yearEnd }.map { it.id }.toSet()
         val expected = sectionOf.count { (_, sec) -> sec in withClass }
         val arrived = scannedToday.filterKeys { it in withClass }.values.sumOf { it.size }
         _status.value = GateStatus(
@@ -169,7 +176,7 @@ class GateRepository(private val db: FirebaseFirestore = FirebaseFirestore.getIn
         val section = sectionOf[student.id]?.let { sections[it] } ?: return ScanResult.NotEnrolled(student)
 
         // 2. Is there class today?
-        if (!Rules.isSchoolDay(today, section.schedule, calendar) || today < settings.yearStart || today > settings.yearEnd) {
+        if (!Rules.isSchoolDay(today, section.schedule, calendar, calendarLevels, section.gradeLevel) || today < settings.yearStart || today > settings.yearEnd) {
             // CHILD SAFETY: the class was cancelled for today (teacher absent) but the child came anyway:
             // tell the staff (shows as an urgent alert on the website).
             if (today in section.schedule.noClassDates && today >= settings.yearStart && today <= settings.yearEnd) {
@@ -194,8 +201,27 @@ class GateRepository(private val db: FirebaseFirestore = FirebaseFirestore.getIn
         lastSeen[code] = nowMs
         if (last != null && nowMs - last < GateConfig.DEBOUNCE_SECONDS * 1000) return ScanResult.Ignored
 
-        // 4. Only the first scan of the day counts.
-        scannedToday[section.id]?.get(student.id)?.let { return ScanResult.AlreadyIn(student, section, it) }
+        // 4. Only the first scan of the day counts as coming in. Scanned again 30 minutes or more later
+        //    (or, for a child the teacher marked present without a scan, in the last hour of class) =
+        //    going home: the time out is saved. No text, no alert.
+        val nowTime = Rules.timeNow()
+        val inAt = scannedToday[section.id]?.get(student.id)
+        val manualIn = inAt == null && (statusToday[student.id] == "present" || statusToday[student.id] == "late")
+        if ((inAt != null && Rules.toMinutes(nowTime) - Rules.toMinutes(inAt) >= 30) ||
+            (manualIn && Rules.toMinutes(nowTime) >= Rules.toMinutes(section.schedule.endTime) - 60)
+        ) {
+            val dayIdOut = "${section.id}_$today"
+            save("attendance", dayIdOut, mapOf("records" to mapOf(student.id to mapOf("scannedOut" to nowTime))), merge = true)
+            // The parent portal's month for this child (only the time out; the website rewrites the rest).
+            val month = today.substring(0, 7)
+            save(
+                "parentDays", "${student.id}_$month",
+                mapOf("studentId" to student.id, "month" to month, "days" to mapOf(today to mapOf("o" to nowTime))),
+                merge = true,
+            )
+            return ScanResult.Out(student, section, nowTime)
+        }
+        inAt?.let { return ScanResult.AlreadyIn(student, section, it) }
 
         // 5. Present or late, by the clock. NO text is sent at the gate: the parent is texted when a
         //    teacher confirms the child in class (website).

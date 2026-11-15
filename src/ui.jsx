@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, useMemo } from 'react';
-import { manilaToday, addDays, isoWeekday, DAY_KIND_META, dayKind, classNow, classPhase, shortClassName, sortByStart, to12h, isSchoolDay } from './logic';
+import { GRADE_LEVELS, gradeName, bySectionGrade, levelsLabel, manilaToday, addDays, isoWeekday, DAY_KIND_META, dayKind, classNow, classPhase, shortClassName, sortByStart, to12h, isSchoolDay } from './logic';
 import { DemoClock, Engine, noopPersistence, buildDemoState, demoAuth } from './engine';
 import { cloudConfigured, createCloudEngine } from './firebase';
 import { CheckCircle2, Clock3, XCircle, FileCheck2, CircleDashed, X, CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react';
@@ -543,7 +543,7 @@ export function YearCalendar({ year, calendar, today, selection, onDayClick }) {
                 const kind = dayKind(d, year, calendar);
                 const entry = byDate.get(d);
                 const selected = selection && d >= selection.from && d <= selection.to;
-                const label = `${format(parseISO(d), 'EEE, MMM d')}: ${DAY_KIND_META[kind].label}${entry ? ` - ${entry.label}` : ''}`;
+                const label = `${format(parseISO(d), 'EEE, MMM d')}: ${DAY_KIND_META[kind].label}${entry ? ` - ${entry.label}${entry.levels?.length ? ` (${levelsLabel(entry.levels)})` : ''}` : ''}`;
                 const cls = `cal-day k-${kind} ${d === today ? 'is-today' : ''} ${selected ? 'is-selected' : ''} ${entry?.scope === 'local' ? 'is-local' : ''}`;
                 return onDayClick ? (
                   <button key={d} className={cls} title={label} aria-label={label} onClick={() => onDayClick(d)}>
@@ -716,7 +716,9 @@ export function CalendarLegend({ counts }) {
 export async function loadMyClasses(r, requested) {
   const session = await r.getSession();
   const today = await r.getToday();
-  const classes = sortByStart(await Promise.all(session.sectionIds.map((id) => r.getSection(id))));
+  // A teacher's few classes in time order; many classes (the admin, a subject teacher) Kindergarten to Grade 6.
+  const all = await Promise.all(session.sectionIds.map((id) => r.getSection(id)));
+  const classes = all.length > 6 ? [...all].sort(bySectionGrade) : sortByStart(all);
   const current = classNow(classes, today.time, today.actualDate);
   const section = classes.find((c) => c.id === requested) ?? current ?? classes[0];
   return { session, today, classes, current, section };
@@ -736,6 +738,27 @@ const PHASE_LABEL = { now: 'Now', next: 'Later', done: 'Done', off: 'No class' }
 // Pill buttons to switch class (hidden when the teacher has only one). "Now" marks the class in session.
 export function ClassSwitch({ classes, value, onChange, time, date }) {
   if (classes.length < 2) return null;
+  // Many classes: one drop-down list, grouped Kindergarten, Grade 1 ... Grade 6.
+  if (classes.length > 6)
+    return (
+      <label className="class-select">
+        <span className="muted small">Class</span>
+        <select className="input auto" value={value} onChange={(e) => onChange(e.target.value)} aria-label="Choose a class">
+          {GRADE_LEVELS.filter((g) => classes.some((c) => (c.gradeLevel ?? 'K') === g)).map((g) => (
+            <optgroup key={g} label={gradeName(g)}>
+              {classes
+                .filter((c) => (c.gradeLevel ?? 'K') === g)
+                .map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name} · {to12h(c.schedule.startTime)}
+                    {time && classPhase(c, time, date) === 'now' ? ' · now' : ''}
+                  </option>
+                ))}
+            </optgroup>
+          ))}
+        </select>
+      </label>
+    );
   return (
     <div className="class-switch" role="tablist" aria-label="Choose a class">
       {classes.map((c) => {
@@ -758,3 +781,35 @@ export function ClassSwitch({ classes, value, onChange, time, date }) {
     </div>
   );
 }
+
+// =====================================================================
+// GRADE LEVEL FILTER: All · Kindergarten · Grade 1 ... Grade 6 (used on every list page).
+// value: 'all' or a grade ('K', '1' ... '6'). counts (optional): { K: 20, '1': 60, ... }.
+// Grades with nothing in them are hidden, except the one selected.
+// =====================================================================
+export function LevelChips({ value, onChange, counts }) {
+  const shown = GRADE_LEVELS.filter((g) => !counts || counts[g] || value === g);
+  if (counts && shown.length <= 1 && value === 'all') return null;
+  return (
+    <div className="chips level-chips" role="group" aria-label="Grade level">
+      <button type="button" className={`fchip ${value === 'all' ? 'fchip-on' : ''}`} aria-pressed={value === 'all'} onClick={() => onChange('all')}>
+        All levels
+      </button>
+      {shown.map((g) => (
+        <button key={g} type="button" className={`fchip ${value === g ? 'fchip-on' : ''}`} aria-pressed={value === g} onClick={() => onChange(g)}>
+          {gradeName(g)}
+          {counts && <b className="count">{counts[g] ?? 0}</b>}
+        </button>
+      ))}
+    </div>
+  );
+}
+/** Counts items per grade: countByGrade(rows, (r) => r.section?.gradeLevel). */
+export const countByGrade = (items, gradeOf) => {
+  const out = {};
+  for (const it of items) {
+    const g = gradeOf(it);
+    if (g) out[g] = (out[g] ?? 0) + 1;
+  }
+  return out;
+};

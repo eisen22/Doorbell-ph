@@ -19,6 +19,8 @@ import {
   Modal,
   Toast,
   DatePicker,
+  LevelChips,
+  countByGrade,
 } from '../ui';
 import { useState, useMemo } from 'react';
 import {
@@ -44,6 +46,15 @@ export function AdminStudents() {
   const [params, setParams] = useSearchParams();
   const q = (params.get('q') ?? '').toLowerCase();
   const filter = params.get('filter') ?? 'all';
+  const level = params.get('level') ?? 'all';
+  const sortBy = params.get('sort') ?? 'grade';
+  const setParam = (k, v, dflt) => {
+    const p = new URLSearchParams(params);
+    if (v === dflt) p.delete(k);
+    else p.set(k, v);
+    if (k === 'level') p.delete('filter'); // a section of another level would hide everything
+    setParams(p);
+  };
   const [selected, setSelected] = useState(new Set());
   const [edit, setEdit] = useState(null);
   const [assignOpen, setAssignOpen] = useState(false);
@@ -64,9 +75,12 @@ export function AdminStudents() {
         if (filter === 'unassigned' && active) return false;
         if (filter === 'unassigned' && r.enrollment && r.enrollment.status !== 'active') return false;
         if (filter !== 'all' && filter !== 'unassigned' && !(active && r.enrollment?.sectionId === filter)) return false;
+        if (level !== 'all' && r.section?.gradeLevel !== level) return false;
         return !q || `${r.student.firstName} ${r.student.lastName} ${r.guardian?.name ?? ''} ${r.student.lrn ?? ''}`.toLowerCase().includes(q);
-      }),
-    [data, filter, q],
+      })
+        // The list comes ordered Kindergarten to Grade 6 (then by section and name); or A to Z by last name.
+        .sort((a, b) => (sortBy === 'name' ? a.student.lastName.localeCompare(b.student.lastName) || a.student.firstName.localeCompare(b.student.firstName) : 0)),
+    [data, filter, q, level, sortBy],
   );
   if (!data)
     return (
@@ -140,19 +154,27 @@ export function AdminStudents() {
         </div>
       </div>
 
+      <LevelChips
+        value={level}
+        onChange={(v) => setParam('level', v, 'all')}
+        counts={countByGrade(data.rows.filter((r) => r.enrollment?.status === 'active'), (r) => r.section?.gradeLevel)}
+      />
       <div className="chips">
-        <button className={`fchip ${filter === 'all' ? 'fchip-on' : ''}`} onClick={() => setFilter('all')}>
-          All
-        </button>
-        <button className={`fchip ${filter === 'unassigned' ? 'fchip-on' : ''}`} onClick={() => setFilter('unassigned')}>
-          Not in a section <b className="count">{unassigned}</b>
-        </button>
-        {data.sections.map((s) => (
-          <button key={s.id} className={`fchip ${filter === s.id ? 'fchip-on' : ''}`} onClick={() => setFilter(s.id)}>
-            <span className="sec-dot sm" style={{ background: s.color }} />
-            {s.name}
-          </button>
-        ))}
+        <select className="input auto" value={filter} onChange={(e) => setFilter(e.target.value)} aria-label="Section">
+          <option value="all">All sections</option>
+          <option value="unassigned">Not in a section ({unassigned})</option>
+          {data.sections
+            .filter((s) => level === 'all' || s.gradeLevel === level)
+            .map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+        </select>
+        <select className="input auto" value={sortBy} onChange={(e) => setParam('sort', e.target.value, 'grade')} aria-label="Sort">
+          <option value="grade">Sort: grade and section</option>
+          <option value="name">Sort: last name (A to Z)</option>
+        </select>
         <input
           className="input grow"
           placeholder="Search name, guardian or LRN"

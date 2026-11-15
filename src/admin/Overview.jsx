@@ -17,6 +17,8 @@ import {
   CountUp,
   Skeleton,
   useRepo,
+  LevelChips,
+  countByGrade,
 } from '../ui';
 import { LEVEL_BANDS, bandOf } from './Sections';
 import { autoFinalizeTime } from '../logic';
@@ -40,7 +42,12 @@ function SampleSchool() {
   const [result, setResult] = useState(null); // summary when finished
   if (!repo.loadSampleSchool) return null; // demo mode already has sample data
   const run = async () => {
-    if (!confirm('Load the sample school? This adds 4 teachers, 4 sections, 89 children and attendance since June 8.')) return;
+    if (
+      !confirm(
+        'Load the sample school? This adds Kindergarten to Grade 6 (3 sections each, 20 pupils per section), 23 teachers and the last 3 weeks of attendance (about 2,700 records).',
+      )
+    )
+      return;
     try {
       setResult(await repo.loadSampleSchool(setStatus));
     } catch (e) {
@@ -62,6 +69,19 @@ function SampleSchool() {
             ))}
           </ul>
           {result.problems.length > 0 && <p className="error">{result.problems.join('; ')}</p>}
+          <p className="muted small">Last step: let the parents' view catch up (about 860 records).</p>
+          <button
+            className="btn"
+            disabled={!!status && status !== 'done'}
+            onClick={async () => {
+              setStatus('Updating the parent portal…');
+              const r = await repo.syncParentPortal();
+              setStatus('done');
+              alert(`Parent portal updated: ${r.parents} parents, ${r.months} months.`);
+            }}
+          >
+            Update parent portal
+          </button>
         </>
       ) : (
         <>
@@ -81,6 +101,7 @@ function SampleSchool() {
 // OVERVIEW: school-wide numbers, each section's arrivals today, what needs fixing, upcoming calendar.
 // ---------------------------------------------------------------------
 export function AdminDashboard() {
+  const [level, setLevel] = useState('all'); // "Today by section": one grade level or all
   const { data } = useLive(async (r) => {
     const today = await r.getToday();
     const sections = (await r.listSections()).filter((s) => !s.archived);
@@ -212,7 +233,8 @@ export function AdminDashboard() {
           }
         >
           {/* Grouped by level: Kindergarten, Grades 1 to 3, Grades 4 to 6. */}
-          {LEVEL_BANDS.map((band) => {
+          <LevelChips value={level} onChange={setLevel} counts={countByGrade(perSection, (p) => p.section.gradeLevel ?? 'K')} />
+          {LEVEL_BANDS.filter((band) => level === 'all' || band.id === level).map((band) => {
             const items = perSection.filter((p) => bandOf(p.section.gradeLevel) === band.id);
             if (!items.length) return null;
             return (

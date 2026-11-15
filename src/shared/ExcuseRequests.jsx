@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { format } from 'date-fns';
 import { Check, FileText, X } from 'lucide-react';
-import { useLive, useRepo, Card, Empty, Skeleton, Avatar, Toast } from '../ui';
+import { useLive, useRepo, Card, Empty, Skeleton, Avatar, Toast, LevelChips, countByGrade } from '../ui';
 
 // =====================================================================
 // EXCUSE REQUESTS (/excuses for teachers, /admin/excuses for the admin)
@@ -15,6 +15,7 @@ const shortDay = (d) => new Date(`${d}T00:00:00`).toLocaleDateString('en-US', { 
 export function ExcuseRequests() {
   const repo = useRepo();
   const [tab, setTab] = useState('pending');
+  const [level, setLevel] = useState('all');
   const [toast, setToast] = useState(null);
   const [notes, setNotes] = useState({});
   const [busy, setBusy] = useState(null);
@@ -25,8 +26,9 @@ export function ExcuseRequests() {
         <Skeleton h={300} />
       </div>
     );
-  const pending = data.filter((x) => x.status === 'pending');
-  const list = tab === 'pending' ? pending : data.filter((x) => x.status !== 'pending');
+  const inLevel = data.filter((x) => level === 'all' || x.section?.gradeLevel === level);
+  const pending = inLevel.filter((x) => x.status === 'pending');
+  const list = tab === 'pending' ? pending : inLevel.filter((x) => x.status !== 'pending');
   const decide = async (x, decision) => {
     setBusy(x.id);
     try {
@@ -47,12 +49,13 @@ export function ExcuseRequests() {
           <p className="page-sub">Sent by parents from the parent portal. Approved days become Excused and don't count toward alerts.</p>
         </div>
       </div>
+      <LevelChips value={level} onChange={setLevel} counts={countByGrade(data, (x) => x.section?.gradeLevel)} />
       <div className="chips">
         <button className={`fchip ${tab === 'pending' ? 'fchip-on' : ''}`} onClick={() => setTab('pending')}>
           Waiting {pending.length}
         </button>
         <button className={`fchip ${tab === 'done' ? 'fchip-on' : ''}`} onClick={() => setTab('done')}>
-          Answered {data.length - pending.length}
+          Answered {inLevel.length - pending.length}
         </button>
       </div>
       <Card>

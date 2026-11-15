@@ -12,6 +12,9 @@ import {
   shouldAlertStreak,
   shouldAutoFinalize,
   classEnded,
+  gradeRank,
+  bySectionGrade,
+  levelsLabel,
   autoFinalizeTime,
   streakInfo,
   to12h,
@@ -142,6 +145,25 @@ export class Engine {
     this.clock = clock;
     this.mode = mode;
     this.s = state;
+    this.normalizeSections();
+  }
+  // ---------------------------------------------------------------------
+  // SCHOOL-WIDE TIMES (Settings): the gate opens at settings.gateOpens (default 6:00 AM) for every
+  // class, and the absence texts go out when the first period ends (start + settings.firstPeriodMins).
+  // The rules in logic.js read them from each section's schedule, so they are copied there, together
+  // with the section's grade level (for calendar entries that apply to some levels only).
+  // ---------------------------------------------------------------------
+  normalizeSection(sec) {
+    if (!sec?.schedule) return sec;
+    const st = this.s.meta?.settings ?? {};
+    const gate = toMinutes(st.gateOpens || '06:00');
+    sec.schedule.gradeLevel = sec.gradeLevel ?? 'K';
+    sec.schedule.autoFinalizeMins = Number(st.firstPeriodMins) > 0 ? Number(st.firstPeriodMins) : 60;
+    sec.schedule.scanWindowMins = Math.max(0, toMinutes(sec.schedule.startTime) - gate);
+    return sec;
+  }
+  normalizeSections() {
+    for (const sec of this.s.sections?.values?.() ?? []) this.normalizeSection(sec);
   }
   /* ---------- plumbing ---------- */
   // Tells every open screen that data changed so it reloads (grouped: at most once per moment).
@@ -167,12 +189,15 @@ export class Engine {
   applyRemote(col, id, data) {
     const s = this.s;
     if (col === 'meta') {
-      if (id === 'school' && data) s.meta = data;
+      if (id === 'school' && data) {
+        s.meta = data;
+        this.normalizeSections();
+      }
       if (id === 'calendar' && data) s.calendar = new Map((data.days ?? []).map((c) => [c.date, c]));
     } else {
       const map = s[col];
       if (data === null) map.delete(id);
-      else map.set(id, data);
+      else map.set(id, col === 'sections' ? this.normalizeSection(data) : data);
     }
     this.emit();
   }
@@ -220,7 +245,7 @@ export class Engine {
     // The admin can open every class (Admin -> Attendance); a teacher sees their own classes
     // plus any class they cover as a substitute today.
     const classes =
-      account.role === 'admin' ? sortByStart([...this.s.sections.values()].filter((x) => !x.archived)) : this.myClasses(account.teacherId);
+      account.role === 'admin' ? [...this.s.sections.values()].filter((x) => !x.archived).sort(bySectionGrade) : this.myClasses(account.teacherId);
     const now = classNow(classes, this.clock.peek(), this.clock.today());
     this.session = {
       uid: account.uid,
@@ -507,7 +532,7 @@ export class Engine {
         out.push({ student: row.student, guardian: row.guardian, section, totals: t, worst, smsSent });
       }
     }
-    return out.sort((a, b) => b.worst - a.worst || b.totals.semester.absent - a.totals.semester.absent || byName(a.student, b.student));
+    return out.sort((a, b) => bySectionGrade(a.section, b.section) || b.worst - a.worst || b.totals.semester.absent - a.totals.semester.absent || byName(a.student, b.student));
   }
   // =====================================================================
   // CONFIRMING A CLASS (finalize) AND THE PARENT TEXTS
@@ -536,6 +561,14 @@ export class Engine {
     if (auto && !roster.length) return null; // the class had no children yet on that day
     const day = this.s.attendance.get(id) ?? { id, sectionId, date, records: {} };
     const noData = auto && !roster.some((stu) => day.records[stu.id]);
+    // The time the teacher confirmed each child in class (shown to the parent in the parent portal).
+    if (!auto) {
+      const hhmm = at.slice(11, 16);
+      for (const stu of roster) {
+        const rec = day.records[stu.id];
+        if (rec && (rec.status === 'present' || rec.status === 'late') && !rec.confirmedAt) rec.confirmedAt = hhmm;
+      }
+    }
     if (!noData) {
       for (const stu of roster) {
         if (day.records[stu.id]) continue;
@@ -594,7 +627,8 @@ export class Engine {
   // text = false: only staff alerts (a day nobody confirmed, or an old day).
   runAbsence(section, date, at = this.nowIso(date), text = true) {
     const mark = `absrun_${dayId(section.id, date)}`;
-    if (this.s.notifications.has(mark)) return;
+    if (this.s.notifications.has(mark) || this._absDone?.has(mark)) return;
+    (this._absDone ??= new Set()).add(mark);
     const asOf = at.slice(11, 16);
     let texted = 0;
     for (const stu of this.rosterOn(section.id, date)) {
@@ -607,9 +641,12 @@ export class Engine {
       this.checkStreak(section, stu, date, at, text);
       this.checkTotals(section, stu, date, at, text);
     }
-    const n = { id: mark, kind: 'system', sectionId: section.id, createdAt: at, read: true, title: `Absence texts for ${section.name}: ${texted}` };
-    this.s.notifications.set(mark, n);
-    this.put('notifications', mark, n);
+    // The marker is only needed today (the Worker and other screens check it); past days are done at once.
+    if (date === this.clock.today()) {
+      const n = { id: mark, kind: 'system', sectionId: section.id, createdAt: at, read: true, title: `Absence texts for ${section.name}: ${texted}` };
+      this.s.notifications.set(mark, n);
+      this.put('notifications', mark, n);
+    }
   }
   // Runs every minute while the website is open (and in the Cloudflare Worker every 5 minutes):
   //   - today, a class a teacher confirmed, once the absence text time passes: runAbsence()
@@ -621,7 +658,9 @@ export class Engine {
     for (const sec of this.writableSections()) {
       // A substitute may only confirm the covered class TODAY (firestore.rules allows only that date).
       const own = this.session.role === 'admin' || sec.teacherId === this.session.teacherId;
-      for (let d = own ? this.year.start : today; d <= end; d = addDays(d, 1)) {
+      // Looks back 14 days at most (a class left unconfirmed longer than that is fixed by hand).
+      const from = addDays(today, -14) > this.year.start ? addDays(today, -14) : this.year.start;
+      for (let d = own ? from : today; d <= end; d = addDays(d, 1)) {
         if (!isSchoolDay(d, sec.schedule, this.s.calendar)) continue;
         const conf = this.s.confirmations.get(dayId(sec.id, d));
         if (!conf) {
@@ -694,7 +733,7 @@ export class Engine {
   }
   async listSections() {
     await this.ready;
-    return [...this.s.sections.values()].sort((a, b) => a.name.localeCompare(b.name));
+    return [...this.s.sections.values()].sort(bySectionGrade);
   }
   async getSection(id) {
     await this.ready;
@@ -787,6 +826,19 @@ export class Engine {
     const nowMs = Date.now();
     this.lastScanAt.set(token, nowMs);
     const existing = this.record(sec.id, today, student.id);
+    // LEAVING SCHOOL: the card is scanned again 30 minutes or more after the child came in (or, for a child
+    // the teacher marked present without a scan, in the last hour of class): the time out is saved and shown
+    // to the parent in the parent portal. No text and no alert.
+    if (existing && (last === undefined || (nowMs - last) / 1000 >= 10)) {
+      const sinceIn = existing.scannedAt ? toMinutes(time) - toMinutes(existing.scannedAt) : null;
+      const manualPresent = !existing.scannedAt && (existing.status === 'present' || existing.status === 'late');
+      if ((sinceIn !== null && sinceIn >= 30) || (manualPresent && toMinutes(time) >= toMinutes(sec.schedule.endTime) - 60)) {
+        this.writeRecord({ ...existing, scannedOut: time });
+        this.syncParentDays([student.id], [today.slice(0, 7)]);
+        this.emit();
+        return { kind: 'out', student, time };
+      }
+    }
     const decision = decideScan({
       time,
       schedule: sec.schedule,
@@ -844,6 +896,14 @@ export class Engine {
       sectionId: input.sectionId,
       status: input.status,
       scannedAt: prev?.scannedAt,
+      scannedOut: prev?.scannedOut,
+      // Confirmed in class by a teacher after the class was confirmed: the time is shown to the parent.
+      confirmedAt:
+        (input.status === 'present' || input.status === 'late') && locked
+          ? prev?.confirmedAt && !prev.needsCheck && prev.status !== 'absent'
+            ? prev.confirmedAt
+            : this.clock.peek()
+          : undefined,
       source: 'manual',
       excusedNote: input.status === 'excused' ? input.note : undefined,
       editedReason: input.reason,
@@ -854,7 +914,7 @@ export class Engine {
       stu ? `${stu.firstName} ${stu.lastName}` : input.studentId,
       `${input.date}: ${prev?.status ?? 'none'} -> ${input.status}${input.reason ? ` (${input.reason})` : ''}`,
     );
-    const absenceDone = this.s.notifications.has(`absrun_${dayId(input.sectionId, input.date)}`);
+    const absenceDone = input.date < this.clock.today() || this.s.notifications.has(`absrun_${dayId(input.sectionId, input.date)}`);
     if (stu && input.status !== 'absent') {
       // The child is accounted for: close any open "not in class" / "arrived after confirming" alert.
       const wasMissing = this.resolveAlerts(stu, input.date, input.status);
@@ -1006,7 +1066,7 @@ export class Engine {
         out.push({ student: row.student, guardian: row.guardian, section, streak: row.streak, smsSent });
       }
     }
-    return out.sort((a, b) => b.streak.count - a.streak.count || byName(a.student, b.student));
+    return out.sort((a, b) => bySectionGrade(a.section, b.section) || b.streak.count - a.streak.count || byName(a.student, b.student));
   }
   // One learner's attendance for the school year, for the attendance calendar window
   // (Absence Watch and the teacher's "Attention needed": click a name).
@@ -1085,7 +1145,8 @@ export class Engine {
       // Today only after the class is confirmed (the parent is never shown a gate scan as "in class"),
       // and not while a late arrival is still waiting for the teacher to confirm the child in class.
       if (date >= today && (!this.s.confirmations.has(dayId(r.sectionId, date)) || r.needsCheck)) continue;
-      days[date] = { s: r.status, t: r.scannedAt ?? null };
+      // s status, t scanned in at the gate, c confirmed in class by the teacher, o scanned out at the gate
+      days[date] = { s: r.status, t: r.scannedAt ?? null, c: r.confirmedAt ?? null, o: r.scannedOut ?? null };
     }
     // Class days with no class (holidays, breaks, suspensions, teacher absent), with their names.
     const noClass = {};
@@ -1116,6 +1177,7 @@ export class Engine {
       sectionName: section?.name ?? null,
       gradeLevel: section?.gradeLevel ?? null,
       teacherName: (section && this.s.teachers.get(section.teacherId)?.name) ?? null,
+      endTime: section?.schedule.endTime ?? null, // after this time, no scan out = "did not scan out"
       schoolName: this.settings.schoolName ?? null,
       days,
       noClass,
@@ -1138,9 +1200,8 @@ export class Engine {
   async syncParentPortal() {
     await this.ready;
     for (const g of this.s.guardians.values()) await this.syncParentKey(g);
-    const months = [];
-    const end = this.clock.today() < this.year.end ? this.clock.today() : this.year.end;
-    for (let d = `${this.year.start.slice(0, 7)}-01`; d <= end; d = addDays(d, 1)) if (d.endsWith('-01')) months.push(d.slice(0, 7));
+    // Only the months that have attendance (keeps the number of writes low on the free plan).
+    const months = [...new Set([...this.s.attendance.values()].map((d) => d.date.slice(0, 7)))].sort();
     this.syncParentDays(null, months);
     await this.logAudit('parent_portal.sync', `${this.s.guardians.size} parents`, `${months.length} months`);
     this.emit();
@@ -1222,6 +1283,7 @@ export class Engine {
   // Admin -> Settings: SMS templates, streak days, school name, etc.
   async updateSettings(patch) {
     this.s.meta = { ...this.s.meta, settings: { ...this.settings, ...patch } };
+    this.normalizeSections();
     this.saveMeta();
     await this.logAudit('settings.update', 'settings', Object.keys(patch).join(', '));
     this.emit();
@@ -1264,9 +1326,10 @@ export class Engine {
     const when = days.length === 1 ? fmtDay(first.date) : `${fmtDay(first.date)} to ${fmtDay(last.date)}`;
     await this.logAudit('calendar.update', days.length === 1 ? first.date : `${first.date} to ${last.date}`, `${first.type}: ${first.label}`);
     const noClass = first.type === 'holiday' || first.type === 'suspension' || first.type === 'break';
+    const only = levelsLabel(first.levels);
     const title =
       first.type === 'suspension'
-        ? `Classes suspended: ${when}`
+        ? `Classes suspended${only ? ` (${only})` : ''}: ${when}`
         : noClass
           ? `No classes: ${when}`
           : first.type === 'exam'
@@ -1278,7 +1341,7 @@ export class Engine {
                 : `School event: ${when}`;
     this.notifyCalendar(
       title,
-      `${first.label}.${noClass ? ' Attendance is not taken and these days do not count in absence streaks.' : ''}`,
+      `${first.label}.${noClass ? ` ${only ? `Only ${only.replace(/ only$/, '')} classes are affected. ` : ''}Attendance is not taken and these days do not count in absence streaks.` : ''}`,
       first.date,
     );
     this.syncParentDays(null, days.map((d) => d.date.slice(0, 7)));
@@ -1313,12 +1376,17 @@ export class Engine {
     this.emit();
   }
   // Shortcut for one suspended day.
-  async declareSuspension(date, label) {
-    await this.saveCalendarDays([{ date, type: 'suspension', label }]);
+  // levels: which grade levels are suspended (empty or all = the whole school). DepEd Order 22, s. 2024:
+  // Signal No. 1 suspends Kindergarten only; Signal No. 2 Kindergarten to Grade 10; Signal No. 3 all levels.
+  async declareSuspension(date, label, levels = []) {
+    const some = levels.length && levels.length < 7;
+    await this.saveCalendarDays([{ date, type: 'suspension', label, ...(some ? { levels: [...levels].sort((a, b) => gradeRank(a) - gradeRank(b)) } : {}) }]);
   }
   async listTeachers() {
     await this.ready;
-    return [...this.s.teachers.values()].sort((a, b) => a.name.localeCompare(b.name));
+    // By the grade they advise (Kindergarten, Grade 1 ... Grade 6), then by name; teachers with no class last.
+    const level = (t) => Math.min(99, ...[...this.s.sections.values()].filter((x) => !x.archived && x.teacherId === t.id).map((x) => gradeRank(x.gradeLevel)));
+    return [...this.s.teachers.values()].sort((a, b) => level(a) - level(b) || a.name.localeCompare(b.name));
   }
   // Adds or edits a teacher. A NEW teacher also gets a sign-in account with a temporary password
   // (returned so the admin can hand it over). The email cannot change after creation.
@@ -1327,13 +1395,13 @@ export class Engine {
     if (dupe) throw new Error('Another teacher already uses this email.');
     const existing = input.id ? this.s.teachers.get(input.id) : undefined;
     if (existing) {
-      Object.assign(existing, { name: input.name, mobile: input.mobile });
+      Object.assign(existing, { name: input.name, mobile: input.mobile, subjects: input.subjects ?? existing.subjects ?? [] });
       this.put('teachers', existing.id, existing);
       await this.logAudit('teacher.update', existing.name);
       this.emit();
       return { teacher: existing };
     }
-    const teacher = { id: uid('t'), name: input.name, email: input.email, mobile: input.mobile, active: true };
+    const teacher = { id: uid('t'), name: input.name, email: input.email, mobile: input.mobile, subjects: input.subjects ?? [], active: true };
     const { uid: accountUid, tempPassword } = await this.auth.createTeacherAccount(input.email, input.name, teacher.id);
     teacher.uid = accountUid;
     const account = { uid: accountUid, email: input.email, name: input.name, role: 'teacher', teacherId: teacher.id };
@@ -1465,11 +1533,12 @@ export class Engine {
           teacherId: input.teacherId,
           gradeLevel: input.gradeLevel ?? existing.gradeLevel ?? 'K',
           // Subject teachers (never the class teacher, never a deactivated one).
-          subjectTeacherIds: (input.subjectTeacherIds ?? []).filter((t) => t !== input.teacherId && this.s.teachers.get(t)?.active !== false),
+          subjectTeacherIds: (input.subjectTeacherIds ?? existing.subjectTeacherIds ?? []).filter((t) => t !== input.teacherId && this.s.teachers.get(t)?.active !== false),
           // keep the teacher-away days when the admin edits the class hours
           schedule: { ...input.schedule, teacherAway: existing.schedule?.teacherAway ?? input.schedule.teacherAway },
         }
       : { id: uid('sec'), schoolYearId: this.year.id, gradeLevel: 'K', archived: false, ...input };
+    this.normalizeSection(section);
     this.s.sections.set(section.id, section);
     this.put('sections', section.id, section);
     await this.logAudit(existing ? 'section.update' : 'section.create', section.name);
@@ -1595,7 +1664,8 @@ export class Engine {
           section: enrollment ? this.s.sections.get(enrollment.sectionId) : undefined,
         };
       })
-      .sort((a, b) => byName(a.student, b.student));
+      // Kindergarten first, then Grade 1 ... Grade 6 (by section), then by name; not yet placed last.
+      .sort((a, b) => (a.section ? 0 : 1) - (b.section ? 0 : 1) || bySectionGrade(a.section, b.section) || byName(a.student, b.student));
   }
   // A random card code like 'DB-7K2M9Q4XAB'. No personal data, so a lost card reveals nothing.
   newToken() {
@@ -1821,6 +1891,11 @@ export const settings = {
   schoolName: 'Sunnyside Elementary School',
   contactNumber: '0917 555 0123',
   arrivalSmsEnabled: true,
+  // The school gate opens (scanning starts) at this time for every class. DepEd sets no national time;
+  // each school decides. 6:00 AM by default.
+  gateOpens: '06:00',
+  // Absence texts go out when the first period ends: class start + this many minutes.
+  firstPeriodMins: 60,
   streakDays: 3,
   // Totals (not in a row): see DEFAULT_LIMITS in logic.js. Empty = the defaults.
   limits: {},
@@ -1879,63 +1954,78 @@ export function withTemplateDefaults(saved) {
   }
   return { ...saved, templates };
 }
-export const teachers = [
-  { id: 't-maria', name: 'Maria Santos', email: 'maria.santos@sunnyside.edu.ph', active: true, uid: 'u-maria' },
-  { id: 't-jose', name: 'Jose Ramirez', email: 'jose.ramirez@sunnyside.edu.ph', active: true, uid: 'u-jose' },
-  { id: 't-ana', name: 'Ana Villanueva', email: 'ana.villanueva@sunnyside.edu.ph', active: true, uid: 'u-ana' },
-  { id: 't-liza', name: 'Liza Aquino', email: 'liza.aquino@sunnyside.edu.ph', active: true, uid: 'u-liza' },
+// ---------------------------------------------------------------------
+// THE SAMPLE SCHOOL: Kindergarten to Grade 6, 3 sections per grade, 20 pupils per section.
+//   Kindergarten: two morning classes and one afternoon class (Maria Santos has Sampaguita in the
+//   morning and Gumamela in the afternoon). Grades 1 to 6: whole-day classes with one adviser each.
+//   Grades 4 to 6 also have subject teachers (departmentalized), so their classes list them.
+// ---------------------------------------------------------------------
+const SAMPLE_CLASSES = [
+  ['K', ['Sampaguita', 'Rosal', 'Gumamela']],
+  ['1', ['Masipag', 'Matapat', 'Magalang']],
+  ['2', ['Narra', 'Molave', 'Acacia']],
+  ['3', ['Ruby', 'Emerald', 'Diamond']],
+  ['4', ['Rizal', 'Mabini', 'Bonifacio']],
+  ['5', ['Luna', 'Silang', 'Aguinaldo']],
+  ['6', ['Mercury', 'Venus', 'Jupiter']],
 ];
+// Advisers in class order (Kindergarten has 2: Maria handles 2 classes). [name, subject taught in Grades 4 to 6]
+const ADVISERS = [
+  ['Maria Santos'], ['Liza Aquino'],
+  ['Carmela Reyes'], ['Rodel Bautista'], ['Grace Mendoza'],
+  ['Jose Ramirez'], ['Teresa Flores'], ['Arnel Castillo'],
+  ['Nora Villareal'], ['Joy Navarro'], ['Edwin Salazar'],
+  ['Ana Villanueva', 'Mathematics'], ['Ramon Cruz', 'English'], ['Celia Domingo', 'Science'],
+  ['Mark Ocampo', 'Filipino'], ['Rhea Lim', 'Araling Panlipunan'], ['Paolo Tan', 'Mathematics'],
+  ['Divina Morales', 'English'], ['Allan Garcia', 'Science'], ['Lorna Rivera', 'Filipino'],
+];
+// Subject teachers with no class of their own (they teach all Grade 4 to 6 classes).
+const SPECIALISTS = [['Benjie Torres', 'MAPEH'], ['Sheila Ramos', 'EPP'], ['Victor Gomez', 'GMRC']];
+const slug = (name) => name.toLowerCase().replace(/[^a-z]+/g, '.');
+const SAMPLE_TEACHERS = [...ADVISERS, ...SPECIALISTS].map(([name, subject]) => {
+  const first = name.split(' ')[0].toLowerCase();
+  const id = ['maria', 'jose', 'ana', 'liza'].includes(first) ? `t-${first}` : `t-${slug(name).replace(/\./g, '-')}`;
+  return { id, name, email: `${slug(name)}@sunnyside.edu.ph`, active: true, uid: `u-${id.slice(2)}`, subjects: subject ? [subject] : [] };
+});
+export const teachers = SAMPLE_TEACHERS;
 export const users = [
   { uid: 'u-admin', email: 'admin@sunnyside.edu.ph', name: 'Rosario Dizon', role: 'admin' },
   ...teachers.map((t) => ({ uid: t.uid, email: t.email, name: t.name, role: 'teacher', teacherId: t.id })),
 ];
-export const sections = [
-  {
-    id: 'sec-apple',
-    schoolYearId: 'sy-2026',
-    name: 'Kindergarten - Apple',
-    gradeLevel: 'K',
-    color: '#FFD9A8',
-    schedule,
-    capacity: 25,
-    teacherId: 't-maria',
-    archived: false,
-  },
-  {
-    id: 'sec-mango',
-    schoolYearId: 'sy-2026',
-    name: 'Grade 2 - Mango',
-    gradeLevel: '2',
-    color: '#D8F5A2',
-    schedule,
-    capacity: 25,
-    teacherId: 't-jose',
-    archived: false,
-  },
-  {
-    id: 'sec-banana',
-    schoolYearId: 'sy-2026',
-    name: 'Grade 4 - Banana',
-    gradeLevel: '4',
-    color: '#E4D6FA',
-    schedule: { ...schedule, startTime: '12:30', endTime: '16:00' },
-    capacity: 25,
-    teacherId: 't-ana',
-    archived: false,
-  },
-  // Maria handles two classes: Apple in the morning and Cherry in the afternoon.
-  {
-    id: 'sec-cherry',
-    schoolYearId: 'sy-2026',
-    name: 'Grade 6 - Cherry',
-    gradeLevel: '6',
-    color: '#FBD3E0',
-    schedule: { ...schedule, startTime: '12:30', endTime: '16:00' },
-    capacity: 25,
-    teacherId: 't-maria',
-    archived: false,
-  },
-];
+const COLORS = ['#FFD9A8', '#D8F5A2', '#CFE8FF', '#E4D6FA', '#FBD3E0', '#FFF1A8', '#C8F0E0'];
+export const sections = (() => {
+  const out = [];
+  let a = 0;
+  for (const [grade, names] of SAMPLE_CLASSES) {
+    names.forEach((nm, k) => {
+      const kinder = grade === 'K';
+      // Kindergarten: Sampaguita and Rosal 7:30-10:30 AM, Gumamela 12:30-3:30 PM (Maria's second class).
+      const sched = kinder
+        ? { ...schedule, startTime: k === 2 ? '12:30' : '07:30', endTime: k === 2 ? '15:30' : '10:30' }
+        : { ...schedule, startTime: '07:30', endTime: '16:00' };
+      const teacherId = kinder && k === 2 ? 't-maria' : SAMPLE_TEACHERS[a++].id;
+      out.push({
+        id: `sec-${grade.toLowerCase()}-${nm.toLowerCase()}`,
+        schoolYearId: 'sy-2026',
+        name: `${kinder ? 'Kindergarten' : `Grade ${grade}`} - ${nm}`,
+        gradeLevel: grade,
+        color: COLORS[(k + (Number(grade) || 0) * 3) % COLORS.length],
+        schedule: sched,
+        capacity: 30,
+        teacherId,
+        subjectTeacherIds: [],
+        archived: false,
+      });
+    });
+  }
+  // Grades 4 to 6: the other advisers of the same grade and the 3 specialists teach the class too.
+  for (const sec of out) {
+    if (sec.gradeLevel === 'K' || Number(sec.gradeLevel) < 4) continue;
+    const sameGrade = out.filter((x) => x.gradeLevel === sec.gradeLevel && x.id !== sec.id).map((x) => x.teacherId);
+    sec.subjectTeacherIds = [...sameGrade, ...SAMPLE_TEACHERS.slice(-SPECIALISTS.length).map((t) => t.id)];
+  }
+  return out;
+})();
 const FIRST_M = [
   'Juan',
   'Miguel',
@@ -1952,6 +2042,16 @@ const FIRST_M = [
   'Marco',
   'Adrian',
   'Daniel',
+  'Kenji',
+  'Elijah',
+  'Tristan',
+  'Jericho',
+  'Liam',
+  'Noah',
+  'Caleb',
+  'Ivan',
+  'Renz',
+  'Joaquin',
 ];
 const FIRST_F = [
   'Maria',
@@ -1969,6 +2069,16 @@ const FIRST_F = [
   'Erika',
   'Trisha',
   'Ysabel',
+  'Chloe',
+  'Hannah',
+  'Mikaela',
+  'Samantha',
+  'Leah',
+  'Janelle',
+  'Nicole',
+  'Patricia',
+  'Rhian',
+  'Zoe',
 ];
 const LAST = [
   'Dela Cruz',
@@ -2039,14 +2149,18 @@ function people() {
         startDate: schoolYear.start,
       });
       if (n % 7 === 0 && guardians.length) {
-        guardians[guardians.length - 1].studentIds.push(s.id);
+        // A sibling: same family name as the other child of that guardian.
+        const g = guardians[guardians.length - 1];
+        s.lastName = students.find((x) => x.id === g.studentIds[0])?.lastName ?? s.lastName;
+        g.studentIds.push(s.id);
         continue;
-      } // siblings
+      }
+      const rel = r() < 0.6 ? 'Mother' : r() < 0.8 ? 'Father' : 'Grandmother';
       guardians.push({
         id: `g-${s.id}`,
-        name: `${r() < 0.6 ? pick(FIRST_F) : pick(FIRST_M)} ${s.lastName}`,
+        name: `${rel === 'Father' ? pick(FIRST_M) : pick(FIRST_F)} ${s.lastName}`,
         mobile: `+639${String(170000000 + Math.floor(r() * 9999999)).slice(0, 9)}`,
-        relationship: r() < 0.6 ? 'Mother' : r() < 0.8 ? 'Father' : 'Grandmother',
+        relationship: rel,
         smsConsent: r() > 0.08,
         preferredLanguage: r() < 0.35 ? 'fil' : 'en',
         numberStatus: n === 9 ? 'failed' : r() < 0.85 ? 'verified' : 'unverified',
@@ -2094,8 +2208,9 @@ export function demoAuth(engine) {
     },
     demoAccounts: () => [
       { email: 'admin@sunnyside.edu.ph', password: DEMO_PASSWORD, label: 'School admin (Rosario Dizon)' },
-      { email: 'maria.santos@sunnyside.edu.ph', password: DEMO_PASSWORD, label: 'Teacher, Apple (AM) and Cherry (PM)' },
-      { email: 'jose.ramirez@sunnyside.edu.ph', password: DEMO_PASSWORD, label: 'Teacher, Grade 2 - Mango' },
+      { email: 'maria.santos@sunnyside.edu.ph', password: DEMO_PASSWORD, label: 'Teacher, Kindergarten Sampaguita (AM) and Gumamela (PM)' },
+      { email: 'jose.ramirez@sunnyside.edu.ph', password: DEMO_PASSWORD, label: 'Teacher, Grade 2 - Narra' },
+      { email: 'ana.villanueva@sunnyside.edu.ph', password: DEMO_PASSWORD, label: 'Teacher, Grade 4 - Rizal (Mathematics)' },
     ],
   };
 }
@@ -2109,6 +2224,17 @@ export function demoAuth(engine) {
 export function buildDemoState(today, clock) {
   const state = emptyState({ settings: structuredClone(settings), schoolYear: { ...schoolYear } }, DEPED_SY_2026_2027);
   state.calendar.set('2026-07-23', { date: '2026-07-23', type: 'suspension', label: 'Class suspension: heavy rain (example)' });
+  // An example of a suspension for Kindergarten only (DepEd: Signal No. 1), 6 school days ago.
+  {
+    let d = today;
+    for (let k = 0; k < 6; ) {
+      d = addDays(d, -1);
+      const e = state.calendar.get(d);
+      if (![0, 6].includes(new Date(`${d}T00:00:00Z`).getUTCDay()) && !(e && ['holiday', 'break', 'suspension'].includes(e.type))) k++;
+    }
+    if (d >= schoolYear.start)
+      state.calendar.set(d, { date: d, type: 'suspension', label: 'Tropical Cyclone Wind Signal No. 1 (example)', levels: ['K'] });
+  }
   users.forEach((u) => state.users.set(u.uid, { ...u }));
   teachers.forEach((t) => state.teachers.set(t.id, { ...t }));
   sections.forEach((s) => state.sections.set(s.id, structuredClone(s)));
@@ -2126,13 +2252,16 @@ export function buildDemoState(today, clock) {
     demoAccounts: () => [],
   };
   const engine = new Engine('demo', state, noopPersistence, auth, clock);
-  engine.backfill = true; // building history: past days get their parent texts, as if confirmed on the day
   const r = rng(77);
   const yesterday = addDays(today, -1);
+  // History: the last 15 school days only (about 3 weeks), so the sample fits the Firebase free plan
+  // (about 3,500 documents). Parent texts are kept for the last 2 school days only.
+  const HISTORY = 15;
+  const TEXT_DAYS = 2;
   for (const sec of state.sections.values()) {
-    const days = [];
-    for (let d = schoolYear.start; d <= yesterday && d <= schoolYear.end; d = addDays(d, 1))
-      if (isSchoolDay(d, sec.schedule, state.calendar)) days.push(d);
+    const days = recentSchoolDays(yesterday, HISTORY, sec.schedule, state.calendar, 60)
+      .filter((d) => d >= schoolYear.start && d <= schoolYear.end)
+      .reverse();
     const roster = engine.rosterOn(sec.id, schoolYear.start);
     const last = days.length - 1;
     days.forEach((date, idx) => {
@@ -2142,7 +2271,7 @@ export function buildDemoState(today, clock) {
         const x = r();
         let status = x < 0.86 ? 'present' : x < 0.93 ? 'late' : x < 0.97 ? 'absent' : 'excused';
         // Stories for the demo (Apple section), ending yesterday:
-        if (sec.id === 'sec-apple') {
+        if (sec.id === 'sec-k-sampaguita') {
           const fromEnd = last - idx; // 0 = yesterday
           if (fromEnd <= 3) {
             if (i === 2) status = fromEnd === 3 ? 'present' : 'absent'; // absent 3 days in a row
@@ -2167,10 +2296,13 @@ export function buildDemoState(today, clock) {
           scannedAt: time,
           source: time ? 'scanner' : 'manual',
           excusedNote: status === 'excused' ? 'Parent called: check-up' : undefined,
+          // Most children scan out at the gate when they go home (0 to 20 minutes after class).
+          scannedOut: time && r() < 0.9 ? fromMinutes(toMinutes(sec.schedule.endTime) + Math.floor(r() * 20)) : undefined,
         };
       });
       state.attendance.set(id, day);
       const conf = `${date}T${fromMinutes(toMinutes(sec.schedule.startTime) + 20 + Math.floor(r() * 25))}:00+08:00`;
+      engine.backfill = idx >= days.length - TEXT_DAYS; // these days get their parent texts, as if confirmed on the day
       engine.finalize(sec.id, date, r() < 0.8 ? (state.teachers.get(sec.teacherId ?? '')?.name ?? 'Rosario Dizon') : 'Rosario Dizon', false, conf);
     });
     // Today: about 60% of each morning class has arrived (only if today is a class day).
@@ -2196,6 +2328,7 @@ export function buildDemoState(today, clock) {
       state.attendance.set(id, day);
     }
   }
+  engine.backfill = false;
   // Older alerts are already read.
   for (const n of state.notifications.values()) if (n.createdAt < addDays(today, -1)) n.read = true;
   return state;

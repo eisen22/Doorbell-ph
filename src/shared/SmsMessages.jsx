@@ -15,6 +15,8 @@ import {
   Card,
   Empty,
   Skeleton,
+  LevelChips,
+  countByGrade,
 } from '../ui';
 
 // =====================================================================
@@ -45,17 +47,25 @@ const dayOf = (m) => m.createdAt.slice(0, 10);
 export function SmsMessages() {
   const repo = useRepo();
   const [kind, setKind] = useState('all');
+  const [level, setLevel] = useState('all');
   const [day, setDay] = useState(''); // '' = all days
   const [newestFirst, setNewestFirst] = useState(true);
   const [selected, setSelected] = useState(null);
-  const { data } = useLive(async (r) => ({ sms: await r.listSms(1000), students: await r.listStudentRows().catch(() => []) }));
+  const { data } = useLive(async (r) => ({
+    sms: await r.listSms(1000),
+    students: await r.listStudentRows().catch(() => []),
+    sections: await r.listSections().catch(() => []),
+  }));
   if (!data)
     return (
       <div className="page">
         <Skeleton h={400} />
       </div>
     );
-  const byKind = data.sms.filter((m) => kind === 'all' || (kind === 'failed' ? m.status === 'failed' : m.kind === kind));
+  // Grade level of a text = the level of its class (texts with no class, like tests, show under All levels only).
+  const gradeOf = new Map(data.sections.map((x) => [x.id, x.gradeLevel]));
+  const byLevel = data.sms.filter((m) => level === 'all' || gradeOf.get(m.sectionId) === level);
+  const byKind = byLevel.filter((m) => kind === 'all' || (kind === 'failed' ? m.status === 'failed' : m.kind === kind));
   const list = byKind
     .filter((m) => !day || dayOf(m) === day)
     .sort((a, b) => (newestFirst ? b.createdAt.localeCompare(a.createdAt) : a.createdAt.localeCompare(b.createdAt)));
@@ -104,12 +114,13 @@ export function SmsMessages() {
           </button>
         </div>
       </div>
+      <LevelChips value={level} onChange={setLevel} counts={countByGrade(data.sms, (m) => gradeOf.get(m.sectionId))} />
       <div className="chips">
         {KINDS.map(({ k, label }) => (
           <button key={k} className={`fchip ${kind === k ? 'fchip-on' : ''}`} onClick={() => setKind(k)}>
             {label}
             <b className="count">
-              {k === 'all' ? data.sms.length : data.sms.filter((m) => (k === 'failed' ? m.status === 'failed' : m.kind === k)).length}
+              {k === 'all' ? byLevel.length : byLevel.filter((m) => (k === 'failed' ? m.status === 'failed' : m.kind === k)).length}
             </b>
           </button>
         ))}

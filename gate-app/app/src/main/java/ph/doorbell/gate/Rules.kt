@@ -53,8 +53,18 @@ object Rules {
      *  - otherwise: is the weekday one of the section's class days?
      * calendar = date -> day type from the admin's School Calendar ('holiday', 'suspension', ...).
      */
-    fun isSchoolDay(date: String, schedule: Schedule, calendar: Map<String, String>): Boolean {
+    // levels/grade: a calendar entry for some grade levels only (e.g. a suspension for Kindergarten
+    // only, DepEd Signal No. 1) does not apply to the other levels.
+    fun isSchoolDay(
+        date: String,
+        schedule: Schedule,
+        calendar: Map<String, String>,
+        levels: Map<String, List<String>> = emptyMap(),
+        grade: String = "",
+    ): Boolean {
         if (date in schedule.noClassDates) return false // teacher absent, class cancelled by the admin
+        val only = levels[date].orEmpty()
+        if (only.isNotEmpty() && grade.isNotEmpty() && grade !in only) return isoWeekday(date) in schedule.classDays
         when (calendar[date]) {
             "makeup" -> return true
             "holiday", "suspension", "break" -> return false

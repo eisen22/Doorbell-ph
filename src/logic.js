@@ -105,7 +105,10 @@ export function manilaTime(now = new Date()) {
 export function isSchoolDay(date, schedule, calendar) {
   // The admin set "No class for this section" for this date (teacher absent, no substitute).
   if (schedule.teacherAway?.[date]?.kind === 'noclass') return false;
-  const entry = entryOf(calendar, date);
+  let entry = entryOf(calendar, date);
+  // An entry for some levels only (e.g. a suspension for Kindergarten only, DepEd Signal No. 1) does not
+  // apply to the other levels. schedule.gradeLevel is copied from the section (engine.normalizeSection).
+  if (entry?.levels?.length && schedule.gradeLevel && !entry.levels.includes(schedule.gradeLevel)) entry = undefined;
   if (entry?.type === 'makeup') return true;
   if (entry && (entry.type === 'holiday' || entry.type === 'suspension' || entry.type === 'break')) return false;
   return schedule.classDays.includes(isoWeekday(date));
@@ -682,3 +685,30 @@ export async function sha256Hex(text) {
 
 // Reasons a parent can pick when asking the teacher to excuse their child.
 export const EXCUSE_REASONS = ['Sick', 'Doctor or dental appointment', 'Family emergency', 'Death in the family', 'Bad weather or flood', 'Other'];
+
+/* =====================================================================
+   GRADE LEVELS (Doorbell covers Kindergarten to Grade 6)
+   Every list in the app is ordered Kindergarten, Grade 1, Grade 2 ... Grade 6.
+   ===================================================================== */
+export const GRADE_LEVELS = ['K', '1', '2', '3', '4', '5', '6'];
+/** 'K' -> 0, '1' -> 1 ... '6' -> 6 (unknown levels last). */
+export const gradeRank = (g) => {
+  const i = GRADE_LEVELS.indexOf(String(g ?? ''));
+  return i < 0 ? 99 : i;
+};
+/** 'K' -> 'Kindergarten', '3' -> 'Grade 3'. */
+export const gradeName = (g) => (!g || g === 'K' ? 'Kindergarten' : `Grade ${g}`);
+/** Sorts sections by grade level, then by name. */
+export const bySectionGrade = (a, b) => gradeRank(a?.gradeLevel) - gradeRank(b?.gradeLevel) || (a?.name ?? '').localeCompare(b?.name ?? '');
+/** Which levels a calendar entry covers, in words: 'Kindergarten only', 'Grades 1 to 3', ... ('' = all levels). */
+export function levelsLabel(levels) {
+  if (!levels?.length || levels.length === GRADE_LEVELS.length) return '';
+  const sorted = [...levels].sort((a, b) => gradeRank(a) - gradeRank(b));
+  if (sorted.length === 1) return `${gradeName(sorted[0])} only`;
+  const nums = sorted.filter((g) => g !== 'K');
+  const list = (xs) => (xs.length === 1 ? xs[0] : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
+  const grades = nums.length ? `${nums.length === 1 ? 'Grade' : 'Grades'} ${list(nums)}` : '';
+  return sorted[0] === 'K' ? `Kindergarten and ${grades}` : grades;
+}
+// Subjects of Grades 4 to 6 (MATATAG curriculum). Used to sort subject teachers ("Math teachers").
+export const SUBJECTS = ['English', 'Filipino', 'Mathematics', 'Science', 'Araling Panlipunan', 'MAPEH', 'EPP', 'GMRC'];
