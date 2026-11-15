@@ -871,3 +871,18 @@ a.kpi:hover { background: var(--surface) !important; }
 .sched-tag { margin-left: 6px; font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 999px; background: var(--ink, #222); color: #fff; }
 .card-title svg { vertical-align: -3px; margin-right: 4px; }
 @media (max-width: 640px) { .my-schedule th:nth-child(4), .my-schedule td:nth-child(4) { display: none; } }
+
+/* Class program on the fixed DepEd day: time, then subject (and teacher) selects */
+.program-fixed { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--r-sm, 10px); overflow: hidden; }
+.pf-row { display: grid; grid-template-columns: 34px 150px minmax(0, 1fr) minmax(0, 1fr); gap: 8px; align-items: center; padding: 6px 10px; border-bottom: 1px solid var(--line); }
+.pf-row:last-child { border-bottom: 0; }
+.pf-row.pf-solo { grid-template-columns: 34px 150px minmax(0, 1fr); }
+.pf-row .input { padding: 6px 8px; min-width: 0; height: 36px; }
+.pf-row.program-break { background: rgba(0, 0, 0, 0.035); }
+.pf-n { font-size: 12px; font-weight: 600; color: var(--muted, #777); text-align: center; }
+.pf-time { font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pf-break { grid-column: 3 / -1; font-style: italic; color: var(--muted, #777); font-size: 13px; }
+@media (max-width: 560px) {
+  .pf-row, .pf-row.pf-solo { grid-template-columns: 30px 1fr; }
+  .pf-row .input, .pf-break { grid-column: 2; }
+}

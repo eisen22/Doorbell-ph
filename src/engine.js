@@ -2088,9 +2088,11 @@ export const sections = (() => {
   };
   const SPECIAL = { MAPEH: 'Benjie Torres', EPP: 'Sheila Ramos', GMRC: 'Victor Gomez' };
   for (const sec of out) {
-    const k = out.filter((x) => x.gradeLevel === sec.gradeLevel).indexOf(sec);
+    // Grades 4 to 6: each section starts the subjects at a different slot, so a subject teacher is
+    // rarely in two classes at the same time.
+    const k = out.filter((x) => hasSubjectTeachers(x.gradeLevel)).indexOf(sec);
     const teacherFor = (sub) => byName(SUBJECT_TEACHERS[sec.gradeLevel]?.[sub] ?? SPECIAL[sub]);
-    sec.program = sampleProgramFor(sec.gradeLevel, sec.schedule.startTime, teacherFor, k * 2);
+    sec.program = sampleProgramFor(sec.gradeLevel, sec.schedule.startTime, teacherFor, Math.max(0, k));
     sec.subjectTeacherIds = [...new Set(sec.program.map((p) => p.teacherId).filter((t) => t && t !== sec.teacherId))];
     sec.schedule = { ...sec.schedule, endTime: sec.program.at(-1).end }; // classes end with the last period
   }

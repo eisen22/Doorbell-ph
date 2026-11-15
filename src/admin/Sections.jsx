@@ -30,7 +30,7 @@ import { useState } from 'react';
 import { displayPhMobile, fromMinutes, to12h, toMinutes } from '../logic';
 import { toStudentInput, StudentModal, LeaveModal } from './Students';
 import { toTeacherInput, TeacherModal } from './Teachers';
-import { GRADE_LEVELS, gradeName, BREAKS, isBreak, hasSubjectTeachers, sampleProgramFor, subjectsFor, ordinal } from '../logic';
+import { GRADE_LEVELS, gradeName, isBreak, hasSubjectTeachers, fitToSlots, subjectsFor, ordinal } from '../logic';
 
 // =====================================================================
 // SECTIONS (/admin/sections): classes, their schedules, teachers and "Teacher absent" days.
@@ -96,17 +96,11 @@ export function Sections() {
       setError('Give the section a name.');
       return;
     }
-    if (edit.schedule.endTime <= edit.schedule.startTime) {
-      setError('End of classes must be after the start.');
-      return;
-    }
     try {
-      const program = (edit.program ?? []).filter((p) => p.start && p.end && p.subject);
-      const bad = programProblem(program);
-      if (bad) throw new Error(bad);
-      const sorted = [...program].sort((x, y) => x.start.localeCompare(y.start));
-      // With a class program, the class starts at the first period and ends at the last one.
-      const schedule = sorted.length ? { ...edit.schedule, startTime: sorted[0].start, endTime: sorted[sorted.length - 1].end } : edit.schedule;
+      // The DepEd day from the class start: the chosen subjects (and teachers) on the fixed period slots.
+      const program = fitToSlots(edit.program, edit.gradeLevel ?? 'K', edit.schedule.startTime);
+      // The class ends with its last period.
+      const schedule = { ...edit.schedule, endTime: program[program.length - 1].end };
       await repo.saveSection({ ...edit, name: edit.name.trim(), program, schedule });
       setEdit(null);
       flash('Section saved');
@@ -257,6 +251,7 @@ export function Sections() {
 
       {edit && (
         <Modal
+          wide={hasSubjectTeachers(edit.gradeLevel)}
           title={edit.id ? 'Edit section' : 'New section'}
           onClose={() => setEdit(null)}
           footer={
@@ -329,8 +324,9 @@ export function Sections() {
               <input
                 type="time"
                 className="input"
-                value={edit.schedule.endTime}
-                onChange={(e) => setEdit({ ...edit, schedule: { ...edit.schedule, endTime: e.target.value } })}
+                value={fitToSlots(edit.program, edit.gradeLevel ?? 'K', edit.schedule.startTime).at(-1).end}
+                disabled
+                title="Follows the class program: the end of the last period"
               />
             </label>
           </div>
@@ -358,7 +354,13 @@ export function Sections() {
                   ...edit,
                   gradeLevel: e.target.value,
                   // Kindergarten to Grade 3: one teacher all day, so the periods have no teachers and there are no subject teachers.
-                  ...(hasSubjectTeachers(e.target.value) ? {} : { program: (edit.program ?? []).map(({ teacherId, ...p }) => p), subjectTeacherIds: [] }),
+                  // A subject the new grade does not have goes back to that grade's usual subject for the period.
+                  program: (edit.program ?? []).map(({ teacherId, ...p }) => ({
+                    ...p,
+                    subject: isBreak(p) || subjectsFor(e.target.value).includes(p.subject) ? p.subject : undefined,
+                    ...(hasSubjectTeachers(e.target.value) ? { teacherId } : {}),
+                  })),
+                  ...(hasSubjectTeachers(e.target.value) ? {} : { subjectTeacherIds: [] }),
                 })
               }
             >
@@ -716,89 +718,49 @@ function SectionDetail({ section, sections, teachers, rows, onClose, onEditSecti
 }
 
 // ---------------------------------------------------------------------
-// CLASS PROGRAM (Grades 4 to 6)
+// CLASS PROGRAM
 // ---------------------------------------------------------------------
-/** Returns a message if two periods overlap or a period ends before it starts, else null. */
-export function programProblem(program) {
-  const list = [...program].sort((a, b) => a.start.localeCompare(b.start));
-  for (let i = 0; i < list.length; i++) {
-    const p = list[i];
-    if (p.end <= p.start) return `${p.subject} (${to12h(p.start)}) ends before it starts.`;
-    const next = list[i + 1];
-    if (next && next.start < p.end) return `${p.subject} (${to12h(p.start)}–${to12h(p.end)}) overlaps ${next.subject} (${to12h(next.start)}).`;
-  }
-  return null;
-}
-
 // The teacher who usually takes a subject: the adviser if they teach it, else a teacher whose subjects include it.
 function teacherForSubject(teachers, adviserId, subject) {
   const teachesIt = (t) => (t.subjects ?? []).includes(subject);
   const adviser = teachers.find((t) => t.id === adviserId);
   if (adviser && teachesIt(adviser)) return adviser.id;
-  return teachers.find(teachesIt)?.id ?? adviserId ?? null;
+  return teachers.find(teachesIt)?.id ?? null;
 }
 
+// The class program on DepEd's fixed day: the times are set (from "Class starts"); beside each period
+// the admin picks the subject and, for Grades 4 to 6, the teacher.
 function ProgramEditor({ gradeLevel, program, teachers, adviserId, startTime, onChange }) {
-  const rows = program;
-  const withTeachers = hasSubjectTeachers(gradeLevel); // Grades 4 to 6
+  const withTeachers = hasSubjectTeachers(gradeLevel);
   const subjects = subjectsFor(gradeLevel);
+  const rows = fitToSlots(program, gradeLevel, startTime, withTeachers, (sub) => teacherForSubject(teachers, adviserId, sub));
   const set = (i, patch) => onChange(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
-  const remove = (i) => onChange(rows.filter((_, j) => j !== i));
-  const add = () => {
-    const last = [...rows].sort((a, b) => a.start.localeCompare(b.start)).at(-1);
-    const start = last?.end ?? startTime ?? '07:30';
-    const subject = subjects[0];
-    onChange([
-      ...rows,
-      { start, end: fromMinutes(toMinutes(start) + 50), subject, ...(withTeachers ? { teacherId: teacherForSubject(teachers, adviserId, subject) } : {}) },
-    ]);
-  };
-  const fill = () => onChange(sampleProgramFor(gradeLevel, startTime || '07:30', (sub) => teacherForSubject(teachers, adviserId, sub)));
-  const problem = programProblem(rows.filter((p) => p.start && p.end));
   let n = 0;
   return (
     <div className="field">
-      <span>Class program</span>
-      {rows.length === 0 ? (
-        <p className="muted small">No periods yet. Add each period{withTeachers ? ' with its subject and teacher' : ' with its subject'}, or start from a sample program and change it.</p>
-      ) : (
-        <div className="program-edit">
-          {rows.map((r, i) => {
-            const brk = isBreak(r);
-            if (!brk) n += 1;
-            // Keep a subject that is not in this grade's list (e.g. typed in before).
-            const options = subjects.includes(r.subject) || BREAKS.includes(r.subject) ? subjects : [r.subject, ...subjects];
-            return (
-              <div key={i} className={`program-row ${brk ? 'program-break' : ''} ${withTeachers ? '' : 'program-solo'}`}>
-                <span className="pr-n program-n">{brk ? '' : ordinal(n)}</span>
-                <input type="time" className="input pr-s" value={r.start} onChange={(e) => set(i, { start: e.target.value })} aria-label="Starts" />
-                <input type="time" className="input pr-e" value={r.end} onChange={(e) => set(i, { end: e.target.value })} aria-label="Ends" />
-                <select
-                  className="input pr-sub"
-                  value={r.subject}
-                  aria-label="Subject"
-                  onChange={(e) => {
-                    const subject = e.target.value;
-                    if (!withTeachers || BREAKS.includes(subject)) return set(i, { subject, teacherId: undefined });
-                    set(i, { subject, teacherId: r.teacherId ?? teacherForSubject(teachers, adviserId, subject) });
-                  }}
-                >
-                  <optgroup label={gradeLevel === 'K' ? 'Activities' : 'Subjects'}>
+      <span>Class program (DepEd day)</span>
+      <div className="program-fixed">
+        {rows.map((r, i) => {
+          const brk = isBreak(r);
+          if (!brk) n += 1;
+          const options = subjects.includes(r.subject) ? subjects : [r.subject, ...subjects];
+          return (
+            <div key={i} className={`pf-row ${brk ? 'program-break' : ''} ${withTeachers ? '' : 'pf-solo'}`}>
+              <span className="pf-n">{brk ? '' : ordinal(n)}</span>
+              <span className="pf-time">
+                {to12h(r.start)} – {to12h(r.end)}
+              </span>
+              {brk ? (
+                <span className="pf-break">{r.subject}</span>
+              ) : (
+                <>
+                  <select className="input" value={r.subject} aria-label={`${ordinal(n)} period subject`} onChange={(e) => set(i, { subject: e.target.value })}>
                     {options.map((x) => (
                       <option key={x}>{x}</option>
                     ))}
-                  </optgroup>
-                  <optgroup label="Breaks">
-                    {BREAKS.map((x) => (
-                      <option key={x}>{x}</option>
-                    ))}
-                  </optgroup>
-                </select>
-                {withTeachers &&
-                  (brk ? (
-                    <span className="muted small program-noteacher pr-t">No class</span>
-                  ) : (
-                    <select className="input pr-t" value={r.teacherId ?? ''} aria-label="Teacher" onChange={(e) => set(i, { teacherId: e.target.value || null })}>
+                  </select>
+                  {withTeachers && (
+                    <select className="input" value={r.teacherId ?? ''} aria-label={`${ordinal(n)} period teacher`} onChange={(e) => set(i, { teacherId: e.target.value || null })}>
                       <option value="">No teacher yet</option>
                       {teachers.map((t) => (
                         <option key={t.id} value={t.id}>
@@ -807,29 +769,19 @@ function ProgramEditor({ gradeLevel, program, teachers, adviserId, startTime, on
                         </option>
                       ))}
                     </select>
-                  ))}
-                <button type="button" className="icon-btn sm pr-x" onClick={() => remove(i)} aria-label="Remove this period">
-                  <Trash2 size={14} />
-                </button>
-              </div>
-            );
-          })}
-        </div>
-      )}
-      <div className="program-actions">
-        <button type="button" className="btn btn-sm" onClick={add}>
-          <Plus size={14} /> Add period
-        </button>
-        <button type="button" className="btn btn-sm" onClick={fill}>
-          {rows.length ? 'Replace with sample program' : 'Fill sample program'}
-        </button>
+                  )}
+                </>
+              )}
+            </div>
+          );
+        })}
       </div>
-      {problem && <p className="error small">{problem}</p>}
       <span className="muted small">
-        {withTeachers
-          ? 'The teacher above (the adviser) takes the 1st-period attendance. The teachers in this program see the class list, including who was absent at the 1st period, and can mark a child who arrives during their period.'
-          : 'One teacher (above) handles every period.'}{' '}
-        The absence texts go out when the 1st period ends. The class times above follow the first and last period when you save.
+        {gradeLevel === 'K'
+          ? 'Kindergarten: a 3-hour session of activity blocks with recess.'
+          : 'DepEd MATATAG (DO 10, s. 2024): 45 minutes per learning area, recess after the 2nd period, lunch after the 5th.'}{' '}
+        The times follow "Class starts". {withTeachers ? 'The adviser takes the 1st-period attendance; the teachers chosen here see the class and can mark a child who arrives in their period.' : 'One teacher (above) handles every period.'}{' '}
+        The absence texts go out when the 1st period ends.
       </span>
     </div>
   );

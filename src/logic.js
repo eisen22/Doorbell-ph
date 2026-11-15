@@ -768,27 +768,61 @@ export function sampleProgram(start = '07:30', rotate = 0, teacherFor = () => nu
   return out;
 }
 
-// Sample periods for Kindergarten to Grade 3 (one teacher, so no teacherId).
+// Sample subjects for Kindergarten to Grade 3, one per period slot (one teacher, so no teacherId).
 const K3_DAY = {
+  K: ['Meeting Time', 'Work Period', 'Story Time', 'Indoor/Outdoor Play', 'Wrap-up'],
   1: ['Reading and Literacy', 'Language', 'Mathematics', 'Makabansa', 'GMRC', 'Reading and Literacy', 'Mathematics', 'Makabansa'],
   2: ['Filipino', 'English', 'Mathematics', 'Makabansa', 'GMRC', 'Filipino', 'English', 'Mathematics'],
   3: ['English', 'Filipino', 'Mathematics', 'Science', 'Makabansa', 'GMRC', 'Mathematics', 'English'],
 };
+const G46_DAY = ['Mathematics', 'English', 'Science', 'Filipino', 'Araling Panlipunan', 'MAPEH', 'EPP', 'GMRC'];
 /**
- * A sample class program for any grade from `start`. Kindergarten: a 3-hour session of activity blocks.
- * Grades 1 to 3: 8 periods of 50 minutes with recess and lunch. Grades 4 to 6: sampleProgram (with teachers).
+ * THE FIXED DAY (DepEd): the period slots of a class day from `start`. Only the subject (and, for
+ * Grades 4 to 6, the teacher) of each slot is chosen; the times follow from the class start.
+ *   Grades 1 to 6: 8 periods of 45 minutes (DepEd Order No. 10, s. 2024, MATATAG Option A: 45 minutes
+ *     per learning area a day), recess after the 2nd period (15 min), lunch after the 5th (60 min).
+ *   Kindergarten: a 3-hour session of activity blocks with a 20-minute recess.
+ * Returns [{ start, end, break? ('Recess' | 'Lunch') }].
  */
-export function sampleProgramFor(gradeLevel, start = '07:30', teacherFor = () => null, rotate = 0) {
+export function programSlots(gradeLevel, start = '07:30') {
+  const pattern =
+    String(gradeLevel) === 'K'
+      ? [30, 60, ['Recess', 20], 30, 30, 10]
+      : [45, 45, ['Recess', 15], 45, 45, 45, ['Lunch', 60], 45, 45, 45];
+  let t = toMinutes(start || '07:30');
+  return pattern.map((x) => {
+    const [brk, mins] = Array.isArray(x) ? x : [null, x];
+    const slot = { start: fromMinutes(t), end: fromMinutes(t + mins), ...(brk ? { break: brk } : {}) };
+    t += mins;
+    return slot;
+  });
+}
+/** The default subject of each class slot for a grade (Grades 4 to 6: the order shifted by `rotate`). */
+function defaultSubjects(gradeLevel, rotate = 0) {
   const g = String(gradeLevel);
-  if (g === 'K') {
-    const blocks = [['Meeting Time', 30], ['Work Period', 60], ['Recess', 20], ['Story Time', 30], ['Indoor/Outdoor Play', 30], ['Wrap-up', 10]];
-    let t = toMinutes(start);
-    return blocks.map(([subject, mins]) => {
-      const p = { start: fromMinutes(t), end: fromMinutes(t + mins), subject };
-      t += mins;
-      return p;
-    });
-  }
-  if (K3_DAY[g]) return sampleProgram(start, 0, () => null, K3_DAY[g]).map(({ teacherId, ...p }) => p);
-  return sampleProgram(start, rotate, teacherFor);
+  if (K3_DAY[g]) return K3_DAY[g];
+  const r = rotate % G46_DAY.length;
+  return G46_DAY.slice(r).concat(G46_DAY.slice(0, r));
+}
+/**
+ * Puts a class program on the fixed DepEd slots: the n-th class period of `program` goes to the n-th
+ * class slot (its subject and teacher kept); empty slots get the grade's usual subject. Breaks are fixed.
+ * withTeachers = false (Kindergarten to Grade 3) drops the teachers.
+ */
+export function fitToSlots(program, gradeLevel, start, withTeachers = hasSubjectTeachers(gradeLevel), teacherFor = () => null, rotate = 0) {
+  const have = classPeriods(program);
+  const subjects = defaultSubjects(gradeLevel, rotate);
+  let i = 0;
+  return programSlots(gradeLevel, start).map((slot) => {
+    if (slot.break) return { start: slot.start, end: slot.end, subject: slot.break };
+    const old = have[i];
+    const subject = old?.subject ?? subjects[i % subjects.length];
+    i += 1;
+    const teacherId = withTeachers ? (old ? old.teacherId ?? null : teacherFor(subject)) : undefined;
+    return { start: slot.start, end: slot.end, subject, ...(withTeachers ? { teacherId } : {}) };
+  });
+}
+/** A sample class program for any grade from `start`, on the fixed DepEd slots. */
+export function sampleProgramFor(gradeLevel, start = '07:30', teacherFor = () => null, rotate = 0) {
+  return fitToSlots([], gradeLevel, start, hasSubjectTeachers(gradeLevel), teacherFor, rotate);
 }
