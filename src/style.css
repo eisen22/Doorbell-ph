@@ -199,7 +199,15 @@ nav { display: flex; flex-direction: column; gap: 4px; }
 .seg-excused.on { background: var(--excused-bg); color: var(--excused); }
 
 /* ---------- table ---------- */
-.table-wrap { overflow-x: auto; }
+.table-wrap {
+  overflow-x: auto;
+  /* Shadows at the edges show there is more to scroll sideways (phones). */
+  background:
+    linear-gradient(to right, var(--frame) 30%, transparent) left / 24px 100% no-repeat local,
+    linear-gradient(to left, var(--frame) 30%, transparent) right / 24px 100% no-repeat local,
+    radial-gradient(farthest-side at 0 50%, rgba(0, 0, 0, 0.14), transparent) left / 10px 100% no-repeat scroll,
+    radial-gradient(farthest-side at 100% 50%, rgba(0, 0, 0, 0.14), transparent) right / 10px 100% no-repeat scroll;
+}
 .table { width: 100%; border-collapse: collapse; font-size: 14.5px; }
 .table th { text-align: left; font-size: 13px; color: var(--muted); font-weight: 700; padding: 0 12px 10px; border-bottom: 1px solid var(--line); }
 .table td { padding: 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
@@ -886,3 +894,15 @@ a.kpi:hover { background: var(--surface) !important; }
   .pf-row, .pf-row.pf-solo { grid-template-columns: 30px 1fr; }
   .pf-row .input, .pf-break { grid-column: 2; }
 }
+
+.link-warn { color: var(--danger, #b42318); }
+@media (max-width: 640px) {
+  /* Phones: tables keep their columns readable and scroll sideways instead of squeezing every cell. */
+  .table-wrap .table { min-width: 640px; }
+}
+
+.pp-demo { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: center; padding: 8px 12px; background: #fff6d6; font-size: 13px; border-bottom: 1px solid #f0e2a8; }
+.pp-demo select { max-width: 260px; font: inherit; padding: 4px 6px; border-radius: 8px; border: 1px solid #d8cfa8; background: #fff; }
+.pp-demo a { color: inherit; font-weight: 600; }
+.pp-child .pp-big { margin-top: 12px; }
+.pp-more { margin-top: 6px; align-self: flex-start; font-weight: 600; }

@@ -125,14 +125,28 @@ export function QrCards() {
           }}
           counts={countByGrade(data.sections, (s) => s.gradeLevel)}
         />
-        <div className="chips">
-          {levelSecs.map((s) => (
-            <button key={s.id} className={`fchip ${s.id === sec?.id ? 'fchip-on' : ''}`} onClick={() => setSectionId(s.id)}>
-              <span className="sec-dot sm" style={{ background: s.color }} />
-              {s.name}
-            </button>
-          ))}
-        </div>
+        {/* A few sections: chips. Many (all levels): one drop-down list instead of a wall of chips. */}
+        {levelSecs.length > 6 ? (
+          <label className="field">
+            <span>Section</span>
+            <select className="input" value={sec?.id ?? ''} onChange={(e) => setSectionId(e.target.value)}>
+              {levelSecs.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : (
+          <div className="chips">
+            {levelSecs.map((s) => (
+              <button key={s.id} className={`fchip ${s.id === sec?.id ? 'fchip-on' : ''}`} onClick={() => setSectionId(s.id)}>
+                <span className="sec-dot sm" style={{ background: s.color }} />
+                {s.name}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="form-row">
           <div className="field">
             <span>Layout</span>

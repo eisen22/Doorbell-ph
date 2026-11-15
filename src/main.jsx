@@ -6,7 +6,7 @@
 // =====================================================================
 import './style.css'; // all the styling for the whole app
 import React, { useEffect, useState, useRef } from 'react';
-import { useNavigate, Navigate, NavLink, Outlet, useLocation, BrowserRouter, Route, Routes } from 'react-router-dom';
+import { useNavigate, Navigate, NavLink, Link, Outlet, useLocation, BrowserRouter, Route, Routes } from 'react-router-dom';
 import {
   Eye,
   EyeOff,
@@ -268,6 +268,10 @@ export function Login() {
                 <p className="muted small">
                   Password for all demo accounts: <code>{demo[0].password}</code>
                 </p>
+                <Link className="demo-acc" to="/parent">
+                  <strong>Parent portal (sample parent)</strong>
+                  <span>See what a parent sees, no sign-in needed</span>
+                </Link>
               </div>
             )}
           </section>

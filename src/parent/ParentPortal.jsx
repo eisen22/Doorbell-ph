@@ -10,7 +10,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { AlertTriangle, ChevronLeft, ChevronRight, FileText, KeyRound, LogOut, Send } from 'lucide-react';
-import { Logo, StatusChip, DatePicker, longDate } from '../ui';
+import { Logo, StatusChip, DatePicker, longDate, useRepo } from '../ui';
 import { addDays, isoWeekday, manilaToday, to12h, ordinal, EXCUSE_REASONS } from '../logic';
 import { changeParentPassword, portalAvailable, sendExcuse, signOutParent, watchParent } from './parentCloud';
 
@@ -21,11 +21,21 @@ const prevMonth = (m) => addDays(`${m}-01`, -1).slice(0, 7);
 const nextMonth = (m) => addDays(`${m}-28`, 7).slice(0, 7);
 
 export function ParentPortal() {
+  const repo = useRepo();
   const [st, setSt] = useState({ status: 'loading' });
+  const [demoParent, setDemoParent] = useState(null);
   useEffect(() => {
-    if (!portalAvailable()) return setSt({ status: 'unavailable' });
+    // Demo mode (no cloud): show a sample parent's view from the demo data instead.
+    if (!portalAvailable()) {
+      if (repo.demoParentState) {
+        const load = () => setSt(repo.demoParentState(demoParent));
+        load();
+        return repo.subscribe(load);
+      }
+      return setSt({ status: 'unavailable' });
+    }
     return watchParent(setSt);
-  }, []);
+  }, [repo, demoParent]);
   useEffect(() => {
     document.title = 'Doorbell Parent Portal';
   }, []);
@@ -49,6 +59,20 @@ export function ParentPortal() {
         </Shell>
       )}
       {st.status === 'signedOut' && <Navigate to="/login" replace />}
+      {st.status === 'ready' && st.demo && (
+        <div className="pp-demo">
+          <span>Demo mode: viewing as</span>
+          <select value={demoParent ?? ''} onChange={(e) => setDemoParent(e.target.value || null)} aria-label="Sample parent">
+            <option value="">A parent with 2 children</option>
+            {st.parents.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.label}
+              </option>
+            ))}
+          </select>
+          <a href={`${import.meta.env.BASE_URL}login`}>Back to sign-in</a>
+        </div>
+      )}
       {st.status === 'ready' && <Home st={st} />}
     </div>
   );
@@ -216,6 +240,10 @@ function ChildView({ child, docs, excuses, onExcuse }) {
             </span>
           )}
         </div>
+        {/* The parent's main action, near the top (not under the long lists). */}
+        <button type="button" className="btn btn-ink wide pp-big" onClick={onExcuse}>
+          <FileText size={18} aria-hidden="true" /> Excuse {child.firstName}
+        </button>
       </section>
 
       <section className="pp-card">
@@ -278,9 +306,6 @@ function ChildView({ child, docs, excuses, onExcuse }) {
         </section>
       )}
 
-      <button type="button" className="btn btn-ink wide pp-big" onClick={onExcuse}>
-        <FileText size={18} aria-hidden="true" /> Excuse my child
-      </button>
       <p className="pp-muted pp-center pp-small">You can also call the teacher or send a note to school.</p>
     </>
   );
@@ -324,6 +349,7 @@ function DayTimes({ rec, date, today, endTime }) {
 }
 // NOTIFICATIONS: the last school days, newest first, with the gate and teacher times.
 function Notifications({ docs, today }) {
+  const [all, setAll] = useState(false);
   const rows = docs
     .flatMap((m) => Object.entries(m.days ?? {}).filter(([, r]) => r.s).map(([d, r]) => ({ d, r, end: m.endTime })))
     .sort((a, b) => b.d.localeCompare(a.d))
@@ -331,9 +357,9 @@ function Notifications({ docs, today }) {
   if (!rows.length) return null;
   return (
     <section className="pp-card">
-      <h2 className="pp-h2">Notifications</h2>
+      <h2 className="pp-h2">Recent school days</h2>
       <ul className="pp-notes">
-        {rows.map(({ d, r, end }) => (
+        {(all ? rows : rows.slice(0, 3)).map(({ d, r, end }) => (
           <li key={d}>
             <strong>
               {d === today ? 'Today' : shortDay(d)} · <span className={`pp-st pp-st-${r.s}`}>{STATUS_WORD[r.s]}</span>
@@ -342,6 +368,11 @@ function Notifications({ docs, today }) {
           </li>
         ))}
       </ul>
+      {rows.length > 3 && (
+        <button type="button" className="link-btn pp-more" onClick={() => setAll(!all)}>
+          {all ? 'Show less' : `Show the last ${rows.length} days`}
+        </button>
+      )}
     </section>
   );
 }

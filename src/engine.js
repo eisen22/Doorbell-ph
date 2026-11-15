@@ -1256,6 +1256,28 @@ export class Engine {
     this.emit();
     return { parents: this.s.guardians.size, months: months.length };
   }
+  // DEMO MODE ONLY: what the parent portal would show for one guardian (the same shape watchParent()
+  // gives in the cloud), so the portal can be tried without the cloud. Default: a parent with 2 children.
+  demoParentState(guardianId) {
+    const gs = [...this.s.guardians.values()].filter((g) => g.studentIds.length);
+    const g = gs.find((x) => x.id === guardianId) ?? gs.find((x) => x.studentIds.length > 1) ?? gs[0];
+    if (!g) return { status: 'error', error: 'No sample parents.' };
+    const kids = g.studentIds.map((id) => this.s.students.get(id)).filter(Boolean);
+    const months = [...new Set([...this.s.attendance.values()].map((d) => d.date.slice(0, 7)))].sort();
+    return {
+      status: 'ready',
+      demo: true,
+      profile: { mobile: g.mobile, defaultPassword: true },
+      key: {
+        guardianName: g.name,
+        studentIds: kids.map((k) => k.id),
+        children: kids.map((k) => ({ id: k.id, firstName: k.firstName, lastName: k.lastName, sectionId: this.activeEnrollment(k.id)?.sectionId ?? null })),
+      },
+      months: Object.fromEntries(kids.map((k) => [k.id, months.map((m) => this.parentMonthDoc(k.id, m)).filter(Boolean)])),
+      excuses: [...this.s.excuses.values()].filter((x) => g.studentIds.includes(x.studentId)),
+      parents: gs.map((x) => ({ id: x.id, label: `${x.name} (${x.studentIds.map((id) => this.s.students.get(id)?.firstName).join(', ')})` })),
+    };
+  }
   // Parents who cannot sign in yet because no child of theirs has a birthday (no default password).
   parentsWithoutPassword() {
     return [...this.s.guardians.values()].filter((g) => g.studentIds.length && !defaultParentPassword(eldestChild(g.studentIds.map((id) => this.s.students.get(id)).filter(Boolean))));

@@ -42,7 +42,7 @@ import {
 // <Skeleton> placeholders show; buttons call repo.something(...). Addresses are set in main.jsx.
 // =====================================================================
 // Words shown on each class card depending on the time (see classPhase in logic.js).
-const PHASE = { now: 'In session now', next: 'Later today', done: 'Done for today', off: 'No class today' };
+const PHASE = { now: 'In session now', next: 'Later today', done: 'Done for today', off: 'No class today', last: 'Last class day' };
 // ---------------------------------------------------------------------
 // DASHBOARD
 // Order: calendar notices from the admin -> my classes today -> attention needed
@@ -106,7 +106,8 @@ export function Dashboard() {
             const s = c.schedule;
             const arrived = roster.filter((r) => r.record?.scannedAt).length;
             const pct = Math.round((arrived / Math.max(1, roster.length)) * 100);
-            const phase = classPhase(c, today.time, today.actualDate);
+            // Weekends and holidays: the dashboard shows the last class day, so say that (not "No class today").
+            const phase = today.date !== today.actualDate ? 'last' : classPhase(c, today.time, today.actualDate);
             const on = c.id === section.id;
             return (
               <div key={c.id} className={`tile class-tile ${on ? 'class-on' : ''}`} style={{ background: c.color, color: textOn(c.color) }}>
@@ -154,14 +155,6 @@ export function Dashboard() {
               </div>
             );
   };
-  const smsTile = (
-    <Link to="/sms" className="tile tile-link tile-sky">
-      <span className="date-chip">Parent SMS</span>
-      <h3>{sms.length} sent today</h3>
-      <p>{failed ? `${failed} failed. Check the numbers on file.` : 'Every text delivered.'}</p>
-      <Progress value={sms.length ? Math.round(((sms.length - failed) / sms.length) * 100) : 0} label="delivered" />
-    </Link>
-  );
   return (
     <div className="page">
       <div className="page-head">
@@ -211,23 +204,28 @@ export function Dashboard() {
       )}
 
       {/* My classes: the class I advise, the classes I teach a subject in (Grades 4 to 6), and classes I cover today. */}
-      <Card title={multi ? 'My classes today' : 'My class today'}>
+      <Card
+        title={multi ? 'My classes today' : 'My class today'}
+        action={
+          <Link className={`link ${failed ? 'link-warn' : ''}`} to="/sms">
+            {sms.length} parent texts today{failed ? ` · ${failed} failed` : sms.length ? ' · all delivered' : ''} <ArrowUpRight size={15} />
+          </Link>
+        }
+      >
         {groups.length > 1 ? (
-          groups.map((g, i) => (
+          groups.map((g) => (
             <div key={g.id} className="class-group">
               <h3 className="class-group-title">
                 {g.title} <span className="muted small">{g.items.length}</span>
               </h3>
               <div className="card-row">
                 {g.items.map(tile)}
-                {i === 0 && smsTile}
               </div>
             </div>
           ))
         ) : (
           <div className="card-row">
             {perClass.map(tile)}
-            {smsTile}
           </div>
         )}
       </Card>
