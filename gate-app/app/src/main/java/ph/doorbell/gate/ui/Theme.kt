@@ -25,6 +25,7 @@ object Doorbell {
     val ink = Color(0xFF1B1D19) // main text
     val muted = Color(0xFF62685D) // secondary text
     val lime = Color(0xFFD8F29F) // brand highlight
+    val brand = Color(0xFF779931) // logo green (logo tile, app icon)
     val limeInk = Color(0xFF33500B)
     val ok = Color(0xFF1D7A45)
     val okBg = Color(0xFFE2F3E6)
