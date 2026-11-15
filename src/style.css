@@ -906,3 +906,5 @@ a.kpi:hover { background: var(--surface) !important; }
 @media (max-width: 760px) { .mc-detail { grid-template-columns: 1fr; } }
 .mc-list-head .h2 { font-size: 18px; margin: 0; }
 .table .mono { white-space: nowrap; }
+.wordmark { display: block; width: auto; flex-shrink: 0; }
+.pp-head-text .wordmark { align-self: flex-start; margin-bottom: 3px; }

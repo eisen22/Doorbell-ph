@@ -10,7 +10,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { AlertTriangle, ChevronLeft, ChevronRight, FileText, KeyRound, LogOut, Send } from 'lucide-react';
-import { Logo, StatusChip, DatePicker, longDate, useRepo } from '../ui';
+import { Logo, Wordmark, StatusChip, DatePicker, longDate, useRepo } from '../ui';
 import { addDays, isoWeekday, manilaToday, to12h, ordinal, EXCUSE_REASONS } from '../logic';
 import { changeParentPassword, portalAvailable, sendExcuse, signOutParent, watchParent } from './parentCloud';
 
@@ -84,7 +84,7 @@ function Shell({ children, school, onSignOut }) {
       <header className="pp-head">
         <Logo size={36} />
         <div className="pp-head-text">
-          <strong>Doorbell</strong>
+          <Wordmark height={17} />
           <span>{school || 'Parent portal'}</span>
         </div>
         {onSignOut && (

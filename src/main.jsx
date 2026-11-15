@@ -31,7 +31,7 @@ import {
   UserX,
   FileText,
 } from 'lucide-react';
-import { useRepo, Logo, Skeleton, useLive, RepoProvider } from './ui';
+import { useRepo, Logo, Wordmark, Skeleton, useLive, RepoProvider } from './ui';
 import { parentKeyOf } from './logic';
 // Parents sign in on this same page with their mobile number (parent/parentCloud.js), then /parent opens.
 import { signInParent } from './parent/parentCloud';
@@ -152,7 +152,7 @@ export function Login() {
         <section className="login-art" aria-hidden="true">
           <div className="login-brand">
             <Logo size={40} />
-            <span>Doorbell</span>
+            <Wordmark height={25} />
           </div>
           <div className="art-bubbles">
             <div className="art-bubble b1">
@@ -362,7 +362,7 @@ export function Shell() {
         <aside className={`sidebar ${navOpen ? 'sidebar-open' : ''}`}>
           <div className="brand">
             <Logo />
-            <span>Doorbell</span>
+            <Wordmark height={21} />
           </div>
           {isAdmin && <span className="portal-tag">Admin portal</span>}
           <nav aria-label="Main">
