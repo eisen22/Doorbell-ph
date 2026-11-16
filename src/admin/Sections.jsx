@@ -463,6 +463,7 @@ function TeacherAwayModal({ section, teachers, sections, onClose, onSaved }) {
   const [kind, setKind] = useState('substitute');
   const [teacherId, setTeacherId] = useState('');
   const [note, setNote] = useState('');
+  const [textParents, setTextParents] = useState(true);
   const [error, setError] = useState('');
   const start = from ?? today?.actualDate ?? today?.date;
   const choices = teachers.filter((t) => t.active !== false && t.id !== section.teacherId);
@@ -480,9 +481,11 @@ function TeacherAwayModal({ section, teachers, sections, onClose, onSaved }) {
   const save = async () => {
     setError('');
     try {
-      const dates = await repo.setTeacherAway(section.id, { from: start, to: to ?? start, kind, teacherId, note });
+      const dates = await repo.setTeacherAway(section.id, { from: start, to: to ?? start, kind, teacherId, note, textParents: kind === 'noclass' && textParents });
       onSaved(
-        `${kind === 'substitute' ? `${pick?.name} covers` : 'No class for'} ${section.name} on ${dates.length} class day${dates.length === 1 ? '' : 's'}`,
+        `${kind === 'substitute' ? `${pick?.name} covers` : 'No class for'} ${section.name} on ${dates.length} class day${dates.length === 1 ? '' : 's'}${
+          kind === 'noclass' ? `. Parents see it in the parent portal${textParents ? ' and were texted' : ''}` : ''
+        }`,
       );
     } catch (e) {
       setError(e.message);
@@ -554,6 +557,12 @@ function TeacherAwayModal({ section, teachers, sections, onClose, onSaved }) {
         <span>Note (optional), e.g. "sick leave", "seminar"</span>
         <input className="input" value={note} onChange={(e) => setNote(e.target.value)} />
       </label>
+      {kind === 'noclass' && (
+        <label className="check">
+          <input type="checkbox" checked={textParents} onChange={(e) => setTextParents(e.target.checked)} /> Text the parents of this class (one text
+          per family), so no child is sent to school for a class that is not held
+        </label>
+      )}
       <p className="muted small">Weekends, holidays and days already confirmed are skipped. Everything is written in the audit log.</p>
       {error && <p className="error">{error}</p>}
     </Modal>

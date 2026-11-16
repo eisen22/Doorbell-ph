@@ -158,3 +158,34 @@ const kinds = (w, id) => w.smsFor(id).map((m) => m.kind).join('+') || '-';
   const t = w.smsFor(kid.id).find((m) => /6th period/.test(m.body));
   check('S1 parent is texted the arrival (6th period, MAPEH)', /MAPEH/.test(t?.body ?? ''), t?.body);
 }
+// ---- notices to parents: suspension, lifted suspension, teacher absent, upcoming days ----
+{
+  const w = world(); const D = w.clock.d; const { addDays } = await import('../src/logic.js');
+  const tomorrow = addDays(D, 1);
+  const kSec = w.state.sections.get(SEC); const g2 = w.state.sections.get(SEC2);
+  const [k1] = w.roster(SEC); const [n1] = w.roster(SEC2);
+  const notices = () => [...w.state.sms.values()].filter((m) => m.kind === 'notice');
+  const portal = (stu) => w.log.filter((l) => l[1] === 'parentDays' && l[3].studentId === stu.id && l[3].month === D.slice(0, 7)).pop()?.[3];
+  const n = await w.eng.declareSuspension(tomorrow, 'Tropical Cyclone Wind Signal No. 1', ['K'], { textParents: true });
+  const kText = notices().find((m) => m.studentId === k1.id || w.eng.guardianOf(m.studentId) === w.eng.guardianOf(k1.id));
+  check('N1 K-only suspension texts K families only', n > 0 && notices().every((m) => w.state.sections.get(m.sectionId).gradeLevel === 'K'), `${n} texts`);
+  check('N1 the text says tomorrow and the reason', /suspended tomorrow, .*Reason: Tropical Cyclone Wind Signal No\. 1\./.test(kText?.body ?? '') || /bukas/.test(kText?.body ?? ''), kText?.body);
+  const fams = new Set(notices().map((m) => m.guardianId)); check('N1 one text per family', fams.size === notices().length);
+  const pk = portal(k1); const pn = portal(n1);
+  check('N1 K portal: notice and upcoming no-class day', pk?.notices?.[0]?.type === 'suspension' && pk.upcoming.some((u) => u.date === tomorrow && u.type === 'suspension'), JSON.stringify(pk?.upcoming));
+  check('N1 Grade 2 portal: no notice, no missing day', !(pn?.notices ?? []).length && !(pn?.upcoming ?? []).some((u) => u.date === tomorrow && u.type === 'suspension'));
+  const before = notices().length;
+  await w.eng.removeCalendarDays([tomorrow], { textParents: true });
+  const resume = notices().slice(before);
+  check('N2 lifted suspension: K families told classes push through', resume.length === fams.size && resume.every((m) => /push through|Tuloy/.test(m.body)), resume[0]?.body);
+  check('N2 portal shows "Classes as usual"', portal(k1)?.notices?.[0]?.type === 'resume');
+  const b2 = notices().length;
+  await w.eng.setTeacherAway(SEC2, { from: tomorrow, kind: 'noclass', textParents: true });
+  const away = notices().slice(b2);
+  check('N3 teacher absent: only that class is texted', away.length > 0 && away.every((m) => m.sectionId === SEC2) && /teacher is absent|liban ang guro/.test(away[0].body), away[0]?.body);
+  check('N3 that class\'s portal shows the no-class day', portal(n1)?.upcoming?.some((u) => u.date === tomorrow && /teacher is absent/.test(u.label)));
+  const b3 = notices().length;
+  await w.eng.saveCalendarDays([{ date: addDays(D, 2), type: 'holiday', label: 'Test holiday' }]);
+  check('N4 holiday without "text parents": portal only, no texts', notices().length === b3 && portal(k1)?.upcoming?.some((u) => u.label === 'Test holiday'));
+  void kSec; void g2;
+}

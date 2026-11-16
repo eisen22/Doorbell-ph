@@ -118,7 +118,10 @@ export class Engine {
         s.meta = data;
         this.normalizeSections();
       }
-      if (id === 'calendar' && data) s.calendar = new Map((data.days ?? []).map((c) => [c.date, c]));
+      if (id === 'calendar' && data) {
+        s.calendar = new Map((data.days ?? []).map((c) => [c.date, c]));
+        s.calendarNotices = data.notices ?? [];
+      }
     } else {
       const map = s[col];
       if (data === null) map.delete(id);

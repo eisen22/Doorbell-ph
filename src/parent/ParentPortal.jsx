@@ -9,14 +9,28 @@
 // =====================================================================
 import React, { useEffect, useMemo, useState } from 'react';
 import { Navigate } from 'react-router-dom';
-import { AlertTriangle, CalendarDays, ChevronLeft, ChevronRight, FileText, KeyRound, LogOut, Send } from 'lucide-react';
-import { Logo, Wordmark, StatusChip, longDate, useRepo } from '../ui';
+import { AlertTriangle, CalendarClock, CalendarDays, CloudRain, Megaphone, ChevronLeft, ChevronRight, FileText, KeyRound, LogOut, Send } from 'lucide-react';
+import { Logo, Wordmark, useRepo } from '../ui';
 import { addDays, isoWeekday, manilaToday, to12h, ordinal, periodsLabel, excuseStatusLabel, EXCUSE_REASONS } from '../logic';
 import { changeParentPassword, portalAvailable, sendExcuse, signOutParent, watchParent } from './parentCloud';
 
+// "Coming up" tags: what kind of day it is for the child.
+const UP_KIND = {
+  noclass: 'No class',
+  holiday: 'No class',
+  break: 'No class',
+  suspension: 'Suspended',
+  halfday: 'Half day',
+  makeup: 'Make-up class',
+  exam: 'Exam',
+  event: 'Event',
+};
 const STATUS_WORD = { present: 'Present', late: 'Late', absent: 'Absent', excused: 'Excused' };
 const monthName = (m) => new Date(`${m}-01T00:00:00`).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 const shortDay = (d) => new Date(`${d}T00:00:00`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+// When a notice was posted, in Philippine time: "Tue, Nov 17, 6:10 AM".
+const postedAt = (iso) =>
+  new Date(iso).toLocaleString('en-US', { timeZone: 'Asia/Manila', weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 const prevMonth = (m) => addDays(`${m}-01`, -1).slice(0, 7);
 const nextMonth = (m) => addDays(`${m}-28`, 7).slice(0, 7);
 
@@ -216,9 +230,23 @@ function ChildView({ child, docs, excuses, onExcuse }) {
   const totals = cur?.totals ?? latest?.totals;
   const monthTotals = cur?.totals?.month ?? { absent: 0, late: 0, excused: 0 };
   const name = `${child.firstName} ${child.lastName}`;
+  // School notices (suspension, no class, classes as usual...) and the days coming up, from the newest month.
+  const src = cur?.upcoming ? cur : latest;
+  const notices = (src?.notices ?? []).filter((n) => n.dates?.some((d) => d >= today) || n.at.slice(0, 10) >= addDays(today, -2));
+  const upcoming = (src?.upcoming ?? []).filter((u) => u.date > today);
 
   return (
     <>
+      {notices.map((n) => (
+        <section key={n.at} className={`pp-notice pp-notice-${n.type}`} role="status">
+          {n.type === 'suspension' ? <CloudRain size={20} aria-hidden="true" /> : <Megaphone size={20} aria-hidden="true" />}
+          <div>
+            <strong>{n.title}</strong>
+            {n.body && <p>{n.body}</p>}
+            <span className="pp-small">Posted by the school {postedAt(n.at)}</span>
+          </div>
+        </section>
+      ))}
       <section className="pp-card pp-child">
         <div className="pp-child-row">
           <span className="avatar" aria-hidden="true">
@@ -249,6 +277,25 @@ function ChildView({ child, docs, excuses, onExcuse }) {
         <button type="button" className="btn btn-ink wide pp-big" onClick={onExcuse}>
           <FileText size={18} aria-hidden="true" /> Excuse {child.firstName}
         </button>
+      </section>
+
+      <section className="pp-card">
+        <h2 className="pp-h2">
+          <CalendarClock size={17} aria-hidden="true" /> Coming up
+        </h2>
+        {upcoming.length ? (
+          <ul className="pp-upcoming">
+            {upcoming.slice(0, 5).map((u) => (
+              <li key={u.date}>
+                <time>{shortDay(u.date)}</time>
+                <span>{u.label}</span>
+                <span className={`pp-up-kind pp-up-${UP_KIND[u.type] ? u.type : 'noclass'}`}>{UP_KIND[u.type] ?? 'No class'}</span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="pp-muted pp-small">No holidays, suspensions or schedule changes in the next weeks.</p>
+        )}
       </section>
 
       <section className="pp-card">

@@ -38,6 +38,7 @@ const KINDS = [
   { k: 'total', label: 'Totals' },
   { k: 'absent', label: 'Absent today' },
   { k: 'missing', label: 'Not in class' },
+  { k: 'notice', label: 'School notices' },
   { k: 'failed', label: 'Failed' },
   { k: 'test', label: 'Tests' },
 ];
@@ -146,7 +147,7 @@ export function SmsMessages() {
                           className={`sms-row ${pick?.id === m.id ? 'on' : ''} ${m.status === 'failed' ? 'bad' : ''}`}
                           onClick={() => setSelected(m.id)}
                         >
-                          <span className={`kind kind-${m.kind}`}>{m.kind === 'streak' ? '3-day' : m.kind}</span>
+                          <span className={`kind kind-${m.kind}`}>{m.kind === 'streak' ? '3-day' : m.kind === 'notice' ? 'school notice' : m.kind}</span>
                           <span className="sms-to">
                             <strong>{name(m.studentId) || displayPhMobile(m.to)}</strong>
                             <span className="muted small">

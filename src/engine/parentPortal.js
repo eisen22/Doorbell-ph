@@ -84,9 +84,7 @@ export const parentPortalMethods = {
       for (let d = `${month}-01`; d.startsWith(month); d = addDays(d, 1)) {
         if (d < this.year.start || d > this.year.end) continue;
         const usual = section.schedule.classDays.includes(isoWeekday(d));
-        if (usual && !isSchoolDay(d, section.schedule, this.s.calendar)) {
-          noClass[d] = this.s.calendar.get(d)?.label ?? 'No class';
-        }
+        if (usual && !isSchoolDay(d, section.schedule, this.s.calendar)) noClass[d] = this.noClassLabel(section, d);
       }
     }
     let totals = null;
@@ -115,8 +113,47 @@ export const parentPortalMethods = {
       days,
       noClass,
       totals,
+      // What is coming up for this child's class (no class, half day, make-up class...) and the latest
+      // calendar changes, shown at the top of the portal. Rewritten whenever the calendar changes.
+      upcoming: section ? this.parentUpcoming(section, today) : [],
+      notices: section ? this.parentNotices(section, today) : [],
       updatedAt: new Date().toISOString(),
     };
+  },
+  // Why a usual class day has no class: the calendar's name for it, or the teacher being absent.
+  noClassLabel(section, d) {
+    if (section.schedule.teacherAway?.[d]?.kind === 'noclass') return 'No class: the teacher is absent';
+    return this.s.calendar.get(d)?.label ?? 'No class';
+  },
+  // The calendar entry for a day if it applies to this class's grade level.
+  entryFor(section, d) {
+    const e = this.s.calendar.get(d);
+    return e && (!e.levels?.length || e.levels.includes(section.gradeLevel)) ? e : undefined;
+  },
+  // The next 45 days for one class: days with no class, half days, exams, make-up classes and events.
+  parentUpcoming(section, today) {
+    const out = [];
+    for (let i = 0, d = today; i <= 45 && out.length < 8; i++, d = addDays(d, 1)) {
+      if (d > this.year.end) break;
+      const e = this.entryFor(section, d);
+      const usual = section.schedule.classDays.includes(isoWeekday(d));
+      if (usual && !isSchoolDay(d, section.schedule, this.s.calendar)) {
+        const away = section.schedule.teacherAway?.[d]?.kind === 'noclass';
+        out.push({ date: d, type: away ? 'noclass' : (e?.type ?? 'noclass'), label: this.noClassLabel(section, d) });
+      } else if (e && ['makeup', 'halfday', 'exam', 'event'].includes(e.type)) {
+        out.push({ date: d, type: e.type, label: e.label });
+      }
+    }
+    return out;
+  },
+  // Calendar changes from the last 14 days that concern this class (newest first, at most 3).
+  parentNotices(section, today) {
+    const since = addDays(today, -14);
+    return (this.s.calendarNotices ?? [])
+      .filter((n) => n.at.slice(0, 10) >= since)
+      .filter((n) => (!n.sectionId || n.sectionId === section.id) && (!n.levels?.length || n.levels.includes(section.gradeLevel)))
+      .slice(0, 3)
+      .map((n) => ({ at: n.at, type: n.type, title: n.title, body: n.body ?? '', dates: n.dates }));
   },
   // Rewrites the parent portal months. studentIds null = every child.
   syncParentDays(studentIds, months) {

@@ -11,6 +11,8 @@ import {
   hasSubjectTeachers,
   to12h,
   eachDate,
+  isoWeekday,
+  addDays,
 } from '../logic';
 import { dayId, fmtDay, schedulesOverlap, uid, byName } from './util';
 
@@ -28,12 +30,15 @@ export const adminMethods = {
     this.s.audit.set(e.id, e);
     this.put('audit', e.id, e);
   },
-  // meta/school = { settings, schoolYear }; meta/calendar = { days: [...] }.
+  // meta/school = { settings, schoolYear }; meta/calendar = { days: [...], notices: [...] }.
   saveMeta() {
     this.put('meta', 'school', this.s.meta);
   },
   saveCalendar() {
-    this.put('meta', 'calendar', { days: [...this.s.calendar.values()].sort((a, b) => a.date.localeCompare(b.date)) });
+    this.put('meta', 'calendar', {
+      days: [...this.s.calendar.values()].sort((a, b) => a.date.localeCompare(b.date)),
+      notices: this.s.calendarNotices ?? [],
+    });
   },
   // Admin -> Settings: SMS templates, streak days, school name, etc.
   async updateSettings(patch) {
@@ -71,11 +76,61 @@ export const adminMethods = {
     this.s.notifications.set(n.id, n);
     this.put('notifications', n.id, n);
   },
-  // Admin marks one or more days (holiday, suspension, exam...). Every teacher gets an alert.
-  async saveCalendarDays(days) {
-    if (!days.length) return;
+  // Remembers a calendar change for the parent portal ("Classes suspended: Tue, Nov 18"). The portal shows
+  // the ones from the last 14 days that apply to the child (levels: some grade levels only; sectionId: one
+  // class only, e.g. no class because the teacher is absent). Saved in meta/calendar with the last 30.
+  addCalendarNotice(n) {
+    const notice = { id: uid('ntc'), at: new Date().toISOString(), by: this.actor(), levels: null, sectionId: null, ...n };
+    this.s.calendarNotices = [notice, ...(this.s.calendarNotices ?? [])].slice(0, 30);
+    return notice;
+  },
+  // Texts every family the notice applies to: one text per family (siblings share one), only with SMS
+  // consent, in the family's language. Returns how many families were texted.
+  textFamilies(notice) {
+    const today = this.clock.today();
+    const dates = [...notice.dates].sort();
+    const kids = new Map(); // guardian id -> { g, student, section }
+    for (const e of this.s.enrollments.values()) {
+      if (e.status !== 'active') continue;
+      const sec = this.s.sections.get(e.sectionId);
+      const stu = this.s.students.get(e.studentId);
+      if (!sec || sec.archived || !stu || stu.id.includes('-old-')) continue;
+      if (notice.sectionId && sec.id !== notice.sectionId) continue;
+      if (notice.levels?.length && !notice.levels.includes(sec.gradeLevel)) continue;
+      // Only classes that meet on one of those days (a Saturday holiday does not concern a Mon-Fri class).
+      if (notice.type !== 'makeup' && !dates.some((d) => sec.schedule.classDays.includes(isoWeekday(d)))) continue;
+      const g = this.guardianOf(stu.id);
+      if (!g?.smsConsent || !g.mobile) continue;
+      const had = kids.get(g.id);
+      if (!had || byName(stu, had.student) < 0) kids.set(g.id, { g, student: stu, section: sec });
+    }
+    for (const { g, student, section } of kids.values()) {
+      const fil = g.preferredLanguage === 'fil';
+      const id = `ntc_${notice.id}_${g.id}`;
+      const msg = {
+        id,
+        studentId: student.id,
+        guardianId: g.id,
+        sectionId: section.id,
+        to: g.mobile,
+        body: noticeText(notice, { fil, child: student.firstName, section: section.name, school: this.settings.schoolName, today }),
+        kind: 'notice',
+        status: g.numberStatus === 'failed' ? 'failed' : this.newSmsStatus(),
+        createdAt: this.nowIso(),
+        queuedAt: new Date().toISOString(),
+        attempts: 1,
+      };
+      this.s.sms.set(id, msg);
+      this.put('sms', id, msg);
+    }
+    return kids.size;
+  },
+  // Admin marks one or more days (holiday, suspension, exam...). Every teacher gets an alert, the parent
+  // portal shows the change, and with opts.textParents the families it affects get one text each.
+  // Returns how many families were texted.
+  async saveCalendarDays(days, opts = {}) {
+    if (!days.length) return 0;
     days.forEach((d) => this.s.calendar.set(d.date, d));
-    this.saveCalendar();
     const first = days[0];
     const last = days[days.length - 1];
     const when = days.length === 1 ? fmtDay(first.date) : `${fmtDay(first.date)} to ${fmtDay(last.date)}`;
@@ -99,14 +154,27 @@ export const adminMethods = {
       `${first.label}.${noClass ? ` ${only ? `Only ${only.replace(/ only$/, '')} classes are affected. ` : ''}Attendance is not taken and these days do not count in absence streaks.` : ''}`,
       first.date,
     );
-    this.syncParentDays(null, days.map((d) => d.date.slice(0, 7)));
+    const notice = this.addCalendarNotice({
+      type: first.type,
+      title,
+      body: first.label,
+      dates: days.map((d) => d.date),
+      levels: first.levels?.length ? first.levels : null,
+    });
+    this.saveCalendar();
+    const texted = opts.textParents ? this.textFamilies(notice) : 0;
+    this.syncParentDays(null, [this.clock.today().slice(0, 7), ...days.map((d) => d.date.slice(0, 7))]);
     this.emit();
+    return texted;
   },
   // Makes days regular class days again (and alerts teachers).
-  async removeCalendarDays(dates) {
-    if (!dates.length) return;
+  async removeCalendarDays(dates, opts = {}) {
+    if (!dates.length) return 0;
+    // Which levels the removed days applied to (a Kindergarten-only suspension lifted -> only K parents).
+    const removed = dates.map((d) => this.s.calendar.get(d)).filter(Boolean);
+    const wasNoClass = removed.some((e) => ['holiday', 'suspension', 'break'].includes(e.type));
+    const levels = removed.length && removed.every((e) => e.levels?.length) ? [...new Set(removed.flatMap((e) => e.levels))] : null;
     dates.forEach((d) => this.s.calendar.delete(d));
-    this.saveCalendar();
     await this.logAudit('calendar.clear', dates.length === 1 ? dates[0] : `${dates.length} days`);
     const sorted = [...dates].sort();
     const when = sorted.length === 1 ? fmtDay(sorted[0]) : `${fmtDay(sorted[0])} to ${fmtDay(sorted[sorted.length - 1])}`;
@@ -115,8 +183,21 @@ export const adminMethods = {
       `${sorted.length === 1 ? 'This day is' : 'These days are'} back to the regular class schedule.`,
       sorted[0],
     );
-    this.syncParentDays(null, sorted.map((d) => d.slice(0, 7)));
+    let texted = 0;
+    if (removed.length) {
+      const notice = this.addCalendarNotice({
+        type: wasNoClass ? 'resume' : 'class',
+        title: `${wasNoClass ? 'Classes as usual' : 'Calendar change'}: ${when}`,
+        body: `${sorted.length === 1 ? 'This day is' : 'These days are'} back to the regular class schedule.`,
+        dates: sorted,
+        levels,
+      });
+      if (opts.textParents && wasNoClass) texted = this.textFamilies(notice);
+    }
+    this.saveCalendar();
+    this.syncParentDays(null, [this.clock.today().slice(0, 7), ...sorted.map((d) => d.slice(0, 7))]);
     this.emit();
+    return texted;
   },
   // Replaces the whole calendar with the DepEd template.
   async resetCalendar(days) {
@@ -133,9 +214,9 @@ export const adminMethods = {
   // Shortcut for one suspended day.
   // levels: which grade levels are suspended (empty or all = the whole school). DepEd Order 22, s. 2024:
   // Signal No. 1 suspends Kindergarten only; Signal No. 2 Kindergarten to Grade 10; Signal No. 3 all levels.
-  async declareSuspension(date, label, levels = []) {
+  async declareSuspension(date, label, levels = [], opts = {}) {
     const some = levels.length && levels.length < 7;
-    await this.saveCalendarDays([{ date, type: 'suspension', label, ...(some ? { levels: [...levels].sort((a, b) => gradeRank(a) - gradeRank(b)) } : {}) }]);
+    return this.saveCalendarDays([{ date, type: 'suspension', label, ...(some ? { levels: [...levels].sort((a, b) => gradeRank(a) - gradeRank(b)) } : {}) }], opts);
   },
   async listTeachers() {
     await this.ready;
@@ -319,7 +400,7 @@ export const adminMethods = {
   //   kind 'noclass':    no class for this section on those dates (children are not marked absent)
   // Only class days in from..to that are not confirmed yet are changed. Returns the dates changed.
   // ---------------------------------------------------------------------
-  async setTeacherAway(sectionId, { from, to, kind, teacherId, note }) {
+  async setTeacherAway(sectionId, { from, to, kind, teacherId, note, textParents }) {
     const sec = this.s.sections.get(sectionId);
     if (!sec) throw new Error('Class not found.');
     if (!from) throw new Error('Pick the date the teacher is absent.');
@@ -375,6 +456,23 @@ export const adminMethods = {
         this.put('notifications', m.id, m);
       }
     }
+    // No class: the parents of this class see it in the portal (and get a text when asked), so no
+    // child is sent to school for a class that is not held.
+    if (kind === 'noclass') {
+      const notice = this.addCalendarNotice({
+        type: 'noclass',
+        title: `No class for ${sec.name}: ${when}`,
+        body: `The class teacher is absent.${entry.note ? ` ${entry.note}` : ''}`,
+        dates,
+        sectionId: sec.id,
+      });
+      this.saveCalendar();
+      if (textParents) this.textFamilies(notice);
+      this.syncParentDays(
+        this.rosterOn(sec.id, dates[0]).map((k) => k.id),
+        [today.slice(0, 7), ...dates.map((d) => d.slice(0, 7))],
+      );
+    }
     this.refreshSession();
     this.emit();
     return dates;
@@ -388,6 +486,7 @@ export const adminMethods = {
     sec.schedule = { ...sec.schedule, teacherAway: away };
     this.put('sections', sec.id, sec);
     await this.logAudit('section.teacher_away_removed', sec.name, fmtDay(date));
+    this.syncParentDays(this.rosterOn(sec.id, date).map((k) => k.id), [this.clock.today().slice(0, 7), date.slice(0, 7)]);
     this.refreshSession();
     this.emit();
   },
@@ -624,3 +723,36 @@ export const adminMethods = {
     return msg;
   },
 };
+
+// The text a family gets about a calendar change, e.g. "Sunnyside ES: Kindergarten classes are suspended
+// tomorrow, Tue, Nov 17. Reason: Tropical Cyclone Wind Signal No. 1."
+function noticeText(n, { fil, child, section, school, today }) {
+  const dates = [...n.dates].sort();
+  const day = (d) => (d === today ? `${fil ? 'ngayong araw' : 'today'}, ${fmtDay(d)}` : d === addDays(today, 1) ? `${fil ? 'bukas' : 'tomorrow'}, ${fmtDay(d)}` : `on ${fmtDay(d)}`);
+  const plain = (d) => day(d).replace(/^on /, fil ? 'sa ' : 'on ');
+  const when = dates.length === 1 ? plain(dates[0]) : `${fil ? 'mula' : 'from'} ${fmtDay(dates[0])} ${fil ? 'hanggang' : 'to'} ${fmtDay(dates[dates.length - 1])}`;
+  const only = levelsLabel(n.levels).replace(/ only$/, ''); // 'Kindergarten', 'Grades 1 and 2'
+  const who = only ? `${only} classes` : 'Classes';
+  const whoFil = only ? ` ng ${only}` : '';
+  const reason = n.body ? (fil ? ` Dahilan: ${n.body.replace(/\.$/, '')}.` : ` Reason: ${n.body.replace(/\.$/, '')}.`) : '';
+  const head = school ? `${school}: ` : '';
+  switch (n.type) {
+    case 'suspension':
+      return fil ? `${head}Suspendido ang klase${whoFil} ${when}.${reason}` : `${head}${who} are suspended ${when}.${reason}`;
+    case 'holiday':
+    case 'break':
+      return fil ? `${head}Walang pasok${whoFil} ${when}.${reason}` : `${head}No classes${only ? ` for ${only}` : ''} ${when}.${reason}`;
+    case 'halfday':
+      return fil ? `${head}Half day ang klase${whoFil} ${when}; mas maagang matatapos ang klase.${reason}` : `${head}${who} are half day ${when}; classes end early.${reason}`;
+    case 'makeup':
+      return fil ? `${head}May make-up class${whoFil} ${when}. Kailangang pumasok si ${child}.${reason}` : `${head}${who} have a make-up class ${when}. ${child} should come to school.${reason}`;
+    case 'resume':
+      return fil ? `${head}Tuloy ang klase${whoFil} ${when}.` : `${head}${who} will push through as usual ${when}.`;
+    case 'noclass':
+      return fil
+        ? `${head}Walang klase ang ${section} ${when} dahil liban ang guro.`
+        : `${head}${child}'s class (${section}) has no class ${when} because the teacher is absent.`;
+    default:
+      return `${head}${n.title.replace(/:.*$/, '')} ${when}.${reason}`;
+  }
+}

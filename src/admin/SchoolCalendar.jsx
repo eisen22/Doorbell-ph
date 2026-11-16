@@ -43,6 +43,7 @@ import {
 // The Friday of a date's week (for the "Through Friday" quick button).
 const fridayOf = (d) => addDays(d, Math.max(0, 5 - isoWeekday(d)));
 // The choices in the day editor. To add a new kind of day, also add it to DAY_KIND_META in logic.js and give it a color (.k-...) in style.css.
+const NO_CLASS = ['holiday', 'suspension', 'break'];
 const TYPE_OPTIONS = [
   { value: 'class', hint: 'Normal class day (removes any special entry)' },
   { value: 'event', hint: 'Classes continue, with a school event' },
@@ -64,6 +65,7 @@ export function AdminCalendar() {
     year: await r.getSchoolYear(),
     calendar: await r.getCalendar(),
     today: await r.getToday(),
+    settings: await r.getSettings(),
   }));
   if (!data)
     return (
@@ -85,6 +87,8 @@ export function AdminCalendar() {
       label: entry?.label ?? '',
       scope: entry?.scope ?? 'national',
       weekdaysOnly: true,
+      was: entry?.type ?? 'class', // what the day was before (to offer "classes push through" texts)
+      textParents: false,
     });
   };
   // Saves the edited day(s). Choosing "Class day" removes the special entry instead.
@@ -93,20 +97,24 @@ export function AdminCalendar() {
     const dates = eachDate(draft.from, draft.to < draft.from ? draft.from : draft.to).filter(
       (d) => !draft.weekdaysOnly || draft.type === 'makeup' || draft.from === draft.to || isoWeekday(d) <= 5,
     );
+    let texted = 0;
     if (draft.type === 'class') {
-      await repo.removeCalendarDays(dates);
+      texted = await repo.removeCalendarDays(dates, { textParents: draft.textParents });
     } else {
       const label = draft.label.trim() || DAY_KIND_META[draft.type].label;
-      await repo.saveCalendarDays(
+      texted = await repo.saveCalendarDays(
         dates.map((date) => ({
           date,
           type: draft.type,
           label,
           ...(draft.type === 'holiday' ? { scope: draft.scope } : {}),
         })),
+        { textParents: draft.textParents },
       );
     }
-    flash(`${dates.length} day${dates.length > 1 ? 's' : ''} updated. Teachers were notified, and attendance and streaks follow the new calendar.`);
+    flash(
+      `${dates.length} day${dates.length > 1 ? 's' : ''} updated. Teachers and the parent portal were notified${texted ? `, and ${texted} ${texted === 1 ? 'family was' : 'families were'} texted` : ''}.`,
+    );
     setDraft(null);
   };
   const upcoming = calendar.filter((c) => c.date >= (today.actualDate ?? today.date) && c.type !== 'event').slice(0, 10);
@@ -123,7 +131,7 @@ export function AdminCalendar() {
           <button className="btn" onClick={() => setResetOpen(true)}>
             <RotateCcw size={17} /> Reset to DepEd template
           </button>
-          <button className="btn btn-danger" onClick={() => setSuspend({ date: today.actualDate ?? today.date, label: 'Class suspension: weather', scope: 'all', levels: [] })}>
+          <button className="btn btn-danger" onClick={() => setSuspend({ date: today.actualDate ?? today.date, label: 'Class suspension: weather', scope: 'all', levels: [], textParents: true })}>
             <CloudRain size={17} /> Declare suspension
           </button>
         </div>
@@ -286,6 +294,14 @@ export function AdminCalendar() {
               Saturdays and Sundays
             </label>
           )}
+          {/* Parents always see the change in the parent portal; a text is optional (it uses SMS credits). */}
+          {(draft.type !== 'class' || NO_CLASS.includes(draft.was)) && (
+            <label className="check">
+              <input type="checkbox" checked={draft.textParents} onChange={(e) => setDraft({ ...draft, textParents: e.target.checked })} />{' '}
+              {draft.type === 'class' ? 'Text parents that classes push through as usual' : 'Also text the parents (one text per family)'}
+            </label>
+          )}
+          <p className="muted small">Parents see this in the parent portal under "Coming up" either way.</p>
         </Modal>
       )}
 
@@ -303,10 +319,10 @@ export function AdminCalendar() {
                 onClick={async () => {
                   const levels = suspend.scope === 'all' ? [] : suspend.scope === 'k' ? ['K'] : suspend.levels;
                   if (suspend.scope === 'pick' && !levels.length) return;
-                  await repo.declareSuspension(suspend.date, suspend.label, levels);
+                  const texted = await repo.declareSuspension(suspend.date, suspend.label, levels, { textParents: suspend.textParents });
                   setSuspend(null);
                   flash(
-                    `Suspension saved${levels.length ? ` (${levelsLabel(levels)})` : ''} and teachers notified. No absences or streak SMS for that day.`,
+                    `Suspension saved${levels.length ? ` (${levelsLabel(levels)})` : ''}. Teachers and the parent portal were notified${texted ? `, and ${texted} ${texted === 1 ? 'family was' : 'families were'} texted` : ''}.`,
                   );
                 }}
               >
@@ -317,7 +333,7 @@ export function AdminCalendar() {
         >
           <p>
             On a suspended day, children are not marked absent, it does not count toward 3-day streaks, and no absence SMS is sent. Every teacher sees
-            an alert about it right away.
+            an alert about it right away, and parents see it at the top of the parent portal.
           </p>
           <div className="field">
             <span>Date</span>
@@ -380,6 +396,16 @@ export function AdminCalendar() {
             <span>Reason</span>
             <input className="input" value={suspend.label} onChange={(e) => setSuspend({ ...suspend, label: e.target.value })} />
           </label>
+          <label className="check">
+            <input type="checkbox" checked={suspend.textParents} onChange={(e) => setSuspend({ ...suspend, textParents: e.target.checked })} /> Text the parents
+            now (one text per family, only those with SMS consent)
+          </label>
+          {suspend.textParents && (
+            <p className="muted small">
+              The text reads: "{data.settings?.schoolName ? `${data.settings.schoolName}: ` : ''}{suspend.scope === 'k' ? 'Kindergarten classes' : suspend.scope === 'pick' && suspend.levels.length ? `${levelsLabel(suspend.levels).replace(/ only$/, '')} classes` : 'Classes'} are suspended{' '}
+              {suspend.date === today.actualDate ? 'today,' : suspend.date === addDays(today.actualDate, 1) ? 'tomorrow,' : 'on'} {format(parseISO(suspend.date), 'EEE, MMM d')}. Reason: {suspend.label}." Filipino-speaking families get it in Filipino.
+            </p>
+          )}
         </Modal>
       )}
 

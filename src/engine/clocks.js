@@ -42,6 +42,7 @@ export function emptyState(meta, calendar = []) {
   return {
     meta,
     calendar: new Map(calendar.map((c) => [c.date, c])),
+    calendarNotices: [], // latest calendar changes, newest first, shown to parents (meta/calendar.notices)
     users: new Map(),
     sections: new Map(),
     teachers: new Map(),
