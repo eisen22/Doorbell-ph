@@ -60,7 +60,7 @@ export const settings = {
       streak: '{school}: Si {child} ay {streak}. Sana ay maayos siya. Pakitawagan ang {contact}.',
       total: '{school}: Si {child} ay {summary}. Sana ay maayos siya. Pakitawagan ang {contact}.',
       missing: '{school}: Pumasok si {child} sa paaralan ng {time} pero wala sa klase. Hinahanap na siya ng paaralan. Pakitawagan ang {contact}.',
-      absent: '{school}: Hanggang {time}, hindi pa dumarating si {child} sa paaralan at absent siya ngayong araw. Kung dapat ay nasa paaralan siya, pakitawagan ang {contact}.',
+      absent: '{school}: Hanggang {time}, wala pa si {child} sa paaralan kaya absent siya ngayon. Kung dapat ay pumasok siya, tumawag sa {contact}.',
       laterPeriod: 'Doorbell: Dumating si {child} sa paaralan ng {time} ({period}) at nasa klase na, kinumpirma ng guro. - {school}',
       departure: 'Doorbell: Umalis na si {child} sa paaralan ng {time} (na-scan palabas sa gate). - {school}',
       pickedUp: 'Doorbell: Sinundo na si {child} sa paaralan ng {time}, ayon sa paaralan. - {school}',
@@ -73,7 +73,12 @@ export const TEMPLATE_KINDS = ['arrival', 'late', 'laterPeriod', 'absent', 'miss
 // The old default texts (sent at the gate scan). Saved settings that still have them get the new ones.
 const OLD_DEFAULTS = {
   en: { arrival: 'Doorbell: {child} arrived at school at {time}. - {school}', late: 'Doorbell: {child} arrived late at {time}. - {school}' },
-  fil: { arrival: 'Doorbell: Nakarating na si {child} sa paaralan ng {time}. - {school}', late: 'Doorbell: Nahuli si {child} ng dating, {time}. - {school}' },
+  fil: {
+    arrival: 'Doorbell: Nakarating na si {child} sa paaralan ng {time}. - {school}',
+    late: 'Doorbell: Nahuli si {child} ng dating, {time}. - {school}',
+    // Too long for one SMS with a long school name (2 texts each time).
+    absent: '{school}: Hanggang {time}, hindi pa dumarating si {child} sa paaralan at absent siya ngayong araw. Kung dapat ay nasa paaralan siya, pakitawagan ang {contact}.',
+  },
 };
 /** Settings with every template kind filled in (missing or untouched old defaults -> new defaults). */
 export function withTemplateDefaults(saved) {

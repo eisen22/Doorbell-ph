@@ -1019,3 +1019,26 @@ textarea.input { height: auto; padding-top: 10px; padding-bottom: 10px; line-hei
 .suggest-list { position: absolute; z-index: 30; top: calc(100% + 4px); left: 0; right: 0; min-width: 200px; margin: 0; padding: 4px; list-style: none; background: var(--card, #fff); border: 1px solid var(--line); border-radius: var(--r-sm); box-shadow: 0 8px 24px rgba(27, 29, 25, 0.14); max-height: 300px; overflow-y: auto; }
 .suggest-list button { width: 100%; text-align: left; border: 0; background: none; padding: 8px 10px; border-radius: var(--r-xs); font: inherit; font-size: 14px; cursor: pointer; color: var(--ink); }
 .suggest-list button:hover, .suggest-list button:focus { background: var(--frame); }
+/* Settings: tabs, tidy grids, template rows (English and Filipino side by side), limits table. */
+.settings-tabs { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 18px; }
+.settings-tabs button { border: 0; background: none; padding: 10px 14px; font: inherit; font-weight: 600; font-size: 14.5px; color: var(--ink-2); cursor: pointer; border-bottom: 3px solid transparent; margin-bottom: -1px; }
+.settings-tabs button:hover { color: var(--ink); }
+.settings-tabs button.on { color: var(--ink); border-bottom-color: var(--ink); }
+.settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 16px; }
+@media (max-width: 640px) { .settings-grid { grid-template-columns: minmax(0, 1fr); } }
+.check-list { display: grid; gap: 8px; margin-bottom: 10px; }
+.narrow-field { max-width: 340px; }
+.test-row { max-width: 520px; }
+.tpl-head { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; font-weight: 700; margin: 14px 0 4px; }
+.tpl-row { border-top: 1px solid var(--line); padding: 14px 0 6px; }
+.tpl-row > .kind { display: inline-block; margin-bottom: 8px; }
+.tpl-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.tpl-pair .tpl { border: 0; padding: 0; margin: 0; }
+@media (max-width: 760px) { .tpl-head { display: none; } .tpl-pair { grid-template-columns: minmax(0, 1fr); } .tpl-pair .tpl .sr-only { position: static; width: auto; height: auto; clip: auto; margin: 0; font-weight: 700; font-size: 13px; } }
+.limits-table { border-collapse: collapse; margin: 6px 0 14px; }
+.limits-table th, .limits-table td { padding: 6px 10px 6px 0; text-align: left; }
+.limits-table thead th { font-size: 13px; color: var(--ink-2); font-weight: 600; }
+.limits-table tbody th { font-weight: 600; padding-right: 24px; white-space: nowrap; }
+.limits-table td .input { width: 110px; }
+.limits-table td > .muted { display: inline-block; width: 110px; padding-left: 14px; }
+.sem-row { max-width: 520px; }

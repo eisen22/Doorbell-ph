@@ -17,6 +17,7 @@ import {
   DatePicker,
 } from '../ui';
 import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   normalizePhMobile,
   describeStreak,
@@ -41,6 +42,15 @@ const KIND_LABELS = {
   pickedUp: 'Picked up (marked by the school, e.g. no ID card)',
 };
 
+// The tabs of the Settings page.
+const SETTINGS_TABS = [
+  ['school', 'School & attendance'],
+  ['texts', 'Texts to parents'],
+  ['templates', 'Message templates'],
+  ['accounts', 'Admins & gate phone'],
+  ['portal', 'Parent portal'],
+];
+
 // =====================================================================
 // SETTINGS & SMS (/admin/settings): school details, how texts are sent, message templates
 // and the gate phone account.
@@ -57,6 +67,10 @@ export function AdminSettings() {
   const [s, setS] = useState(null);
   const [testTo, setTestTo] = useState('');
   const [toast, setToast] = useState(null);
+  // Which tab is open: ?tab= in the address, so a link can open one (e.g. ?tab=templates).
+  const [params, setParams] = useSearchParams();
+  const tab = SETTINGS_TABS.some(([k]) => k === params.get('tab')) ? params.get('tab') : 'school';
+  const setTab = (k) => setParams(k === 'school' ? {} : { tab: k }, { replace: true });
   useEffect(() => {
     if (data && !s) setS(structuredClone(data));
   }, [data, s]);
@@ -80,177 +94,206 @@ export function AdminSettings() {
     period: lang === 'fil' ? 'ika-2 na period' : '2nd period',
   });
   const setTpl = (lang, k, v) => setS({ ...s, templates: { ...s.templates, [lang]: { ...s.templates[lang], [k]: v } } });
+  const dirty = JSON.stringify(s) !== JSON.stringify(data);
+  const save = async () => {
+    await repo.updateSettings(s);
+    flash('Settings saved');
+  };
+  // Tabs that edit the settings above share one Save button; Accounts and Parent portal save by themselves.
+  const editsSettings = ['school', 'texts', 'templates'].includes(tab);
   return (
     <div className="page">
       <div className="page-head">
         <div>
-          <h1>Settings &amp; SMS</h1>
-          <p className="page-sub">School-wide</p>
+          <h1>Settings</h1>
+          <p className="page-sub">For the whole school</p>
         </div>
-        <button
-          className="btn btn-ink"
-          onClick={async () => {
-            await repo.updateSettings(s);
-            flash('Settings saved');
-          }}
-        >
-          <Save size={17} /> Save changes
-        </button>
+        {editsSettings && (
+          <button className="btn btn-ink" onClick={save} disabled={!dirty}>
+            <Save size={17} /> {dirty ? 'Save changes' : 'Saved'}
+          </button>
+        )}
       </div>
-      <div className="grid-2">
-        <Card title="School">
-          <label className="field">
-            <span>School name (appears in every SMS)</span>
-            <input className="input" value={s.schoolName} onChange={(e) => setS({ ...s, schoolName: e.target.value })} />
-          </label>
-          <label className="field">
-            <span>Contact number for parents</span>
-            <input className="input" value={s.contactNumber} onChange={(e) => setS({ ...s, contactNumber: e.target.value })} />
-          </label>
-        </Card>
-        <Card title="When parents get a text">
-          <label className="check">
-            <input type="checkbox" checked={s.arrivalSmsEnabled} onChange={(e) => setS({ ...s, arrivalSmsEnabled: e.target.checked })} /> Text parents
-            when the teacher confirms their child is in class (and when late)
-          </label>
-          <label className="check">
-            <input type="checkbox" checked={s.absentSmsEnabled !== false} onChange={(e) => setS({ ...s, absentSmsEnabled: e.target.checked })} /> Text
-            parents on the day their child is absent (sent at the end of first period, only for classes a teacher confirmed)
-          </label>
-          <label className="check">
-            <input type="checkbox" checked={s.departureSmsEnabled !== false} onChange={(e) => setS({ ...s, departureSmsEnabled: e.target.checked })} />{' '}
-            Text parents when their child leaves school (scanned out at the gate, or marked picked up)
-          </label>
-          <div className="form-row">
-            <label className="field">
-              <span>School gate opens (scanning starts)</span>
-              <input type="time" className="input" value={s.gateOpens ?? '06:00'} onChange={(e) => setS({ ...s, gateOpens: e.target.value || '06:00' })} />
-            </label>
-            <label className="field">
-              <span>First period length (minutes)</span>
-              <input
-                type="number"
-                min={20}
-                max={180}
-                className="input"
-                value={s.firstPeriodMins ?? 60}
-                onChange={(e) => setS({ ...s, firstPeriodMins: Number(e.target.value) || 60 })}
-              />
-            </label>
-          </div>
-          <p className="muted small">
-            The same for every class. DepEd sets no national gate time, so each school sets its own. Absence texts go out when the first period
-            ends (class start + this length), for example 8:30 AM for a 7:30 AM class with a 60-minute first period.
-          </p>
-          <label className="field">
-            <span>Text parents after this many school days absent in a row</span>
-            <input
-              type="number"
-              className="input"
-              min={2}
-              max={10}
-              value={s.streakDays}
-              onChange={(e) => setS({ ...s, streakDays: Number(e.target.value) })}
-            />
-          </label>
-          <div className="form-row">
-            <label className="field">
-              <span>Send a test SMS to</span>
-              <input className="input" value={testTo} onChange={(e) => setTestTo(e.target.value)} placeholder="0917 123 4567" />
-            </label>
-            <button
-              className="btn align-end"
-              onClick={async () => {
-                const n = normalizePhMobile(testTo);
-                if (!n) return flash('Enter a valid mobile number');
-                await repo.sendTestSms(n);
-                flash(s.smsProvider === 'simulated' || !s.smsProvider ? 'Test SMS saved (simulated, see SMS Messages)' : 'Test SMS queued: check the phone and the SMS Messages page');
-              }}
-            >
-              <Send size={16} /> Send test
-            </button>
-          </div>
-          <p className="muted small">
-            {repo.mode === 'demo' ? (
-              <>Demo mode: texts are simulated.</>
-            ) : s.smsProvider === 'semaphore' ? (
-              <>Real texts: the free Cloudflare Worker sends each one through Semaphore within a minute (see worker/README.md). Save changes, then send a test.</>
-            ) : s.smsProvider === 'phone' ? (
-              <>Real texts from the gate phone's SIM. Save changes, open Doorbell Gate on the phone, then send a test.</>
-            ) : (
-              <>Simulated: texts are only recorded in the SMS Messages page. Choose Semaphore below for real texts.</>
-            )}
-          </p>
-        </Card>
-        <Card title="How texts are sent">
-          <label className="field">
-            <span>SMS service</span>
-            <select className="input" value={s.smsProvider ?? 'simulated'} onChange={(e) => setS({ ...s, smsProvider: e.target.value })}>
-              <option value="simulated">Simulated (for demos: nothing is sent)</option>
-              <option value="phone">Gate phone's SIM (the Doorbell Gate app sends them)</option>
-              <option value="semaphore">Semaphore (real SMS with a sender name, sent by the Cloudflare Worker)</option>
-            </select>
-          </label>
-          {s.smsProvider === 'phone' && (
-            <p className="hint">
-              Texts go out from the gate phone's own number while the Doorbell Gate app is open. Keep load on that SIM (an unlimited-texts promo
-              is cheapest). If the app is closed, texts wait and go out when it opens; texts older than 12 hours are not sent (press Resend).
-            </p>
-          )}
-          {s.smsProvider === 'semaphore' && (
-          <label className="field">
-            <span>Sender name (as approved in Semaphore; leave empty for your account's default)</span>
-            <input
-              className="input"
-              value={s.senderName ?? ''}
-              maxLength={11}
-              placeholder="e.g. SUNNYSIDE"
-              onChange={(e) => setS({ ...s, senderName: e.target.value.trim() })}
-            />
-          </label>
-          )}
-          {s.smsProvider === 'semaphore' && (
-            <p className="muted small">
-              Semaphore needs the free Cloudflare Worker set up once (worker/README.md; the API key is saved in Cloudflare, never here). Until then, texts stay "Sending".
-            </p>
-          )}
-        </Card>
+      <div className="settings-tabs" role="tablist" aria-label="Settings">
+        {SETTINGS_TABS.map(([k, label]) => (
+          <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>
+            {label}
+          </button>
+        ))}
       </div>
-      <LimitsCard s={s} setS={setS} />
-      <Card title="Message templates">
-        <p className="muted small">
-          Parents are texted when the teacher confirms the class, not at the gate scan, so "in class" is only said once the teacher has
-          seen the child. Absence texts go out at the end of first period (each section's "Absence texts" time). A class nobody confirms sends no
-          texts. Variables: {'{child}'} first name, {'{time}'}, {'{school}'}, {'{contact}'}, and in the 3-day alert {'{streak}'}, which becomes the exact
-          pattern, e.g. "absent for 3 school days in a row" (only absences count; a late day ends it). Keep each under 160 plain characters (no emoji or curly
-          quotes) so it costs one SMS.
-        </p>
-        <div className="templates">
-          {['en', 'fil'].map((lang) => (
-            <div key={lang}>
-              <h3>{lang === 'en' ? 'English' : 'Filipino'}</h3>
-              {TEMPLATE_KINDS.map((k) => {
-                const preview = renderTemplate(s.templates[lang][k], varsFor(lang));
-                const plain = isGsmPlain(preview);
-                return (
-                  <label key={k} className="tpl">
-                    <span className={`kind kind-${k === 'laterPeriod' ? 'late' : k === 'absent' ? 'streak' : k === 'pickedUp' ? 'departure' : k}`}>{KIND_LABELS[k]}</span>
-                    <textarea rows={3} value={s.templates[lang][k]} onChange={(e) => setTpl(lang, k, e.target.value)} />
-                    <span className="muted small">Preview: {preview}</span>
-                    <span className={`small ${preview.length > 160 || !plain ? 'over' : 'muted'}`}>
-                      {preview.length}/160 · {smsSegments(preview)} SMS{!plain ? ' · special characters make it cost more' : ''}
-                    </span>
-                  </label>
-                );
-              })}
+
+      {tab === 'school' && (
+        <>
+          <Card title="School">
+            <div className="settings-grid">
+              <label className="field">
+                <span>School name (appears in every SMS)</span>
+                <input className="input" value={s.schoolName} onChange={(e) => setS({ ...s, schoolName: e.target.value })} />
+              </label>
+              <label className="field">
+                <span>Contact number for parents ({'{contact}'} in the texts)</span>
+                <input className="input" value={s.contactNumber} onChange={(e) => setS({ ...s, contactNumber: e.target.value })} />
+              </label>
+              <label className="field">
+                <span>School gate opens (scanning starts)</span>
+                <input type="time" className="input" value={s.gateOpens ?? '06:00'} onChange={(e) => setS({ ...s, gateOpens: e.target.value || '06:00' })} />
+              </label>
+              <label className="field">
+                <span>First period length (minutes)</span>
+                <input
+                  type="number"
+                  min={20}
+                  max={180}
+                  className="input"
+                  value={s.firstPeriodMins ?? 60}
+                  onChange={(e) => setS({ ...s, firstPeriodMins: Number(e.target.value) || 60 })}
+                />
+              </label>
             </div>
+            <p className="muted small">
+              The same for every class. DepEd sets no national gate time, so each school sets its own. Absence texts go out when the first period
+              ends (class start + this length), for example 8:30 AM for a 7:30 AM class with a 60-minute first period.
+            </p>
+          </Card>
+          <LimitsCard s={s} setS={setS} />
+        </>
+      )}
+
+      {tab === 'texts' && (
+        <>
+          <Card title="When parents get a text">
+            <div className="check-list">
+              <label className="check">
+                <input type="checkbox" checked={s.arrivalSmsEnabled} onChange={(e) => setS({ ...s, arrivalSmsEnabled: e.target.checked })} /> When the
+                teacher confirms their child is in class (and when late)
+              </label>
+              <label className="check">
+                <input type="checkbox" checked={s.absentSmsEnabled !== false} onChange={(e) => setS({ ...s, absentSmsEnabled: e.target.checked })} /> On the
+                day their child is absent (at the end of first period, only for classes a teacher confirmed)
+              </label>
+              <label className="check">
+                <input type="checkbox" checked={s.departureSmsEnabled !== false} onChange={(e) => setS({ ...s, departureSmsEnabled: e.target.checked })} />{' '}
+                When their child leaves school (scanned out at the gate, or marked picked up)
+              </label>
+            </div>
+            <label className="field narrow-field">
+              <span>3-day alert: text parents after this many school days absent in a row</span>
+              <input type="number" className="input" min={2} max={10} value={s.streakDays} onChange={(e) => setS({ ...s, streakDays: Number(e.target.value) })} />
+            </label>
+          </Card>
+          <Card title="How texts are sent">
+            <label className="field">
+              <span>SMS service</span>
+              <select className="input" value={s.smsProvider ?? 'simulated'} onChange={(e) => setS({ ...s, smsProvider: e.target.value })}>
+                <option value="simulated">Simulated (for demos: nothing is sent)</option>
+                <option value="phone">Gate phone's SIM (the Doorbell Gate app sends them)</option>
+                <option value="semaphore">Semaphore (real SMS with a sender name, sent by the Cloudflare Worker)</option>
+              </select>
+            </label>
+            {s.smsProvider === 'phone' && (
+              <p className="hint">
+                Texts go out from the gate phone's own number while the Doorbell Gate app is open. Keep load on that SIM (an unlimited-texts promo
+                is cheapest). If the app is closed, texts wait and go out when it opens; texts older than 12 hours are not sent (press Resend).
+              </p>
+            )}
+            {s.smsProvider === 'semaphore' && (
+              <>
+                <label className="field">
+                  <span>Sender name (as approved in Semaphore; leave empty for your account's default)</span>
+                  <input
+                    className="input"
+                    value={s.senderName ?? ''}
+                    maxLength={11}
+                    placeholder="e.g. SUNNYSIDE"
+                    onChange={(e) => setS({ ...s, senderName: e.target.value.trim() })}
+                  />
+                </label>
+                <p className="muted small">
+                  Semaphore needs the free Cloudflare Worker set up once (worker/README.md; the API key is saved in Cloudflare, never here). Until
+                  then, texts stay "Sending".
+                </p>
+              </>
+            )}
+            <div className="form-row test-row">
+              <label className="field">
+                <span>Send a test SMS to</span>
+                <input className="input" value={testTo} onChange={(e) => setTestTo(e.target.value)} placeholder="0917 123 4567" />
+              </label>
+              <button
+                className="btn align-end"
+                onClick={async () => {
+                  const n = normalizePhMobile(testTo);
+                  if (!n) return flash('Enter a valid mobile number');
+                  await repo.sendTestSms(n);
+                  flash(s.smsProvider === 'simulated' || !s.smsProvider ? 'Test SMS saved (simulated, see SMS Messages)' : 'Test SMS queued: check the phone and the SMS Messages page');
+                }}
+              >
+                <Send size={16} /> Send test
+              </button>
+            </div>
+            <p className="muted small">
+              {repo.mode === 'demo' ? (
+                <>Demo mode: texts are simulated.</>
+              ) : s.smsProvider === 'semaphore' ? (
+                <>Real texts: the free Cloudflare Worker sends each one through Semaphore within a minute. Save changes, then send a test.</>
+              ) : s.smsProvider === 'phone' ? (
+                <>Real texts from the gate phone's SIM. Save changes, open Doorbell Gate on the phone, then send a test.</>
+              ) : (
+                <>Simulated: texts are only recorded in the SMS Messages page. Choose Semaphore for real texts.</>
+              )}
+            </p>
+          </Card>
+        </>
+      )}
+
+      {tab === 'templates' && (
+        <Card title="Message templates">
+          <p className="muted small">
+            Fill-ins: {'{child}'} first name, {'{time}'}, {'{school}'}, {'{contact}'}, {'{period}'}, and in the alerts {'{streak}'} or {'{summary}'}, e.g.
+            "absent for 3 school days in a row". Keep each under 160 plain characters (no emoji or curly quotes) so it costs one SMS. Families who
+            chose Filipino get the Filipino text.
+          </p>
+          <div className="tpl-head" aria-hidden="true">
+            <span>English</span>
+            <span>Filipino</span>
+          </div>
+          {TEMPLATE_KINDS.map((k) => (
+            <section key={k} className="tpl-row">
+              <span className={`kind kind-${k === 'laterPeriod' ? 'late' : k === 'absent' ? 'streak' : k === 'pickedUp' ? 'departure' : k}`}>{KIND_LABELS[k]}</span>
+              <div className="tpl-pair">
+                {['en', 'fil'].map((lang) => {
+                  const preview = renderTemplate(s.templates[lang][k], varsFor(lang));
+                  const plain = isGsmPlain(preview);
+                  return (
+                    <label key={lang} className="tpl">
+                      <span className="sr-only">{lang === 'en' ? 'English' : 'Filipino'}</span>
+                      <textarea className="input" rows={3} value={s.templates[lang][k]} onChange={(e) => setTpl(lang, k, e.target.value)} />
+                      <span className="muted small">{preview}</span>
+                      <span className={`small ${preview.length > 160 || !plain ? 'over' : 'muted'}`}>
+                        {preview.length}/160 · {smsSegments(preview)} SMS{!plain ? ' · special characters make it cost more' : ''}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            </section>
           ))}
-        </div>
-      </Card>
-      <AdminsCard flash={flash} />
-      {repo.clearSchoolData && <StartOverCard />}
-      <GateAccountCard flash={flash} />
-      <ParentPortalCard flash={flash} />
+        </Card>
+      )}
+
+      {tab === 'accounts' && (
+        <>
+          <AdminsCard flash={flash} />
+          <GateAccountCard flash={flash} />
+        </>
+      )}
+
+      {tab === 'portal' && (
+        <>
+          <ParentPortalCard flash={flash} />
+          {repo.clearSchoolData && <StartOverCard />}
+        </>
+      )}
       <Toast message={toast} />
     </div>
   );
@@ -590,23 +633,46 @@ function LimitsCard({ s, setS }) {
         Totals for the month and the semester. Watch shows the child in Absence Watch (excused days count here), Text parent sends one SMS per
         period, Conference tells the teacher and admin to meet the parent. DepEd may drop a learner absent more than 20% of school days.
       </p>
-      <div className="limits">
-        {LIMIT_ROWS.map(([k, label, levels]) => (
-          <div key={k} className="limit-row">
-            <span>{label}</span>
-            {levels.map((level) => (
-              <label key={level} className="field">
-                <span className="small muted">{LEVEL_WORD[level]}</span>
-                <input type="number" className="input" min={1} max={60} value={lim(k)[level]} onChange={(e) => set(k, level, e.target.value)} />
-              </label>
+      <div className="table-wrap">
+        <table className="limits-table">
+          <thead>
+            <tr>
+              <th />
+              {['watch', 'alert', 'serious'].map((level) => (
+                <th key={level}>{LEVEL_WORD[level]}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {LIMIT_ROWS.map(([k, label, levels]) => (
+              <tr key={k}>
+                <th scope="row">{label}</th>
+                {['watch', 'alert', 'serious'].map((level) => (
+                  <td key={level}>
+                    {levels.includes(level) ? (
+                      <input
+                        type="number"
+                        className="input"
+                        min={1}
+                        max={60}
+                        value={lim(k)[level]}
+                        onChange={(e) => set(k, level, e.target.value)}
+                        aria-label={`${label}: ${LEVEL_WORD[level]}`}
+                      />
+                    ) : (
+                      <span className="muted" aria-label="not used">—</span>
+                    )}
+                  </td>
+                ))}
+              </tr>
             ))}
-          </div>
-        ))}
+          </tbody>
+        </table>
       </div>
       <div className="field">
         <span>Second semester starts (empty = halfway through the school year)</span>
       </div>
-      <div className="form-row">
+      <div className="form-row sem-row">
         <DatePicker value={s.semester2Start ?? ''} onChange={(d) => setS({ ...s, semester2Start: d })} placeholder="Halfway through the school year" ariaLabel="Second semester starts" />
         {s.semester2Start && (
           <button className="btn" onClick={() => setS({ ...s, semester2Start: '' })}>
