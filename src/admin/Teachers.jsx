@@ -15,6 +15,7 @@ import {
   Toast,
   LevelChips,
   countByGrade,
+  SectionChips,
 } from '../ui';
 import { useState } from 'react';
 import { displayPhMobile, to12h, normalizePhMobile, GRADE_LEVELS, gradeName, gradeRank, SUBJECTS, hasSubjectTeachers } from '../logic';
@@ -186,6 +187,7 @@ export function Teachers() {
   const [toast, setToast] = useState(null);
   const [created, setCreated] = useState(null);
   const [level, setLevel] = useState('all');
+  const [secId, setSecId] = useState('all'); // one section of the chosen grade level, or all of them
   const [sortBy, setSortBy] = useState('grade');
   const { data } = useLive(async (r) => ({ teachers: await r.listTeachers(), sections: await r.listSections() }));
   if (!data)
@@ -204,10 +206,16 @@ export function Teachers() {
   // The grade levels a teacher teaches (as adviser or subject teacher).
   const levelsOf = (t) => [...[...adviserOf(t), ...subjectOf(t)].map((x) => x.gradeLevel ?? 'K'), ...(t.gradeLevel ? [t.gradeLevel] : [])];
   const firstLevel = (t) => Math.min(99, ...adviserOf(t).map((x) => gradeRank(x.gradeLevel)), ...(t.gradeLevel && !subjectOf(t).length ? [gradeRank(t.gradeLevel)] : []));
-  const shown = data.teachers.filter((t) => level === 'all' || levelsOf(t).includes(level));
+  // Teaches this section (as adviser or subject teacher).
+  const teaches = (t, id) => [...adviserOf(t), ...subjectOf(t)].some((x) => x.id === id);
+  const sec = level !== 'all' && secId !== 'all' ? live.find((x) => x.id === secId) : null;
+  const shown = data.teachers.filter((t) => (level === 'all' || levelsOf(t).includes(level)) && (!sec || teaches(t, sec.id)));
   const byName = (a, b) => a.name.localeCompare(b.name);
   // Advises a class in the picked grade, or was added as that grade's teacher and has no class yet.
-  const isAdv = (t) => adviserOf(t).some((x) => (x.gradeLevel ?? 'K') === level) || (t.gradeLevel === level && !adviserOf(t).length && !subjectOf(t).length);
+  const isAdv = (t) =>
+    sec
+      ? sec.teacherId === t.id
+      : adviserOf(t).some((x) => (x.gradeLevel ?? 'K') === level) || (t.gradeLevel === level && !adviserOf(t).length && !subjectOf(t).length);
   // Groups: by the grade they advise (subject teachers with no class of their own after Grade 6),
   // by subject (teachers of Grades 4 to 6), or one list by name.
   const groups =
@@ -232,12 +240,12 @@ export function Teachers() {
             [
               {
                 key: 'adv',
-                label: `${gradeName(level)} advisers`,
+                label: sec ? `Adviser of ${sec.name}` : `${gradeName(level)} advisers`,
                 items: shown.filter((t) => isAdv(t)).sort(byName),
               },
               {
                 key: 'sub',
-                label: `Subject teachers in ${gradeName(level)}`,
+                label: sec ? `Subject teachers of ${sec.name}` : `Subject teachers in ${gradeName(level)}`,
                 items: shown.filter((t) => !isAdv(t)).sort(byName),
               },
             ].filter((g) => g.items.length)
@@ -324,7 +332,21 @@ export function Teachers() {
           <Plus size={17} /> Add teacher
         </button>
       </div>
-      <LevelChips value={level} onChange={setLevel} counts={countByGrade(data.teachers.flatMap((t) => [...new Set(levelsOf(t))].map((g) => ({ g }))), (x) => x.g)} />
+      <LevelChips
+        value={level}
+        onChange={(v) => {
+          setLevel(v);
+          setSecId('all');
+        }}
+        counts={countByGrade(data.teachers.flatMap((t) => [...new Set(levelsOf(t))].map((g) => ({ g }))), (x) => x.g)}
+      />
+      <SectionChips
+        level={level}
+        sections={live}
+        value={secId}
+        onChange={setSecId}
+        counts={Object.fromEntries(live.map((x) => [x.id, data.teachers.filter((t) => teaches(t, x.id)).length]))}
+      />
       <div className="chips">
         <select className="input auto" value={sortBy} onChange={(e) => setSortBy(e.target.value)} aria-label="Group teachers">
           <option value="grade">Group: by grade (Kindergarten to Grade 6)</option>
