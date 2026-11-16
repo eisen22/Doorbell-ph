@@ -2,7 +2,7 @@ import { format, parseISO } from 'date-fns';
 import { X } from 'lucide-react';
 import { useLive, Card, Skeleton, Empty, DatePicker } from '../ui';
 import { useState } from 'react';
-import { bySectionGrade, manilaToday } from '../logic';
+import { bySectionGrade, manilaToday, addDays } from '../logic';
 
 // =====================================================================
 // AUDIT LOG (/admin/audit): who changed what. Entries can never be edited or deleted.
@@ -78,7 +78,18 @@ export function AuditLog() {
                 </button>
               )}
             </span>
-            <DatePicker value={date} max={today} onChange={setDate} placeholder="Any date" ariaLabel="Date" />
+            <DatePicker
+              value={date}
+              max={today}
+              onChange={setDate}
+              placeholder="Any date"
+              ariaLabel="Date"
+              anyDay
+              quick={[
+                ['Today', today],
+                ['Yesterday', addDays(today, -1)],
+              ]}
+            />
           </div>
           <label className="field">
             <span>Class</span>
@@ -102,15 +113,10 @@ export function AuditLog() {
               ))}
             </select>
           </label>
-          <label className="field">
+          <div className="field">
             <span>Student</span>
-            <input className="input" list="audit-students" value={student} onChange={(e) => setStudent(e.target.value)} placeholder="Name" />
-            <datalist id="audit-students">
-              {students.map((x) => (
-                <option key={x.student.id} value={`${x.student.firstName} ${x.student.lastName}`} />
-              ))}
-            </datalist>
-          </label>
+            <StudentSearch value={student} onChange={setStudent} students={students} />
+          </div>
           <label className="field">
             <span>Words</span>
             <input className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="e.g. suspension, resend" aria-label="Filter by words" />
@@ -172,4 +178,54 @@ export function AuditLog() {
 // Dates saved as 2026-11-18 inside an entry are shown as Nov 18, 2026 (month first, like the rest of the app).
 function readableDates(text) {
   return typeof text === 'string' ? text.replace(/\b(\d{4})-(\d{2})-(\d{2})\b/g, (m) => format(parseISO(m), 'MMM d, yyyy')) : text;
+}
+
+// Student box: type a few letters, then pick from the matching names (at most 8, A to Z by last name).
+function StudentSearch({ value, onChange, students }) {
+  const [open, setOpen] = useState(false);
+  const q = value.trim().toLowerCase();
+  const matches = q
+    ? students
+        .filter(({ student: st }) => `${st.firstName} ${st.lastName}`.toLowerCase().includes(q) || `${st.lastName} ${st.firstName}`.toLowerCase().includes(q))
+        .sort((a, b) => a.student.lastName.localeCompare(b.student.lastName) || a.student.firstName.localeCompare(b.student.firstName))
+        .slice(0, 8)
+    : [];
+  return (
+    <div className="suggest">
+      <input
+        className="input"
+        value={value}
+        placeholder="Type a name"
+        onChange={(e) => {
+          onChange(e.target.value);
+          setOpen(true);
+        }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+        onKeyDown={(e) => e.key === 'Escape' && setOpen(false)}
+        aria-label="Student"
+        autoComplete="off"
+      />
+      {open && matches.length > 0 && (
+        <ul className="suggest-list" role="listbox">
+          {matches.map(({ student: st, section }) => (
+            <li key={st.id} role="option" aria-selected={false}>
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  onChange(`${st.firstName} ${st.lastName}`);
+                  setOpen(false);
+                }}
+              >
+                {st.lastName}, {st.firstName}
+                {/* the class tells two children with the same name apart */}
+                {section && <span className="muted small"> · {section.name}</span>}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
 }

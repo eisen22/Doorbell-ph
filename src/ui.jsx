@@ -341,6 +341,7 @@ export function DatePicker({
   birthdate,
   className = '',
   compact,
+  anyDay, // every day looks the same (e.g. the Audit Log: changes happen on weekends too)
 }) {
   const [open, setOpen] = useState(false);
   const start = value || (max && manilaToday() > max ? max : manilaToday());
@@ -493,7 +494,7 @@ export function DatePicker({
                 'dp-day',
                 d === value ? 'on' : '',
                 d === manilaToday() ? 'today' : '',
-                wd >= 6 ? 'weekend' : '',
+                wd >= 6 && !anyDay ? 'weekend' : '',
                 m && NO_CLASS.has(m.type) ? 'noclass' : '',
               ].join(' ');
               return (
