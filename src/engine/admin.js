@@ -24,6 +24,13 @@ export const adminMethods = {
     await this.ready;
     return [...this.s.audit.values()].sort((a, b) => b.at.localeCompare(a.at)).slice(0, limit);
   },
+  // Audit entries from a date ('YYYY-MM-DD', Philippine time) on, newest first. The cloud version
+  // (firebase.js) asks Firestore, because only the newest 300 entries are kept loaded.
+  async listAuditFrom(from) {
+    await this.ready;
+    const since = new Date(`${from}T00:00:00+08:00`).toISOString();
+    return [...this.s.audit.values()].filter((a) => a.at >= since).sort((a, b) => b.at.localeCompare(a.at));
+  },
   // Adds a line to the audit log: who did what, to whom, and when.
   async logAudit(action, target, detail) {
     const e = { id: uid('aud'), at: new Date().toISOString(), actor: this.actor(), action, target, detail };
@@ -93,6 +100,7 @@ export const adminMethods = {
     const today = this.clock.today();
     for (const sec of this.s.sections.values()) {
       if (sec.archived || (entry.levels?.length && !entry.levels.includes(sec.gradeLevel))) continue;
+      if (entry.type === 'partial' && sec.schedule.endTime <= entry.from) continue;
       const here = this.rosterOn(sec.id, today).filter((k) => {
         const r = this.record(sec.id, today, k.id);
         return r?.scannedAt && !r.scannedOut;
@@ -104,8 +112,13 @@ export const adminMethods = {
         sectionId: sec.id,
         createdAt: this.nowIso(),
         read: false,
-        title: `${here.length} ${here.length === 1 ? 'child of' : 'children of'} ${sec.name} ${here.length === 1 ? 'is' : 'are'} at school, but classes are ${entry.type === 'suspension' ? 'suspended' : 'off'} today`,
-        body: `${here.map((k) => `${k.firstName} ${k.lastName}`).join(', ')}. Keep them with a staff member until they are fetched. Scan their ID at the gate (or press Picked up on the Attendance page) as each one leaves: the parent is texted.`,
+        title:
+          entry.type === 'partial'
+            ? `Classes are suspended from ${to12h(entry.from)} today: ${here.length} ${here.length === 1 ? 'child of' : 'children of'} ${sec.name} ${here.length === 1 ? 'is' : 'are'} at school`
+            : `${here.length} ${here.length === 1 ? 'child of' : 'children of'} ${sec.name} ${here.length === 1 ? 'is' : 'are'} at school, but classes are ${entry.type === 'suspension' ? 'suspended' : 'off'} today`,
+        body: `${here.map((k) => `${k.firstName} ${k.lastName}`).join(', ')}. ${
+          entry.type === 'partial' ? `Parents were asked to fetch them at ${to12h(entry.from)}. Until then classes go on; after that, keep` : 'Keep'
+        } them with a staff member until they are fetched. Scan their ID at the gate (or press Picked up on the Attendance page) as each one leaves: the parent is texted.`,
       };
       this.s.notifications.set(n.id, n);
       this.put('notifications', n.id, n);
@@ -143,28 +156,7 @@ export const adminMethods = {
   // Texts every family the notice applies to: one text per family (siblings share one), only with SMS
   // consent, in the family's language. Returns how many families were texted.
   textFamilies(notice) {
-    const today = this.clock.today();
-    const dates = [...notice.dates].sort();
-    const kids = new Map(); // guardian id -> { g, student, section }
-    for (const e of this.s.enrollments.values()) {
-      if (e.status !== 'active') continue;
-      const sec = this.s.sections.get(e.sectionId);
-      const stu = this.s.students.get(e.studentId);
-      if (!sec || sec.archived || !stu || stu.id.includes('-old-')) continue;
-      if (notice.sectionId && sec.id !== notice.sectionId) continue;
-      if (notice.levels?.length && !notice.levels.includes(sec.gradeLevel)) continue;
-      // Only classes that meet on one of those days (a Saturday holiday does not concern a Mon-Fri class).
-      if (!['makeup', 'announcement'].includes(notice.type) && !dates.some((d) => sec.schedule.classDays.includes(isoWeekday(d)))) continue;
-      const g = this.guardianOf(stu.id);
-      if (!g?.smsConsent || !g.mobile) continue;
-      // No class today but the child is already at school (came in before the suspension): say so.
-      const r = dates.includes(today) && ['suspension', 'holiday', 'break', 'noclass'].includes(notice.type) ? this.record(sec.id, today, stu.id) : null;
-      const atSchool = r?.scannedAt && !r.scannedOut ? [stu.firstName] : [];
-      const had = kids.get(g.id);
-      const here = [...(had?.here ?? []), ...atSchool];
-      if (!had || byName(stu, had.student) < 0) kids.set(g.id, { g, student: stu, section: sec, here });
-      else had.here = here;
-    }
+    const kids = this.familiesFor(notice);
     for (const { g, student, section, here } of kids.values()) {
       const fil = g.preferredLanguage === 'fil';
       const id = `ntc_${notice.id}_${g.id}`;
@@ -174,7 +166,7 @@ export const adminMethods = {
         guardianId: g.id,
         sectionId: section.id,
         to: g.mobile,
-        body: noticeText(notice, { fil, child: student.firstName, section: section.name, school: this.settings.schoolName, today, here }),
+        body: noticeText(notice, { fil, child: student.firstName, section: section.name, school: this.settings.schoolName, today: this.clock.today(), here }),
         kind: 'notice',
         status: g.numberStatus === 'failed' ? 'failed' : this.newSmsStatus(),
         createdAt: this.nowIso(),
@@ -185,6 +177,40 @@ export const adminMethods = {
       this.put('sms', id, msg);
     }
     return kids.size;
+  },
+  // How many families a suspension or announcement would text, before it is sent (the "Tell parents"
+  // window shows it): { type, dates, levels, sectionId, from }.
+  async countFamilies(n) {
+    await this.ready;
+    return this.familiesFor({ dates: [this.clock.today()], levels: null, sectionId: null, ...n }).size;
+  },
+  // The families a notice concerns: guardian id -> { g, student (eldest), section, here (children at school now) }.
+  familiesFor(notice) {
+    const today = this.clock.today();
+    const dates = [...notice.dates].sort();
+    const kids = new Map(); // guardian id -> { g, student, section }
+    for (const e of this.s.enrollments.values()) {
+      if (e.status !== 'active') continue;
+      const sec = this.s.sections.get(e.sectionId);
+      const stu = this.s.students.get(e.studentId);
+      if (!sec || sec.archived || !stu || stu.id.includes('-old-')) continue;
+      if (notice.sectionId && sec.id !== notice.sectionId) continue;
+      if (notice.levels?.length && !notice.levels.includes(sec.gradeLevel)) continue;
+      // Suspended from 1:00 PM: a class that ends before then is not affected.
+      if (notice.type === 'partial' && sec.schedule.endTime <= notice.from) continue;
+      // Only classes that meet on one of those days (a Saturday holiday does not concern a Mon-Fri class).
+      if (!['makeup', 'announcement'].includes(notice.type) && !dates.some((d) => sec.schedule.classDays.includes(isoWeekday(d)))) continue;
+      const g = this.guardianOf(stu.id);
+      if (!g?.smsConsent || !g.mobile) continue;
+      // No class today but the child is already at school (came in before the suspension): say so.
+      const r = dates.includes(today) && ['suspension', 'partial', 'holiday', 'break', 'noclass'].includes(notice.type) ? this.record(sec.id, today, stu.id) : null;
+      const atSchool = r?.scannedAt && !r.scannedOut ? [stu.firstName] : [];
+      const had = kids.get(g.id);
+      const here = [...(had?.here ?? []), ...atSchool];
+      if (!had || byName(stu, had.student) < 0) kids.set(g.id, { g, student: stu, section: sec, here });
+      else had.here = here;
+    }
+    return kids;
   },
   // Admin marks one or more days (holiday, suspension, exam...). Every teacher gets an alert, the parent
   // portal shows the change, and with opts.textParents the families it affects get one text each.
@@ -198,9 +224,12 @@ export const adminMethods = {
     await this.logAudit('calendar.update', days.length === 1 ? first.date : `${first.date} to ${last.date}`, `${first.type}: ${first.label}`);
     const noClass = first.type === 'holiday' || first.type === 'suspension' || first.type === 'break';
     const only = levelsLabel(first.levels);
+    const partial = first.type === 'partial'; // suspended from a time (e.g. 1:00 PM); morning classes go on
     const title =
       first.type === 'suspension'
         ? `Classes suspended${only ? ` (${only})` : ''}: ${when}`
+        : partial
+          ? `Classes suspended from ${to12h(first.from)}${only ? ` (${only})` : ''}: ${when}`
         : noClass
           ? `No classes: ${when}`
           : first.type === 'exam'
@@ -212,7 +241,9 @@ export const adminMethods = {
                 : `School event: ${when}`;
     this.notifyCalendar(
       title,
-      `${first.label}.${noClass ? ` ${only ? `Only ${only.replace(/ only$/, '')} classes are affected. ` : ''}Attendance is not taken and these days do not count in absence streaks.` : ''}`,
+      `${first.label}.${noClass ? ` ${only ? `Only ${only.replace(/ only$/, '')} classes are affected. ` : ''}Attendance is not taken and these days do not count in absence streaks.` : ''}${
+        partial ? ` ${only ? `Only ${only.replace(/ only$/, '')} classes are affected. ` : ''}Classes before ${to12h(first.from)} go on and attendance is taken as usual; children go home at ${to12h(first.from)}.` : ''
+      }`,
       first.date,
     );
     const notice = this.addCalendarNotice({
@@ -221,11 +252,12 @@ export const adminMethods = {
       body: first.label,
       dates: days.map((d) => d.date),
       levels: first.levels?.length ? first.levels : null,
+      ...(partial ? { from: first.from } : {}),
     });
     this.saveCalendar();
     // CHILD SAFETY: no class TODAY, declared after children already came in (e.g. a suspension during
     // class hours): staff get the list of each class's children still at school.
-    if (noClass && days.some((d) => d.date === this.clock.today())) this.alertStillAtSchool(first);
+    if ((noClass || partial) && days.some((d) => d.date === this.clock.today())) this.alertStillAtSchool(first);
     const texted = opts.textParents ? this.textFamilies(notice) : 0;
     this.syncParentDays(null, [this.clock.today().slice(0, 7), ...days.map((d) => d.date.slice(0, 7))]);
     this.emit();
@@ -236,7 +268,7 @@ export const adminMethods = {
     if (!dates.length) return 0;
     // Which levels the removed days applied to (a Kindergarten-only suspension lifted -> only K parents).
     const removed = dates.map((d) => this.s.calendar.get(d)).filter(Boolean);
-    const wasNoClass = removed.some((e) => ['holiday', 'suspension', 'break'].includes(e.type));
+    const wasNoClass = removed.some((e) => ['holiday', 'suspension', 'break', 'partial'].includes(e.type));
     const levels = removed.length && removed.every((e) => e.levels?.length) ? [...new Set(removed.flatMap((e) => e.levels))] : null;
     dates.forEach((d) => this.s.calendar.delete(d));
     await this.logAudit('calendar.clear', dates.length === 1 ? dates[0] : `${dates.length} days`);
@@ -278,9 +310,21 @@ export const adminMethods = {
   // Shortcut for one suspended day.
   // levels: which grade levels are suspended (empty or all = the whole school). DepEd Order 22, s. 2024:
   // Signal No. 1 suspends Kindergarten only; Signal No. 2 Kindergarten to Grade 10; Signal No. 3 all levels.
+  // opts.from = 'HH:MM': suspended from that time only (classes before it go on, attendance is taken).
   async declareSuspension(date, label, levels = [], opts = {}) {
     const some = levels.length && levels.length < 7;
-    return this.saveCalendarDays([{ date, type: 'suspension', label, ...(some ? { levels: [...levels].sort((a, b) => gradeRank(a) - gradeRank(b)) } : {}) }], opts);
+    return this.saveCalendarDays(
+      [
+        {
+          date,
+          type: opts.from ? 'partial' : 'suspension',
+          label,
+          ...(opts.from ? { from: opts.from } : {}),
+          ...(some ? { levels: [...levels].sort((a, b) => gradeRank(a) - gradeRank(b)) } : {}),
+        },
+      ],
+      opts,
+    );
   },
   async listTeachers() {
     await this.ready;
@@ -795,9 +839,10 @@ function noticeText(n, opts) {
   const here = opts.here ?? [];
   if (!here.length) return base;
   const list = here.length === 1 ? here[0] : `${here.slice(0, -1).join(', ')} ${opts.fil ? 'at' : 'and'} ${here[here.length - 1]}`;
+  const at = n.type === 'partial' ? (opts.fil ? ` ng ${to12h(n.from)}` : ` at ${to12h(n.from)}`) : '';
   return opts.fil
-    ? `${base} Nasa paaralan na ${here.length > 1 ? 'sina' : 'si'} ${list}. Pakisundo po, o hintayin ang abiso ng paaralan.`
-    : `${base} ${list} ${here.length > 1 ? 'are' : 'is'} at school now. Please fetch ${here.length > 1 ? 'them' : list}, or wait for the school's advice.`;
+    ? `${base} Nasa paaralan na ${here.length > 1 ? 'sina' : 'si'} ${list}. Pakisundo po${at}, o hintayin ang abiso ng paaralan.`
+    : `${base} ${list} ${here.length > 1 ? 'are' : 'is'} at school now. Please fetch ${here.length > 1 ? 'them' : list}${at}, or wait for the school's advice.`;
 }
 function noticeBody(n, { fil, child, section, school, today }) {
   const dates = [...n.dates].sort();
@@ -812,6 +857,10 @@ function noticeBody(n, { fil, child, section, school, today }) {
   switch (n.type) {
     case 'suspension':
       return fil ? `${head}Suspendido ang klase${whoFil} ${when}.${reason}` : `${head}${who} are suspended ${when}.${reason}`;
+    case 'partial':
+      return fil
+        ? `${head}Suspendido ang klase${whoFil} mula ${to12h(n.from)} ${when}.${reason}`
+        : `${head}${who} are suspended from ${to12h(n.from)} ${when}.${reason}`;
     case 'holiday':
     case 'break':
       return fil ? `${head}Walang pasok${whoFil} ${when}.${reason}` : `${head}No classes${only ? ` for ${only}` : ''} ${when}.${reason}`;

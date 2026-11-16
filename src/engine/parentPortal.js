@@ -12,6 +12,7 @@ import {
   eldestChild,
   sha256Hex,
   classPeriods,
+  to12h,
 } from '../logic';
 import { dayId } from './util';
 
@@ -140,6 +141,8 @@ export const parentPortalMethods = {
       if (usual && !isSchoolDay(d, section.schedule, this.s.calendar)) {
         const away = section.schedule.teacherAway?.[d]?.kind === 'noclass';
         out.push({ date: d, type: away ? 'noclass' : (e?.type ?? 'noclass'), label: this.noClassLabel(section, d) });
+      } else if (e?.type === 'partial') {
+        out.push({ date: d, type: 'partial', label: `Suspended from ${to12h(e.from)}: ${e.label}` });
       } else if (e && ['makeup', 'halfday', 'exam', 'event'].includes(e.type)) {
         out.push({ date: d, type: e.type, label: e.label });
       }

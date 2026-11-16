@@ -21,7 +21,7 @@ import {
   countByGrade,
 } from '../ui';
 import { LEVEL_BANDS, bandOf } from './Sections';
-import { autoFinalizeTime } from '../logic';
+import { autoFinalizeTime, isSchoolDay } from '../logic';
 import { useState } from 'react';
 import { SAMPLE_TEACHER_PASSWORD } from '../firebase';
 
@@ -116,6 +116,9 @@ export function AdminDashboard() {
           section: s,
           total: roster.length,
           arrived: roster.filter((x) => x.record?.scannedAt).length,
+          left: roster.filter((x) => x.record?.scannedAt && x.record?.scannedOut).length,
+          // Has class today (not a holiday, suspension or cancelled class): only these count at the gate.
+          hasClass: isSchoolDay(today.actualDate, s.schedule, calendar),
           confirmation: await r.getConfirmation(s.id, today.date),
           away: s.schedule.teacherAway?.[today.date] ?? null,
         };
@@ -192,6 +195,24 @@ export function AdminDashboard() {
       )}
       {/* A brand-new cloud school has no sections: offer to fill it with sample data. */}
       {data.sections.length === 0 && <SampleSchool />}
+      {/* At the gate today: updates the moment a child scans (the admin page listens to attendance live). */}
+      {today.date === today.actualDate && (
+        <div className="gate-live" aria-live="polite">
+          <span className="live-dot" aria-hidden="true" />
+          <b>At the gate today</b>
+          <span>
+            <strong>{perSection.reduce((n, p) => n + p.arrived, 0)}</strong> of {perSection.filter((p) => p.hasClass).reduce((n, p) => n + p.total, 0)}{' '}
+            scanned in
+          </span>
+          <span>
+            <strong>{perSection.reduce((n, p) => n + p.left, 0)}</strong> scanned out
+          </span>
+          <span>
+            <strong>{perSection.reduce((n, p) => n + p.arrived - p.left, 0)}</strong> still at school
+          </span>
+          <span className="muted small">Live: updates as each child scans</span>
+        </div>
+      )}
       <div className="kpis">
         <div className="kpi tile-lime">
           <Users size={20} />

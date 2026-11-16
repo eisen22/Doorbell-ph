@@ -11,9 +11,12 @@ import {
   StudentAttendanceModal,
   LevelChips,
   countByGrade,
+  useSearchQuery,
+  matchesQuery,
+  SearchNote,
 } from '../ui';
 import { useState } from 'react';
-import { displayPhMobile, bySectionGrade } from '../logic';
+import { displayPhMobile, bySectionGrade, gradeName } from '../logic';
 
 // =====================================================================
 // ABSENCE WATCH (/admin/absences for the admin, /absences for teachers): children absent or
@@ -35,6 +38,7 @@ export function AbsenceWatch() {
   const [sectionId, setSectionId] = useState('all');
   const [sort, setSort] = useState('grade');
   const [level, setLevel] = useState('all');
+  const q = useSearchQuery(); // the top bar's search
   const { data } = useLive(async (r) => {
     const rows = await r.listAttention(2);
     const session = await r.getSession();
@@ -48,7 +52,11 @@ export function AbsenceWatch() {
   const open = picked ?? (fromLink ? (data?.rows.find((x) => x.student.id === fromLink) ?? data?.totals.find((x) => x.student.id === fromLink) ?? null) : null);
   const close = () => {
     setOpen(null);
-    if (fromLink) setParams({}, { replace: true });
+    if (fromLink) {
+      const p = new URLSearchParams(params);
+      p.delete('student');
+      setParams(p, { replace: true });
+    }
   };
   if (!data)
     return (
@@ -57,7 +65,10 @@ export function AbsenceWatch() {
       </div>
     );
   const t = data.settings.streakDays;
-  const match = (r) => (level === 'all' || r.section.gradeLevel === level) && (sectionId === 'all' || r.section.id === sectionId);
+  const match = (r) =>
+    (level === 'all' || r.section.gradeLevel === level) &&
+    (sectionId === 'all' || r.section.id === sectionId) &&
+    matchesQuery(q, r.student.firstName, r.student.lastName, r.section.name, r.guardian?.name, r.guardian?.mobile);
   const byName = (a, b) => a.student.lastName.localeCompare(b.student.lastName) || a.student.firstName.localeCompare(b.student.firstName);
   const sorter = (a, b) =>
     sort === 'grade'
@@ -151,6 +162,7 @@ export function AbsenceWatch() {
         <div>
           <h1>Absence Watch</h1>
           <p className="page-sub">As of {format(parseISO(data.today.date), 'EEEE, MMMM d')} · school days only</p>
+          <SearchNote q={q} count={new Set([...rows, ...data.totals.filter(match)].map((r) => r.student.id)).size} />
         </div>
         <label className="sort-pick">
           <ArrowDownUp size={16} />
@@ -174,7 +186,7 @@ export function AbsenceWatch() {
       {(level !== 'all' || data.sections.length <= 6) && data.sections.filter((s) => level === 'all' || s.gradeLevel === level).length > 1 && (
       <div className="chips">
         <button className={`fchip ${sectionId === 'all' ? 'fchip-on' : ''}`} onClick={() => setSectionId('all')}>
-          All sections
+          {level === 'all' ? 'All sections' : `All ${gradeName(level)} sections`}
         </button>
         {data.sections.filter((s) => level === 'all' || s.gradeLevel === level).map((s) => (
           <button key={s.id} className={`fchip ${sectionId === s.id ? 'fchip-on' : ''}`} onClick={() => setSectionId(s.id)}>

@@ -222,3 +222,25 @@ const kinds = (w, id) => w.smsFor(id).map((m) => m.kind).join('+') || '-';
   let err = ''; try { await w.eng.sendAnnouncement({ message: ' ' }); } catch (e) { err = e.message; }
   check('L4 empty message refused', /Write the message/.test(err));
 }
+// ---- suspension from a time (classes before it go on) ----
+{
+  const w = world(); const D = w.clock.d; const [a, b] = w.roster(SEC);
+  for (const k of [a, b]) w.eng.guardianOf(k.id).smsConsent = true;
+  await w.scan(a, '07:30');
+  w.clock.t = '10:00';
+  await w.eng.declareSuspension(D, 'Heavy rain', [], { textParents: true, from: '09:00' });
+  const { isSchoolDay, suspendedFrom, addDays: addDays2 } = await import('../src/logic.js');
+  const sec = w.state.sections.get(SEC);
+  check('PS the day is still a class day', isSchoolDay(D, sec.schedule, w.state.calendar) && suspendedFrom(D, sec.schedule, w.state.calendar) === '09:00');
+  const t = w.smsFor(a.id).find((m) => m.kind === 'notice');
+  check('PS text: suspended from 9:00 AM, fetch at 9:00 AM', /suspended from 9:00 AM today.*Please fetch .* at 9:00 AM|mula 9:00 AM/.test(t?.body ?? ''), t?.body);
+  const al = w.state.notifications.get(`oncampus_${SEC}_${D}`);
+  check('PS staff told who is at school and when they leave', /suspended from 9:00 AM today/.test(al?.title ?? '') && al.body.includes(a.firstName), al?.title);
+  const k1 = w.roster(SEC)[0];
+  const pd = w.log.filter((l) => l[1] === 'parentDays' && l[3].studentId === k1.id).pop()?.[3];
+  check('PS parent portal notice is the part-day suspension', pd?.notices?.[0]?.type === 'partial');
+  const before = [...w.state.sms.values()].length;
+  await w.eng.declareSuspension(addDays2(D, 1), 'Heavy rain', [], { textParents: true, from: '13:00' });
+  const kTexts = [...w.state.sms.values()].slice(before).filter((m) => w.state.sections.get(m.sectionId).schedule.endTime <= '13:00');
+  check('PS a class that ends before the time is not texted', !kTexts.length);
+}

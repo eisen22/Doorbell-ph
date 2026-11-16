@@ -114,6 +114,14 @@ export function isSchoolDay(date, schedule, calendar) {
   return schedule.classDays.includes(isoWeekday(date));
 }
 
+/** The time classes are suspended from on this date for this class ('13:00'), or null. */
+export function suspendedFrom(date, schedule, calendar) {
+  const entry = entryOf(calendar, date);
+  if (entry?.type !== 'partial') return null;
+  if (entry.levels?.length && schedule.gradeLevel && !entry.levels.includes(schedule.gradeLevel)) return null;
+  return entry.from ?? null;
+}
+
 /**
  * The last `count` school days up to and including `date`, newest first.
  * Example: recentSchoolDays('2026-10-29', 3, ...) -> ['2026-10-29', '2026-10-28', '2026-10-27'].
@@ -380,6 +388,7 @@ export const DAY_KIND_META = {
   makeup: { label: 'Make-up class', short: 'Make-up', isClass: true },
   holiday: { label: 'Holiday', short: 'Holiday', isClass: false },
   suspension: { label: 'Class suspension', short: 'Suspended', isClass: false },
+  partial: { label: 'Suspended from a time (classes before it go on)', short: 'Part-day', isClass: true },
   break: { label: 'Break (no classes)', short: 'Break', isClass: false },
   weekend: { label: 'Weekend', short: 'Weekend', isClass: false },
   outside: { label: 'Outside the school year', short: '', isClass: false },

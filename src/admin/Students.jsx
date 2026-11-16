@@ -21,6 +21,8 @@ import {
   DatePicker,
   LevelChips,
   countByGrade,
+  SectionChips,
+  countByKey,
 } from '../ui';
 import { useState, useMemo } from 'react';
 import {
@@ -161,18 +163,21 @@ export function AdminStudents() {
         onChange={(v) => setParam('level', v, 'all')}
         counts={countByGrade(data.rows.filter((r) => r.enrollment?.status === 'active'), (r) => r.section?.gradeLevel)}
       />
+      <SectionChips
+        level={level}
+        sections={data.sections}
+        value={filter === 'unassigned' ? 'all' : filter}
+        onChange={setFilter}
+        counts={countByKey(data.rows.filter((r) => r.enrollment?.status === 'active'), (r) => r.enrollment.sectionId)}
+      />
       <div className="chips">
-        <select className="input auto" value={filter} onChange={(e) => setFilter(e.target.value)} aria-label="Section">
-          <option value="all">All sections</option>
-          <option value="unassigned">Not in a section ({unassigned})</option>
-          {data.sections
-            .filter((s) => level === 'all' || s.gradeLevel === level)
-            .map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
-            ))}
-        </select>
+        {/* All levels: everyone, or the learners not in a section yet. A level: the section chips below. */}
+        {level === 'all' && (
+          <select className="input auto" value={filter} onChange={(e) => setFilter(e.target.value)} aria-label="Section">
+            <option value="all">All sections</option>
+            <option value="unassigned">Not in a section ({unassigned})</option>
+          </select>
+        )}
         <select className="input auto" value={sortBy} onChange={(e) => setParam('sort', e.target.value, 'grade')} aria-label="Sort">
           <option value="grade">Sort: grade and section</option>
           <option value="name">Sort: last name (A to Z)</option>

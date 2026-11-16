@@ -790,7 +790,7 @@ export function CalendarLegend({ counts }) {
   // The legend is split into what the colors MEAN: days with class, days without class, and marks
   // drawn around a day. Each group is a column; the number on the right counts those days this school year.
   const groups = [
-    { title: 'Class days', kinds: ['class', 'exam', 'event', 'halfday', 'makeup'] },
+    { title: 'Class days', kinds: ['class', 'exam', 'event', 'halfday', 'partial', 'makeup'] },
     { title: 'No classes', kinds: ['holiday', 'suspension', 'break'] },
   ];
   return (
@@ -857,27 +857,35 @@ const PHASE_LABEL = { now: 'Now', next: 'Later', done: 'Done', off: 'No class' }
 // Pill buttons to switch class (hidden when the teacher has only one). "Now" marks the class in session.
 export function ClassSwitch({ classes, value, onChange, time, date }) {
   if (classes.length < 2) return null;
-  // Many classes: one drop-down list, grouped Kindergarten, Grade 1 ... Grade 6.
-  if (classes.length > 6)
+  // Many classes (the admin, a subject teacher): grade level chips like the other list pages, then the
+  // classes of that level. Picking a level opens its first class.
+  if (classes.length > 6) {
+    const levelOf = (c) => c.gradeLevel ?? 'K';
+    const level = levelOf(classes.find((c) => c.id === value) ?? classes[0]);
+    const counts = countByGrade(classes, levelOf);
     return (
-      <label className="class-select">
-        <span className="muted small">Class</span>
-        <select className="input auto" value={value} onChange={(e) => onChange(e.target.value)} aria-label="Choose a class">
-          {GRADE_LEVELS.filter((g) => classes.some((c) => (c.gradeLevel ?? 'K') === g)).map((g) => (
-            <optgroup key={g} label={gradeName(g)}>
-              {classes
-                .filter((c) => (c.gradeLevel ?? 'K') === g)
-                .map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name} · {to12h(c.schedule.startTime)}
-                    {time && classPhase(c, time, date) === 'now' ? ' · now' : ''}
-                  </option>
-                ))}
-            </optgroup>
+      <div className="class-levels">
+        <div className="chips level-chips" role="group" aria-label="Grade level">
+          {GRADE_LEVELS.filter((g) => counts[g]).map((g) => (
+            <button
+              key={g}
+              type="button"
+              className={`fchip ${level === g ? 'fchip-on' : ''}`}
+              aria-pressed={level === g}
+              onClick={() => level !== g && onChange(classes.find((c) => levelOf(c) === g).id)}
+            >
+              {gradeName(g)}
+              <b className="count">{counts[g]}</b>
+            </button>
           ))}
-        </select>
-      </label>
+        </div>
+        <ClassPills classes={classes.filter((c) => levelOf(c) === level)} value={value} onChange={onChange} time={time} date={date} />
+      </div>
     );
+  }
+  return <ClassPills classes={classes} value={value} onChange={onChange} time={time} date={date} />;
+}
+function ClassPills({ classes, value, onChange, time, date }) {
   return (
     <div className="class-switch" role="tablist" aria-label="Choose a class">
       {classes.map((c) => {
@@ -923,6 +931,37 @@ export function LevelChips({ value, onChange, counts }) {
     </div>
   );
 }
+// SECTION FILTER: the second row under the grade level chips once a level is picked:
+// "All Grade 4 sections" · Bonifacio · Mabini · Rizal. value: 'all' or a section id.
+// counts (optional): { [sectionId]: n }. Hidden for All levels and for a level with one section.
+export function SectionChips({ level, sections, value, onChange, counts }) {
+  if (level === 'all') return null;
+  const list = sections.filter((x) => !x.archived && (x.gradeLevel ?? 'K') === level).sort((a, b) => a.name.localeCompare(b.name));
+  if (list.length < 2) return null;
+  return (
+    <div className="chips section-chips" role="group" aria-label="Section">
+      <button type="button" className={`fchip ${value === 'all' ? 'fchip-on' : ''}`} aria-pressed={value === 'all'} onClick={() => onChange('all')}>
+        All {gradeName(level)} sections
+      </button>
+      {list.map((x) => (
+        <button key={x.id} type="button" className={`fchip ${value === x.id ? 'fchip-on' : ''}`} aria-pressed={value === x.id} onClick={() => onChange(x.id)}>
+          <span className="sec-dot sm" style={{ background: x.color }} aria-hidden="true" />
+          {x.name.replace('Kindergarten', 'Kinder')}
+          {counts && <b className="count">{counts[x.id] ?? 0}</b>}
+        </button>
+      ))}
+    </div>
+  );
+}
+/** Counts items per key: countByKey(texts, (m) => m.sectionId). */
+export const countByKey = (items, keyOf) => {
+  const out = {};
+  for (const it of items) {
+    const k = keyOf(it);
+    if (k) out[k] = (out[k] ?? 0) + 1;
+  }
+  return out;
+};
 /** Counts items per grade: countByGrade(rows, (r) => r.section?.gradeLevel). */
 export const countByGrade = (items, gradeOf) => {
   const out = {};
@@ -932,3 +971,36 @@ export const countByGrade = (items, gradeOf) => {
   }
   return out;
 };
+
+// The top bar's search on pages that filter in place (Absence Watch, Excuse requests, SMS Messages):
+// the words typed, from ?q= in the address. matchesQuery(q, ...texts): every word is in one of the texts.
+export function useSearchQuery() {
+  const [params] = useSearchParams();
+  return (params.get('q') ?? '').trim().toLowerCase();
+}
+export function matchesQuery(q, ...texts) {
+  if (!q) return true;
+  const hay = texts.filter(Boolean).join(' ').toLowerCase();
+  const digits = hay.replace(/\D/g, '');
+  return q.split(/\s+/).every((w) => hay.includes(w) || (/^\d{3,}$/.test(w.replace(/\D/g, '')) && digits.includes(w.replace(/\D/g, ''))));
+}
+// "Showing 3 matches for "dela cruz" · Clear search" under a page title while the top bar search is used.
+export function SearchNote({ q, count }) {
+  const [params, setParams] = useSearchParams();
+  if (!q) return null;
+  return (
+    <p className="search-note" role="status">
+      {count === 0 ? 'No matches' : `${count} ${count === 1 ? 'match' : 'matches'}`} for "{params.get('q')}" ·{' '}
+      <button
+        className="link-btn"
+        onClick={() => {
+          const p = new URLSearchParams(params);
+          p.delete('q');
+          setParams(p, { replace: true });
+        }}
+      >
+        Clear search
+      </button>
+    </p>
+  );
+}

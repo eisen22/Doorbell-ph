@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { format } from 'date-fns';
 import { Check, FileText, X } from 'lucide-react';
-import { useLive, useRepo, Card, Empty, Skeleton, Avatar, Toast, LevelChips, countByGrade } from '../ui';
+import { useLive, useRepo, Card, Empty, Skeleton, Avatar, Toast, LevelChips, countByGrade, useSearchQuery, matchesQuery, SearchNote, SectionChips, countByKey } from '../ui';
 import { periodsLabel, excuseStatusLabel } from '../logic';
 
 // =====================================================================
@@ -17,6 +17,8 @@ export function ExcuseRequests() {
   const repo = useRepo();
   const [tab, setTab] = useState('pending');
   const [level, setLevel] = useState('all');
+  const [secId, setSecId] = useState('all'); // one section of the chosen grade level, or all of them
+  const q = useSearchQuery(); // the top bar's search
   const [toast, setToast] = useState(null);
   const [notes, setNotes] = useState({});
   const [busy, setBusy] = useState(null);
@@ -27,7 +29,9 @@ export function ExcuseRequests() {
         <Skeleton h={300} />
       </div>
     );
-  const inLevel = data.filter((x) => level === 'all' || x.section?.gradeLevel === level);
+  const inLevel = data.filter(
+    (x) => (level === 'all' || x.section?.gradeLevel === level) && (level === 'all' || secId === 'all' || x.section?.id === secId) && matchesQuery(q, x.studentName, x.section?.name, x.guardianName, x.reason, x.note),
+  );
   const pending = inLevel.filter((x) => x.status === 'pending');
   const list = tab === 'pending' ? pending : inLevel.filter((x) => x.status !== 'pending');
   const decide = async (x, decision) => {
@@ -48,9 +52,24 @@ export function ExcuseRequests() {
         <div>
           <h1>Excuse requests</h1>
           <p className="page-sub">Sent by parents from the parent portal. The class adviser confirms or declines; confirmed days become Excused and don't count toward alerts.</p>
+          <SearchNote q={q} count={inLevel.length} />
         </div>
       </div>
-      <LevelChips value={level} onChange={setLevel} counts={countByGrade(data, (x) => x.section?.gradeLevel)} />
+      <LevelChips
+        value={level}
+        onChange={(v) => {
+          setLevel(v);
+          setSecId('all');
+        }}
+        counts={countByGrade(data, (x) => x.section?.gradeLevel)}
+      />
+      <SectionChips
+        level={level}
+        sections={[...new Map(data.filter((x) => x.section).map((x) => [x.section.id, x.section])).values()]}
+        value={secId}
+        onChange={setSecId}
+        counts={countByKey(data, (x) => x.section?.id)}
+      />
       <div className="chips">
         <button className={`fchip ${tab === 'pending' ? 'fchip-on' : ''}`} onClick={() => setTab('pending')}>
           Waiting {pending.length}

@@ -990,3 +990,25 @@ textarea.input { height: auto; padding-top: 10px; padding-bottom: 10px; line-hei
 .still-list li:first-child { border-top: 0; }
 .still-list li > div { flex: 1 1 200px; display: flex; flex-direction: column; min-width: 0; }
 .pp-notice-announcement { background: #fff6dc; color: #6b4a00; border-color: #f1d39a; }
+/* "Tell parents" window: Class suspension | Announcement. */
+.kind-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; background: var(--surface); border-radius: var(--r-sm); padding: 4px; margin-bottom: 14px; }
+.kind-tabs button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 0; background: none; min-height: 42px; border-radius: var(--r-xs); font-weight: 600; font-size: 14px; color: var(--ink-2); cursor: pointer; }
+.kind-tabs button.on { background: var(--card, #fff); color: var(--ink); font-weight: 700; box-shadow: 0 1px 2px rgba(27, 29, 25, 0.12); }
+/* Part-day suspension on the calendar: half class day, half suspended. */
+.k-partial { background: linear-gradient(135deg, var(--k-class) 50%, var(--k-suspension) 50%); color: var(--k-suspension-ink); }
+.pp-notice-partial { background: var(--absent-bg); color: var(--absent); border-color: #f0c4c0; }
+.pp-up-partial { background: var(--absent-bg); color: var(--absent); }
+.search-note { margin: 6px 0 0; font-size: 13.5px; color: var(--ink-2); }
+/* Audit log filters: dates, class, teacher, student, words. */
+.audit-filters { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px 12px; }
+.audit-filters .field { margin: 0; }
+.audit-count { margin: 10px 0 0; }
+/* Overview: live gate counts. */
+.gate-live { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px; padding: 12px 16px; margin-bottom: 14px; border-radius: var(--r-md); background: var(--card, #fff); border: 1px solid var(--line); font-size: 14.5px; }
+.gate-live strong { font-size: 18px; }
+.gate-live .muted { margin-left: auto; }
+.live-dot { width: 9px; height: 9px; border-radius: 50%; background: #2fa75a; box-shadow: 0 0 0 0 rgba(47, 167, 90, 0.5); animation: live-pulse 2s infinite; }
+@keyframes live-pulse { 70% { box-shadow: 0 0 0 7px rgba(47, 167, 90, 0); } 100% { box-shadow: 0 0 0 0 rgba(47, 167, 90, 0); } }
+@media (prefers-reduced-motion: reduce) { .live-dot { animation: none; } }
+.class-levels { display: grid; gap: 10px; margin-bottom: 4px; } .class-levels .level-chips { margin: 0; }
+.send-count { margin: 4px 0 0; padding: 8px 12px; border-radius: var(--r-sm); background: var(--surface); font-size: 14px; }

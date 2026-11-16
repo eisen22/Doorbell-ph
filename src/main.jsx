@@ -6,7 +6,7 @@
 // =====================================================================
 import './style.css'; // all the styling for the whole app
 import React, { useEffect, useState, useRef } from 'react';
-import { useNavigate, Navigate, NavLink, Link, Outlet, useLocation, BrowserRouter, Route, Routes } from 'react-router-dom';
+import { useNavigate, Navigate, NavLink, Link, Outlet, useLocation, useSearchParams, BrowserRouter, Route, Routes } from 'react-router-dom';
 import {
   Eye,
   EyeOff,
@@ -297,6 +297,12 @@ const TEACHER_NAV = [
   { to: '/sms', label: 'SMS Messages', Icon: MessageSquareText },
   { to: '/settings', label: 'Settings', Icon: SettingsIcon },
 ];
+// Pages whose list the top bar's search filters in place (path without /admin) -> the placeholder.
+const SEARCH_HERE = {
+  '/absences': 'Search a student, class or parent',
+  '/excuses': 'Search a student, class or reason',
+  '/sms': 'Search a student, number or text',
+};
 const ADMIN_NAV = [
   { to: '/admin', label: 'Overview', Icon: LayoutGrid, end: true },
   { to: '/admin/absences', label: 'Absence Watch', Icon: UserX, badge: 'watch' },
@@ -321,6 +327,7 @@ export function Shell() {
   const [navOpen, setNavOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [q, setQ] = useState('');
+  const [params, setParams] = useSearchParams();
   const menuRef = useRef(null);
   const { data: session, loading } = useLive((r) => r.getSession());
   const { data: counts } = useLive(async (r) => {
@@ -355,6 +362,8 @@ export function Shell() {
   const inAdmin = location.pathname.startsWith('/admin');
   if (isAdmin && !inAdmin) return <Navigate to="/admin" replace />;
   if (!isAdmin && inAdmin) return <Navigate to="/" replace />;
+  const searchHere = SEARCH_HERE[location.pathname.replace(/^\/admin/, '') || '/'];
+  const searchGlobal = location.pathname === '/admin' || location.pathname === '/';
   const needsSection = !isAdmin && !session.sectionIds.length && !['/calendar', '/settings', '/sms'].includes(location.pathname);
   return (
     <div className="canvas">
@@ -399,16 +408,36 @@ export function Shell() {
             <button className="icon-btn only-mobile" onClick={() => setNavOpen((v) => !v)} aria-label="Menu">
               <Menu size={20} />
             </button>
-            <form
-              className="search"
-              onSubmit={(e) => {
-                e.preventDefault();
-                navigate(`${isAdmin ? '/admin/students' : '/classes'}?q=${encodeURIComponent(q)}`);
-              }}
-            >
-              <Search size={17} aria-hidden="true" />
-              <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search students" aria-label="Search students" />
-            </form>
+            {/* The search box: on Absence Watch, Excuse requests and SMS Messages it filters that page as you
+                type; on the overview it opens the student list; other pages have their own search or none. */}
+            {searchHere ? (
+              <form className="search" role="search" onSubmit={(e) => e.preventDefault()}>
+                <Search size={17} aria-hidden="true" />
+                <input
+                  value={params.get('q') ?? ''}
+                  onChange={(e) => {
+                    const p = new URLSearchParams(params);
+                    if (e.target.value) p.set('q', e.target.value);
+                    else p.delete('q');
+                    setParams(p, { replace: true });
+                  }}
+                  placeholder={searchHere}
+                  aria-label={searchHere}
+                />
+              </form>
+            ) : searchGlobal ? (
+              <form
+                className="search"
+                role="search"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  navigate(`${isAdmin ? '/admin/students' : '/classes'}?q=${encodeURIComponent(q)}`);
+                }}
+              >
+                <Search size={17} aria-hidden="true" />
+                <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search students" aria-label="Search students" />
+              </form>
+            ) : null}
             <div className="topbar-right">
               {!isAdmin && (
                 <button className="icon-btn bell" onClick={() => navigate('/notifications')} aria-label="Alerts">

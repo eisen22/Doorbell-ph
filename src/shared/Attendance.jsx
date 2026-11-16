@@ -15,6 +15,7 @@ import {
   autoFinalizeTime,
   emptyCounts,
   isSchoolDay,
+  suspendedFrom,
   to12h,
   recentSchoolDays,
   classPeriods,
@@ -105,6 +106,8 @@ export function Attendance() {
   const { session, today, classes, section, calendar, year, day, roster, confirmation, teachers, stillHere } = data;
   const periods = classPeriods(section.program); // Grades 4 to 6: from the class program
   const schoolDay = isSchoolDay(day, section.schedule, calendar);
+  // Suspended from a time today (e.g. 1:00 PM): after it, the children still at school are listed.
+  const partFrom = suspendedFrom(day, section.schedule, calendar);
   // Teacher absent on this day? (set by the admin: Sections -> a class -> Teacher absent)
   const away = section.schedule.teacherAway?.[day] ?? null;
   const nameOf = (id) => teachers.find((x) => x.id === id)?.name ?? 'another teacher';
@@ -259,10 +262,10 @@ export function Attendance() {
         ) : null}
       </div>
 
-      {!schoolDay && stillHere.length > 0 && (
+      {(!schoolDay || (partFrom && day === today.date && (today.time ?? '') >= partFrom)) && stillHere.length > 0 && (
         <Card title={`Still at school: ${stillHere.length}`}>
           <p className="hint">
-            These children came in before classes were called off and have not left. Keep them with a staff member until they are fetched. Scan their
+            {partFrom ? `Classes are suspended from ${to12h(partFrom)}. These children have not left yet.` : 'These children came in before classes were called off and have not left.'} Keep them with a staff member until they are fetched. Scan their
             ID at the gate as each one leaves, or press Picked up: the parent gets a text either way.
           </p>
           <ul className="still-list">

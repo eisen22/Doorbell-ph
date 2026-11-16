@@ -1,3 +1,4 @@
+import { ParentNoticeWindow } from '../shared/ParentNotice';
 import { format, parseISO } from 'date-fns';
 import {
   CloudRain,
@@ -27,8 +28,7 @@ import {
   addDays,
   isoWeekday,
   levelsLabel,
-  GRADE_LEVELS,
-  gradeName,
+  to12h,
 } from '../logic';
 
 // =====================================================================
@@ -43,7 +43,7 @@ import {
 // The Friday of a date's week (for the "Through Friday" quick button).
 const fridayOf = (d) => addDays(d, Math.max(0, 5 - isoWeekday(d)));
 // The choices in the day editor. To add a new kind of day, also add it to DAY_KIND_META in logic.js and give it a color (.k-...) in style.css.
-const NO_CLASS = ['holiday', 'suspension', 'break'];
+const NO_CLASS = ['holiday', 'suspension', 'break', 'partial'];
 const TYPE_OPTIONS = [
   { value: 'class', hint: 'Normal class day (removes any special entry)' },
   { value: 'event', hint: 'Classes continue, with a school event' },
@@ -51,13 +51,14 @@ const TYPE_OPTIONS = [
   { value: 'halfday', hint: 'Classes for half the day' },
   { value: 'holiday', hint: 'No classes, regular or special holiday' },
   { value: 'suspension', hint: 'No classes, e.g. weather or emergency' },
+  { value: 'partial', hint: 'Classes stop at a time, e.g. from 1:00 PM' },
   { value: 'break', hint: 'No classes, e.g. wellness or year-end break' },
   { value: 'makeup', hint: 'Class on a day that is normally off, e.g. Saturday' },
 ];
 export function AdminCalendar() {
   const repo = useRepo();
   const [draft, setDraft] = useState(null);
-  const [suspend, setSuspend] = useState(null);
+  const [notice, setNotice] = useState(false); // the "Tell parents" window (suspension or announcement)
   const [resetOpen, setResetOpen] = useState(false);
   const [yearDraft, setYearDraft] = useState(null);
   const [toast, setToast] = useState(null);
@@ -85,6 +86,7 @@ export function AdminCalendar() {
       to: date,
       type: entry?.type ?? 'class',
       label: entry?.label ?? '',
+      fromTime: entry?.from ?? '13:00', // suspended from this time (type 'partial')
       scope: entry?.scope ?? 'national',
       weekdaysOnly: true,
       was: entry?.type ?? 'class', // what the day was before (to offer "classes push through" texts)
@@ -108,6 +110,7 @@ export function AdminCalendar() {
           type: draft.type,
           label,
           ...(draft.type === 'holiday' ? { scope: draft.scope } : {}),
+          ...(draft.type === 'partial' ? { from: draft.fromTime } : {}),
         })),
         { textParents: draft.textParents },
       );
@@ -131,8 +134,8 @@ export function AdminCalendar() {
           <button className="btn" onClick={() => setResetOpen(true)}>
             <RotateCcw size={17} /> Reset to DepEd template
           </button>
-          <button className="btn btn-danger" onClick={() => setSuspend({ date: today.actualDate ?? today.date, label: 'Class suspension: weather', scope: 'all', levels: [], textParents: true })}>
-            <CloudRain size={17} /> Declare suspension
+          <button className="btn btn-danger" onClick={() => setNotice(true)}>
+            <CloudRain size={17} /> Suspension or announcement
           </button>
         </div>
       </div>
@@ -194,6 +197,7 @@ export function AdminCalendar() {
               <time>{format(parseISO(c.date), 'EEE, MMM d')}</time>
               <span>
                 {c.label}
+                {c.type === 'partial' && c.from ? ` (from ${to12h(c.from)})` : ''}
                 {c.levels?.length ? <b className="muted small"> · {levelsLabel(c.levels)}</b> : null}
               </span>
               <button className="icon-btn sm" onClick={() => open(c.date)} aria-label={`Edit ${c.date}`}>
@@ -253,6 +257,12 @@ export function AdminCalendar() {
               />
             </label>
           )}
+          {draft.type === 'partial' && (
+            <label className="field">
+              <span>Suspended from</span>
+              <input className="input" type="time" step="1800" value={draft.fromTime} onChange={(e) => setDraft({ ...draft, fromTime: e.target.value })} />
+            </label>
+          )}
           {draft.type === 'holiday' && (
             <div className="chips">
               {['national', 'local'].map((s) => (
@@ -305,108 +315,15 @@ export function AdminCalendar() {
         </Modal>
       )}
 
-      {suspend && (
-        <Modal
-          title="Declare a class suspension"
-          onClose={() => setSuspend(null)}
-          footer={
-            <>
-              <button className="btn" onClick={() => setSuspend(null)}>
-                Cancel
-              </button>
-              <button
-                className="btn btn-danger"
-                onClick={async () => {
-                  const levels = suspend.scope === 'all' ? [] : suspend.scope === 'k' ? ['K'] : suspend.levels;
-                  if (suspend.scope === 'pick' && !levels.length) return;
-                  const texted = await repo.declareSuspension(suspend.date, suspend.label, levels, { textParents: suspend.textParents });
-                  setSuspend(null);
-                  flash(
-                    `Suspension saved${levels.length ? ` (${levelsLabel(levels)})` : ''}. Teachers and the parent portal were notified${texted ? `, and ${texted} ${texted === 1 ? 'family was' : 'families were'} texted` : ''}.`,
-                  );
-                }}
-              >
-                Declare suspension
-              </button>
-            </>
-          }
-        >
-          <p>
-            On a suspended day, children are not marked absent, it does not count toward 3-day streaks, and no absence SMS is sent. Every teacher sees
-            an alert about it right away, and parents see it at the top of the parent portal.
-          </p>
-          <div className="field">
-            <span>Date</span>
-            <DatePicker
-              value={suspend.date}
-              min={year.start}
-              max={year.end}
-              calendar={calendar}
-              onChange={(d) => setSuspend({ ...suspend, date: d })}
-              ariaLabel="Suspension date"
-              quick={[
-                ['Today', today.actualDate],
-                ['Tomorrow', addDays(today.actualDate, 1)],
-              ]}
-            />
-          </div>
-          {/* Which levels: DepEd Order 22, s. 2024: Signal No. 1 suspends Kindergarten only;
-              Signal No. 2 Kindergarten to Grade 10 (all of Doorbell's levels); Signal No. 3 all levels. */}
-          <fieldset className="checks">
-            <legend>Which classes are suspended?</legend>
-            <label>
-              <input type="radio" name="scope" checked={suspend.scope === 'all'} onChange={() => setSuspend({ ...suspend, scope: 'all' })} /> All
-              levels (Kindergarten to Grade 6)
-            </label>
-            <label>
-              <input
-                type="radio"
-                name="scope"
-                checked={suspend.scope === 'k'}
-                onChange={() =>
-                  setSuspend({ ...suspend, scope: 'k', label: suspend.label === 'Class suspension: weather' ? 'Tropical Cyclone Wind Signal No. 1' : suspend.label })
-                }
-              />{' '}
-              Kindergarten only (DepEd: Signal No. 1)
-            </label>
-            <label>
-              <input type="radio" name="scope" checked={suspend.scope === 'pick'} onChange={() => setSuspend({ ...suspend, scope: 'pick' })} /> Choose
-              the levels
-            </label>
-            {suspend.scope === 'pick' && (
-              <div className="chips-inline">
-                {GRADE_LEVELS.map((g) => {
-                  const on = suspend.levels.includes(g);
-                  return (
-                    <label key={g} className="check">
-                      <input
-                        type="checkbox"
-                        checked={on}
-                        onChange={() => setSuspend({ ...suspend, levels: on ? suspend.levels.filter((x) => x !== g) : [...suspend.levels, g] })}
-                      />{' '}
-                      {gradeName(g)}
-                    </label>
-                  );
-                })}
-              </div>
-            )}
-            <p className="muted small">The other levels have class as usual: their children are scanned and marked as on any school day.</p>
-          </fieldset>
-          <label className="field">
-            <span>Reason</span>
-            <input className="input" value={suspend.label} onChange={(e) => setSuspend({ ...suspend, label: e.target.value })} />
-          </label>
-          <label className="check">
-            <input type="checkbox" checked={suspend.textParents} onChange={(e) => setSuspend({ ...suspend, textParents: e.target.checked })} /> Text the parents
-            now (one text per family, only those with SMS consent)
-          </label>
-          {suspend.textParents && (
-            <p className="muted small">
-              The text reads: "{data.settings?.schoolName ? `${data.settings.schoolName}: ` : ''}{suspend.scope === 'k' ? 'Kindergarten classes' : suspend.scope === 'pick' && suspend.levels.length ? `${levelsLabel(suspend.levels).replace(/ only$/, '')} classes` : 'Classes'} are suspended{' '}
-              {suspend.date === today.actualDate ? 'today,' : suspend.date === addDays(today.actualDate, 1) ? 'tomorrow,' : 'on'} {format(parseISO(suspend.date), 'EEE, MMM d')}. Reason: {suspend.label}." Filipino-speaking families get it in Filipino.
-            </p>
-          )}
-        </Modal>
+      {notice && (
+        <ParentNoticeWindow
+          start="suspension"
+          onClose={() => setNotice(false)}
+          onDone={(m) => {
+            setNotice(false);
+            flash(m);
+          }}
+        />
       )}
 
       {resetOpen && (

@@ -455,6 +455,13 @@ export function createCloudEngine() {
     return { documents: writes.length, teachers: [...sample.teachers.values()].map((t) => t.email), problems };
   };
 
+  // Audit Log -> "From" date: older entries than the 300 kept loaded come straight from Firestore.
+  engine.listAuditFrom = async (from) => {
+    const since = new Date(`${from}T00:00:00+08:00`).toISOString();
+    const snap = await getDocs(query(collection(db, 'audit'), where('at', '>=', since), orderBy('at', 'desc'), limit(3000)));
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  };
+
   /* =================================================================
      START OVER (Settings -> Sample data -> "Remove all school data"): deletes the sections, teachers,
      students, guardians, attendance, texts, alerts and parent portal data, so the sample school can

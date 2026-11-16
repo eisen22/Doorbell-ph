@@ -20,6 +20,7 @@ const UP_KIND = {
   holiday: 'No class',
   break: 'No class',
   suspension: 'Suspended',
+  partial: 'Suspended',
   halfday: 'Half day',
   makeup: 'Make-up class',
   exam: 'Exam',
@@ -239,7 +240,7 @@ function ChildView({ child, docs, excuses, onExcuse }) {
     <>
       {notices.map((n) => (
         <section key={n.at} className={`pp-notice pp-notice-${n.type}`} role="status">
-          {n.type === 'suspension' ? <CloudRain size={20} aria-hidden="true" /> : <Megaphone size={20} aria-hidden="true" />}
+          {n.type === 'suspension' || n.type === 'partial' ? <CloudRain size={20} aria-hidden="true" /> : <Megaphone size={20} aria-hidden="true" />}
           <div>
             <strong>{n.title}</strong>
             {n.body && <p>{n.body}</p>}
