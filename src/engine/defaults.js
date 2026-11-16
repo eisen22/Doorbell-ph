@@ -19,6 +19,8 @@ export const settings = {
   schoolName: 'Sunnyside Elementary School',
   contactNumber: '0917 555 0123',
   arrivalSmsEnabled: true,
+  // Text parents when their child leaves school (scanned out at the gate, or marked picked up by staff).
+  departureSmsEnabled: true,
   // The school gate opens (scanning starts) at this time for every class. DepEd sets no national time;
   // each school decides. 6:00 AM by default.
   gateOpens: '06:00',
@@ -47,6 +49,8 @@ export const settings = {
       missing: '{school}: {child} entered the school at {time} but is not in class. The school is looking for {child} now. Please call {contact}.',
       absent: '{school}: As of {time}, {child} has not arrived at school and is marked absent today. If {child} should be in school, please call {contact}.',
       laterPeriod: 'Doorbell: {child} arrived at school at {time} ({period}) and is in class, confirmed by the teacher. - {school}',
+      departure: 'Doorbell: {child} left school at {time} (scanned out at the gate). - {school}',
+      pickedUp: 'Doorbell: {child} was picked up from school at {time}, recorded by the school. - {school}',
     },
     fil: {
       arrival: 'Doorbell: Nasa klase na si {child}. Dumating ng {time}, kinumpirma ng guro. - {school}',
@@ -58,12 +62,14 @@ export const settings = {
       missing: '{school}: Pumasok si {child} sa paaralan ng {time} pero wala sa klase. Hinahanap na siya ng paaralan. Pakitawagan ang {contact}.',
       absent: '{school}: Hanggang {time}, hindi pa dumarating si {child} sa paaralan at absent siya ngayong araw. Kung dapat ay nasa paaralan siya, pakitawagan ang {contact}.',
       laterPeriod: 'Doorbell: Dumating si {child} sa paaralan ng {time} ({period}) at nasa klase na, kinumpirma ng guro. - {school}',
+      departure: 'Doorbell: Umalis na si {child} sa paaralan ng {time} (na-scan palabas sa gate). - {school}',
+      pickedUp: 'Doorbell: Sinundo na si {child} sa paaralan ng {time}, ayon sa paaralan. - {school}',
     },
   },
 };
 // The kinds of parent texts, in the order the Settings pages show them.
 // (arrivalAuto / lateAuto were the auto-confirm texts: no longer sent, kept only in old saved settings.)
-export const TEMPLATE_KINDS = ['arrival', 'late', 'laterPeriod', 'absent', 'missing', 'streak', 'total'];
+export const TEMPLATE_KINDS = ['arrival', 'late', 'laterPeriod', 'absent', 'missing', 'departure', 'pickedUp', 'streak', 'total'];
 // The old default texts (sent at the gate scan). Saved settings that still have them get the new ones.
 const OLD_DEFAULTS = {
   en: { arrival: 'Doorbell: {child} arrived at school at {time}. - {school}', late: 'Doorbell: {child} arrived late at {time}. - {school}' },

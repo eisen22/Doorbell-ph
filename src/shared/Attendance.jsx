@@ -7,6 +7,8 @@ import {
   ShieldCheck,
   MessageSquareOff,
   ChevronLeft,
+  LogOut,
+  Phone,
 } from 'lucide-react';
 import {
   addDays,
@@ -85,7 +87,9 @@ export function Attendance() {
       const roster = await r.getRoster(section.id, day);
       const confirmation = await r.getConfirmation(section.id, day);
       const teachers = await r.listTeachers(); // for the "covering for ..." banner
-      return { session, today, classes, section, calendar, year, day, roster, confirmation, teachers };
+      // Children who came in today and have not left (shown on a no-class day: suspension, teacher absent).
+      const stillHere = day === today.date ? await r.listStillAtSchool(section.id) : [];
+      return { session, today, classes, section, calendar, year, day, roster, confirmation, teachers, stillHere };
     },
     [date, classId],
   );
@@ -98,7 +102,7 @@ export function Attendance() {
         </div>
       </div>
     );
-  const { session, today, classes, section, calendar, year, day, roster, confirmation, teachers } = data;
+  const { session, today, classes, section, calendar, year, day, roster, confirmation, teachers, stillHere } = data;
   const periods = classPeriods(section.program); // Grades 4 to 6: from the class program
   const schoolDay = isSchoolDay(day, section.schedule, calendar);
   // Teacher absent on this day? (set by the admin: Sections -> a class -> Teacher absent)
@@ -255,6 +259,43 @@ export function Attendance() {
         ) : null}
       </div>
 
+      {!schoolDay && stillHere.length > 0 && (
+        <Card title={`Still at school: ${stillHere.length}`}>
+          <p className="hint">
+            These children came in before classes were called off and have not left. Keep them with a staff member until they are fetched. Scan their
+            ID at the gate as each one leaves, or press Picked up: the parent gets a text either way.
+          </p>
+          <ul className="still-list">
+            {stillHere.map((x) => (
+              <li key={x.student.id}>
+                <div>
+                  <b>
+                    {x.student.firstName} {x.student.lastName}
+                  </b>
+                  <span className="muted small">
+                    In at {to12h(x.scannedAt)}
+                    {x.guardian ? ` · ${x.guardian.name}, ${x.guardian.mobile}` : ''}
+                  </span>
+                </div>
+                {x.guardian?.mobile && (
+                  <a className="btn btn-sm" href={`tel:${x.guardian.mobile.replace(/\s/g, '')}`}>
+                    <Phone size={15} /> Call
+                  </a>
+                )}
+                <button
+                  className="btn btn-sm btn-ink"
+                  onClick={async () => {
+                    await repo.markPickedUp(section.id, x.student.id);
+                    flash(`${x.student.firstName} marked as picked up. The parent was texted.`);
+                  }}
+                >
+                  <LogOut size={15} /> Picked up
+                </button>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
       {!schoolDay ? (
         <Card>
           {away?.kind === 'noclass' ? (

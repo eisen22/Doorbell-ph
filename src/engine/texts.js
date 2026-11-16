@@ -40,6 +40,8 @@ export const textsMethods = {
     // One arrival/late text per child per day (confirming, then editing a status, does not text twice).
     if ((kind === 'arrival' || kind === 'late') && this.s.sms.has(opts.id ?? `arr_${student.id}_${opts.date}`)) return null;
     if (kind === 'absent' && this.settings.absentSmsEnabled === false) return null;
+    // Leaving school: one text per child per day (opts.id = out_<child>_<date>).
+    if (kind === 'departure' && (this.settings.departureSmsEnabled === false || this.s.sms.has(opts.id))) return null;
     // One total text per limit per month/semester, one "not in class" / "absent" text per day (opts.id says which).
     if ((kind === 'total' || kind === 'missing' || kind === 'absent') && this.s.sms.has(opts.id)) return null;
     if (kind === 'streak' && this.s.sms.has(`stk_${student.id}_${opts.date}`)) return null;

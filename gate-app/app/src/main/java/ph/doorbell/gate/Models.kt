@@ -97,6 +97,8 @@ data class SchoolSettings(
     val schoolName: String = "Doorbell",
     val contactNumber: String = "",
     val arrivalSmsEnabled: Boolean = true,
+    // Text the parent when the child leaves school (scanned out at the gate). On unless the admin turned it off.
+    val departureSmsEnabled: Boolean = true,
     // Settings -> How texts are sent: 'simulated', 'semaphore' (Cloudflare Worker, worker/) or 'phone' (this app sends them, SmsGateway.kt)
     val smsProvider: String = "simulated",
     val templates: Map<String, Map<String, String>> = emptyMap(), // language -> kind -> text
@@ -106,12 +108,19 @@ data class SchoolSettings(
     /** Real texts: saved as 'queued' and sent by Semaphore or by the gate phone. */
     val realSms get() = smsProvider == "semaphore" || smsProvider == "phone"
 
-    /** The SMS text for a language and kind (the gate app only uses "lateAuto"), English if missing. */
+    /** The SMS text for a language and kind, the default text if the school never saved one, English if missing. */
     fun template(language: String, kind: String): String =
-        templates[language]?.get(kind) ?: templates["en"]?.get(kind)
+        templates[language]?.get(kind) ?: DEFAULT_TEXTS[language]?.get(kind) ?: templates["en"]?.get(kind) ?: DEFAULT_TEXTS["en"]?.get(kind)
             ?: if (kind.startsWith("late")) "Doorbell: {child} arrived late at school at {time}. - {school}" else "Doorbell: {child} arrived at school at {time}. - {school}"
 
     companion object {
+        // Same default texts as the website (src/engine/defaults.js), for schools that saved their
+        // settings before these texts existed.
+        val DEFAULT_TEXTS = mapOf(
+            "en" to mapOf("departure" to "Doorbell: {child} left school at {time} (scanned out at the gate). - {school}"),
+            "fil" to mapOf("departure" to "Doorbell: Umalis na si {child} sa paaralan ng {time} (na-scan palabas sa gate). - {school}"),
+        )
+
         @Suppress("UNCHECKED_CAST")
         fun from(m: Map<String, Any?>?): SchoolSettings {
             val s = m?.get("settings") as? Map<String, Any?> ?: emptyMap()
@@ -123,6 +132,7 @@ data class SchoolSettings(
                 schoolName = s["schoolName"] as? String ?: "Doorbell",
                 contactNumber = s["contactNumber"] as? String ?: "",
                 arrivalSmsEnabled = s["arrivalSmsEnabled"] != false,
+                departureSmsEnabled = s["departureSmsEnabled"] != false,
                 smsProvider = s["smsProvider"] as? String ?: "simulated",
                 templates = tpl,
                 yearStart = y["start"] as? String ?: "2000-01-01",

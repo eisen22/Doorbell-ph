@@ -22,6 +22,8 @@ const KIND_LABELS = {
   streak: '3-day alert',
   total: 'Monthly / semester total',
   missing: 'Scanned at the gate but not in class',
+  departure: 'Left school (scanned out at the gate)',
+  pickedUp: 'Picked up (marked by the school, e.g. no ID card)',
 };
 
 // =====================================================================
@@ -99,6 +101,8 @@ export function SettingsPage() {
               <dd>{settings.streakDays} school days absent in a row, or too many absences or lates this month or semester (see Absence Watch)</dd>
               <dt>Arrival SMS</dt>
               <dd>{settings.arrivalSmsEnabled ? 'On' : 'Off'}</dd>
+              <dt>Leaving-school SMS</dt>
+              <dd>{settings.departureSmsEnabled !== false ? 'On' : 'Off'}</dd>
             </dl>
           </Card>
         ))}

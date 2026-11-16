@@ -189,3 +189,36 @@ const kinds = (w, id) => w.smsFor(id).map((m) => m.kind).join('+') || '-';
   check('N4 holiday without "text parents": portal only, no texts', notices().length === b3 && portal(k1)?.upcoming?.some((u) => u.label === 'Test holiday'));
   void kSec; void g2;
 }
+// ---- leaving school, suspension during class hours, announcements ----
+{
+  const w = world(); const D = w.clock.d; const [a, b, c] = w.roster(SEC);
+  for (const k of [a, b, c]) w.eng.guardianOf(k.id).smsConsent = true;
+  await w.scan(a, '07:30'); await w.scan(b, '07:35'); await w.scan(c, '07:40');
+  w.clock.t = '11:40'; const out = await w.scan(a, '11:40');
+  const dep = w.smsFor(a.id).find((m) => m.kind === 'departure');
+  check('L1 scanning out texts the parent', out.kind === 'out' && /left school at 11:40 AM|Umalis na/.test(dep?.body ?? ''), dep?.body);
+  w.clock.t = '11:50'; await w.scan(a, '11:50');
+  check('L1 only one "left school" text a day', w.smsFor(a.id).filter((m) => m.kind === 'departure').length === 1);
+  // Suspension declared at 10:00 with b and c still at school.
+  w.clock.t = '10:00';
+  await w.eng.declareSuspension(D, 'Heavy rain', [], { textParents: true });
+  const alert = w.state.notifications.get(`oncampus_${SEC}_${D}`);
+  check('L2 staff get the list of children still at school', alert && alert.body.includes(b.firstName) && alert.body.includes(c.firstName) && !alert.body.includes(a.firstName), alert?.title);
+  const sus = w.smsFor(b.id).find((m) => m.kind === 'notice');
+  check('L2 the parent of a child at school is told to fetch them', /is at school now|Nasa paaralan na/.test(sus?.body ?? ''), sus?.body);
+  const still = await w.eng.listStillAtSchool(SEC);
+  check('L2 "Still at school" lists b and c', still.map((x) => x.student.id).sort().join() === [b.id, c.id].sort().join());
+  w.clock.t = '10:20'; const o2 = await w.scan(b, '10:20');
+  check('L3 on the suspended day, scanning out still works and texts', o2.kind === 'out' && w.smsFor(b.id).some((m) => m.kind === 'departure'));
+  w.as('u-maria'); await w.eng.markPickedUp(SEC, c.id); w.as('u-admin');
+  const pu = w.smsFor(c.id).find((m) => m.kind === 'departure');
+  check('L3 "Picked up" texts the parent and names the school', /picked up|Sinundo/.test(pu?.body ?? '') && w.eng.record(SEC, D, c.id).pickedUpBy, pu?.body);
+  check('L3 nobody left on the list', !(await w.eng.listStillAtSchool(SEC)).length);
+  const n = await w.eng.sendAnnouncement({ message: 'Please fetch your children by 11:00 AM.', sectionId: SEC2, days: 3 });
+  const ann = [...w.state.sms.values()].filter((m) => m.kind === 'notice' && m.body.includes('11:00 AM'));
+  check('L4 class announcement texts that class only, one per family', n > 0 && ann.length === n && ann.every((m) => m.sectionId === SEC2));
+  const pdoc = w.log.filter((l) => l[1] === 'parentDays' && l[3].sectionId === SEC2).pop()?.[3];
+  check("L4 it shows in that class's parent portal", pdoc?.notices?.[0]?.type === 'announcement');
+  let err = ''; try { await w.eng.sendAnnouncement({ message: ' ' }); } catch (e) { err = e.message; }
+  check('L4 empty message refused', /Write the message/.test(err));
+}

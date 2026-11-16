@@ -84,6 +84,59 @@ export const adminMethods = {
     this.s.calendarNotices = [notice, ...(this.s.calendarNotices ?? [])].slice(0, 30);
     return notice;
   },
+  // One alert per class with children who came in today and have not left, after today became a no-class
+  // day for them. They stay with staff until fetched; scanning out or "Picked up" texts the parent.
+  alertStillAtSchool(entry) {
+    const today = this.clock.today();
+    for (const sec of this.s.sections.values()) {
+      if (sec.archived || (entry.levels?.length && !entry.levels.includes(sec.gradeLevel))) continue;
+      const here = this.rosterOn(sec.id, today).filter((k) => {
+        const r = this.record(sec.id, today, k.id);
+        return r?.scannedAt && !r.scannedOut;
+      });
+      if (!here.length) continue;
+      const n = {
+        id: `oncampus_${sec.id}_${today}`,
+        kind: 'missing',
+        sectionId: sec.id,
+        createdAt: this.nowIso(),
+        read: false,
+        title: `${here.length} ${here.length === 1 ? 'child of' : 'children of'} ${sec.name} ${here.length === 1 ? 'is' : 'are'} at school, but classes are ${entry.type === 'suspension' ? 'suspended' : 'off'} today`,
+        body: `${here.map((k) => `${k.firstName} ${k.lastName}`).join(', ')}. Keep them with a staff member until they are fetched. Scan their ID at the gate (or press Picked up on the Attendance page) as each one leaves: the parent is texted.`,
+      };
+      this.s.notifications.set(n.id, n);
+      this.put('notifications', n.id, n);
+    }
+  },
+  // Admin: a message from the school to parents, e.g. "Please fetch your children by 11 AM due to an
+  // earthquake drill." To the whole school, some grade levels, or one class. It shows at the top of the
+  // parent portal for `days` days and (textParents) is texted, one text per family.
+  async sendAnnouncement({ message, messageFil, levels, sectionId, days = 3, textParents = true }) {
+    await this.ready;
+    const text = (message ?? '').trim();
+    if (!text) throw new Error('Write the message first.');
+    if (text.length > 300 || (messageFil ?? '').trim().length > 300) throw new Error('Keep the message under 300 characters (2 texts).');
+    const today = this.clock.today();
+    const sec = sectionId ? this.s.sections.get(sectionId) : null;
+    const only = levelsLabel(levels);
+    const who = sec ? sec.name : only || 'the whole school';
+    const notice = this.addCalendarNotice({
+      type: 'announcement',
+      title: 'Announcement from the school',
+      body: text,
+      bodyFil: (messageFil ?? '').trim() || null,
+      dates: Array.from({ length: Math.max(1, days) }, (_, i) => addDays(today, i)),
+      levels: !sec && levels?.length ? levels : null,
+      sectionId: sec?.id ?? null,
+    });
+    this.saveCalendar();
+    const texted = textParents ? this.textFamilies(notice) : 0;
+    await this.logAudit('announcement.send', who, `${text}${texted ? ` (texted ${texted} families)` : ''}`);
+    this.notifyCalendar(`Announcement to parents (${who})`, `"${text}"${texted ? ` Texted to ${texted} families.` : ''}`, today);
+    this.syncParentDays(sec ? this.rosterOn(sec.id, today).map((k) => k.id) : null, [today.slice(0, 7)]);
+    this.emit();
+    return texted;
+  },
   // Texts every family the notice applies to: one text per family (siblings share one), only with SMS
   // consent, in the family's language. Returns how many families were texted.
   textFamilies(notice) {
@@ -98,13 +151,18 @@ export const adminMethods = {
       if (notice.sectionId && sec.id !== notice.sectionId) continue;
       if (notice.levels?.length && !notice.levels.includes(sec.gradeLevel)) continue;
       // Only classes that meet on one of those days (a Saturday holiday does not concern a Mon-Fri class).
-      if (notice.type !== 'makeup' && !dates.some((d) => sec.schedule.classDays.includes(isoWeekday(d)))) continue;
+      if (!['makeup', 'announcement'].includes(notice.type) && !dates.some((d) => sec.schedule.classDays.includes(isoWeekday(d)))) continue;
       const g = this.guardianOf(stu.id);
       if (!g?.smsConsent || !g.mobile) continue;
+      // No class today but the child is already at school (came in before the suspension): say so.
+      const r = dates.includes(today) && ['suspension', 'holiday', 'break', 'noclass'].includes(notice.type) ? this.record(sec.id, today, stu.id) : null;
+      const atSchool = r?.scannedAt && !r.scannedOut ? [stu.firstName] : [];
       const had = kids.get(g.id);
-      if (!had || byName(stu, had.student) < 0) kids.set(g.id, { g, student: stu, section: sec });
+      const here = [...(had?.here ?? []), ...atSchool];
+      if (!had || byName(stu, had.student) < 0) kids.set(g.id, { g, student: stu, section: sec, here });
+      else had.here = here;
     }
-    for (const { g, student, section } of kids.values()) {
+    for (const { g, student, section, here } of kids.values()) {
       const fil = g.preferredLanguage === 'fil';
       const id = `ntc_${notice.id}_${g.id}`;
       const msg = {
@@ -113,7 +171,7 @@ export const adminMethods = {
         guardianId: g.id,
         sectionId: section.id,
         to: g.mobile,
-        body: noticeText(notice, { fil, child: student.firstName, section: section.name, school: this.settings.schoolName, today }),
+        body: noticeText(notice, { fil, child: student.firstName, section: section.name, school: this.settings.schoolName, today, here }),
         kind: 'notice',
         status: g.numberStatus === 'failed' ? 'failed' : this.newSmsStatus(),
         createdAt: this.nowIso(),
@@ -162,6 +220,9 @@ export const adminMethods = {
       levels: first.levels?.length ? first.levels : null,
     });
     this.saveCalendar();
+    // CHILD SAFETY: no class TODAY, declared after children already came in (e.g. a suspension during
+    // class hours): staff get the list of each class's children still at school.
+    if (noClass && days.some((d) => d.date === this.clock.today())) this.alertStillAtSchool(first);
     const texted = opts.textParents ? this.textFamilies(notice) : 0;
     this.syncParentDays(null, [this.clock.today().slice(0, 7), ...days.map((d) => d.date.slice(0, 7))]);
     this.emit();
@@ -726,7 +787,16 @@ export const adminMethods = {
 
 // The text a family gets about a calendar change, e.g. "Sunnyside ES: Kindergarten classes are suspended
 // tomorrow, Tue, Nov 17. Reason: Tropical Cyclone Wind Signal No. 1."
-function noticeText(n, { fil, child, section, school, today }) {
+function noticeText(n, opts) {
+  const base = noticeBody(n, opts);
+  const here = opts.here ?? [];
+  if (!here.length) return base;
+  const list = here.length === 1 ? here[0] : `${here.slice(0, -1).join(', ')} ${opts.fil ? 'at' : 'and'} ${here[here.length - 1]}`;
+  return opts.fil
+    ? `${base} Nasa paaralan na ${here.length > 1 ? 'sina' : 'si'} ${list}. Pakisundo po, o hintayin ang abiso ng paaralan.`
+    : `${base} ${list} ${here.length > 1 ? 'are' : 'is'} at school now. Please fetch ${here.length > 1 ? 'them' : list}, or wait for the school's advice.`;
+}
+function noticeBody(n, { fil, child, section, school, today }) {
   const dates = [...n.dates].sort();
   const day = (d) => (d === today ? `${fil ? 'ngayong araw' : 'today'}, ${fmtDay(d)}` : d === addDays(today, 1) ? `${fil ? 'bukas' : 'tomorrow'}, ${fmtDay(d)}` : `on ${fmtDay(d)}`);
   const plain = (d) => day(d).replace(/^on /, fil ? 'sa ' : 'on ');
@@ -748,6 +818,8 @@ function noticeText(n, { fil, child, section, school, today }) {
       return fil ? `${head}May make-up class${whoFil} ${when}. Kailangang pumasok si ${child}.${reason}` : `${head}${who} have a make-up class ${when}. ${child} should come to school.${reason}`;
     case 'resume':
       return fil ? `${head}Tuloy ang klase${whoFil} ${when}.` : `${head}${who} will push through as usual ${when}.`;
+    case 'announcement':
+      return `${head}${fil && n.bodyFil ? n.bodyFil : n.body}`;
     case 'noclass':
       return fil
         ? `${head}Walang klase ang ${section} ${when} dahil liban ang guro.`

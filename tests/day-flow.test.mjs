@@ -46,7 +46,7 @@ const kinds = (w, id) => w.smsFor(id).map((m) => m.kind).join('+') || '-';
   await w.eng.setStatus({ studentId: a.id, sectionId: SEC, date: D, status: 'present', reason: 'found' });
   check('N1 ...and a new "in class" text when found again', kinds(w, a.id).replace(/\+(total|streak)/g, '') === 'arrival+missing+arrival');
   // d manual present scans card later
-  await w.scan(d, '11:00'); check('N1 manual-present child scanning later stays present, no text', w.eng.record(SEC, D, d.id).status === 'present' && kinds(w, d.id) === 'arrival');
+  await w.scan(d, '11:00'); check('N1 manual-present child scanning near the end of class = leaving: stays present, "left school" text', w.eng.record(SEC, D, d.id).status === 'present' && kinds(w, d.id) === 'arrival+departure', kinds(w, d.id));
   // g: marked absent AFTER absence step (teacher mis-tap present at confirm) -> immediate absent text
 }
 // ===== Teacher confirms late (after 9:00): absence texts go at once =====
@@ -128,7 +128,7 @@ const kinds = (w, id) => w.smsFor(id).map((m) => m.kind).join('+') || '-';
   check('O1 second scan soon after = already in', r1.kind === 'duplicate');
   const r2 = await w.scan(a, '11:40');
   check('O1 scan after class = scanned out', r2.kind === 'out' && w.eng.record(SEC, D, a.id).scannedOut === '11:40');
-  check('O1 scan-out sends no text and no alert', kinds(w, a.id) === 'arrival' && !w.notes(a.id).length);
+  check('O1 scan-out sends one "left school" text and no alert', kinds(w, a.id) === 'arrival+departure' && !w.notes(a.id).length, kinds(w, a.id));
   const day = w.eng.parentMonthDoc(a.id, D.slice(0, 7)).days[D];
   check('O1 parent portal: in, confirmed, out times', day.t === '07:42' && day.c === '08:10' && day.o === '11:40', JSON.stringify(day));
   const dc = w.eng.parentMonthDoc(c.id, D.slice(0, 7)).days[D];

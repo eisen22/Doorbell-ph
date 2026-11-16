@@ -83,6 +83,15 @@ export const attendanceMethods = {
     const today = this.clock.today();
     const time = this.clock.scanTime();
     if (!isSchoolDay(today, sec.schedule, this.s.calendar) || today < this.year.start || today > this.year.end) {
+      // CHILD SAFETY: the child came in, then the day became a no-class day (a suspension declared during
+      // class hours): scanning the card again records the time the child left, and the parent is texted.
+      const cameIn = this.record(sec.id, today, student.id);
+      if (cameIn?.scannedAt && !cameIn.scannedOut) {
+        const prev = this.lastScanAt.get(token);
+        this.lastScanAt.set(token, Date.now());
+        if (prev !== undefined && (Date.now() - prev) / 1000 < 10) return { kind: 'ignore' };
+        return this.recordOut(student, sec, cameIn, time, today);
+      }
       // CHILD SAFETY: the class was cancelled for today (teacher absent) but the child came anyway.
       if (this.awayOn(sec, today)?.kind === 'noclass' && today >= this.year.start && today <= this.year.end) {
         const n = {
@@ -114,10 +123,7 @@ export const attendanceMethods = {
       const sinceIn = existing.scannedAt ? toMinutes(time) - toMinutes(existing.scannedAt) : null;
       const manualPresent = !existing.scannedAt && (existing.status === 'present' || existing.status === 'late');
       if ((sinceIn !== null && sinceIn >= 30) || (manualPresent && toMinutes(time) >= toMinutes(sec.schedule.endTime) - 60)) {
-        this.writeRecord({ ...existing, scannedOut: time });
-        this.syncParentDays([student.id], [today.slice(0, 7)]);
-        this.emit();
-        return { kind: 'out', student, time };
+        return this.recordOut(student, sec, existing, time, today);
       }
     }
     const decision = decideScan({
@@ -169,6 +175,56 @@ export const attendanceMethods = {
     }
     this.emit();
     return { kind: 'recorded', student, status, time, needsCheck: locked };
+  },
+  // The child left school: saves the time out and texts the parent ("left school at 2:54 PM").
+  // by: a staff member's name when the child was picked up without scanning (no ID card, or a suspension).
+  recordOut(student, sec, rec, time, today, by) {
+    this.writeRecord({ ...rec, scannedOut: time, ...(by ? { pickedUpBy: by } : {}) });
+    this.queueSms(student, 'departure', {
+      id: `out_${student.id}_${today}`,
+      date: today,
+      time,
+      sectionId: sec.id,
+      template: by ? 'pickedUp' : 'departure',
+      createdAt: this.nowIso(today),
+    });
+    this.syncParentDays([student.id], [today.slice(0, 7)]);
+    this.emit();
+    return { kind: 'out', student, time };
+  },
+  // Staff: "Picked up" for a child who leaves without scanning out (forgot the ID, fetched during a
+  // suspension...). Today only. The parent is texted and the audit log says who marked it.
+  async markPickedUp(sectionId, studentId) {
+    await this.ready;
+    const today = this.clock.today();
+    const sec = this.s.sections.get(sectionId);
+    const student = this.s.students.get(studentId);
+    const rec = this.record(sectionId, today, studentId);
+    if (!sec || !student || !rec) throw new Error('No record for this child today.');
+    if (rec.scannedOut) return { kind: 'already', time: rec.scannedOut };
+    const time = this.clock.scanTime();
+    await this.logAudit('attendance.picked_up', `${student.firstName} ${student.lastName}`, `left at ${time}, marked by ${this.actor()}`);
+    return this.recordOut(student, sec, rec, time, today, this.actor());
+  },
+  // Children who came to school today and have not left yet, for the classes this user can see.
+  // Used on a day the class has no class (suspension during class hours, teacher absent): staff keep
+  // them until they are fetched. [{ student, section, scannedAt, guardian: { name, mobile } }]
+  async listStillAtSchool(sectionId) {
+    await this.ready;
+    const today = this.clock.today();
+    const out = [];
+    for (const sec of this.s.sections.values()) {
+      if (sec.archived || (sectionId && sec.id !== sectionId)) continue;
+      const day = this.s.attendance.get(dayId(sec.id, today));
+      for (const r of Object.values(day?.records ?? {})) {
+        if (!r.scannedAt || r.scannedOut) continue;
+        const student = this.s.students.get(r.studentId);
+        if (!student) continue;
+        const g = this.guardianOf(student.id);
+        out.push({ student, section: sec, scannedAt: r.scannedAt, guardian: g ? { name: g.name, mobile: g.mobile } : null });
+      }
+    }
+    return out.sort((a, b) => a.section.name.localeCompare(b.section.name) || a.student.lastName.localeCompare(b.student.lastName));
   },
   // A teacher changes a status by hand, before or after confirming (every change is saved in the audit log).
   // Parent texts are only sent for TODAY: correcting an older day never texts anyone.

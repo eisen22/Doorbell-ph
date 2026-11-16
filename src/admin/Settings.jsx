@@ -36,6 +36,8 @@ const KIND_LABELS = {
   streak: '3-day alert',
   total: 'Monthly / semester total',
   missing: 'Scanned at the gate but not in class',
+  departure: 'Left school (scanned out at the gate)',
+  pickedUp: 'Picked up (marked by the school, e.g. no ID card)',
 };
 
 // =====================================================================
@@ -113,6 +115,10 @@ export function AdminSettings() {
           <label className="check">
             <input type="checkbox" checked={s.absentSmsEnabled !== false} onChange={(e) => setS({ ...s, absentSmsEnabled: e.target.checked })} /> Text
             parents on the day their child is absent (sent at the end of first period, only for classes a teacher confirmed)
+          </label>
+          <label className="check">
+            <input type="checkbox" checked={s.departureSmsEnabled !== false} onChange={(e) => setS({ ...s, departureSmsEnabled: e.target.checked })} />{' '}
+            Text parents when their child leaves school (scanned out at the gate, or marked picked up)
           </label>
           <div className="form-row">
             <label className="field">
@@ -227,7 +233,7 @@ export function AdminSettings() {
                 const plain = isGsmPlain(preview);
                 return (
                   <label key={k} className="tpl">
-                    <span className={`kind kind-${k === 'laterPeriod' ? 'late' : k === 'absent' ? 'streak' : k}`}>{KIND_LABELS[k]}</span>
+                    <span className={`kind kind-${k === 'laterPeriod' ? 'late' : k === 'absent' ? 'streak' : k === 'pickedUp' ? 'departure' : k}`}>{KIND_LABELS[k]}</span>
                     <textarea rows={3} value={s.templates[lang][k]} onChange={(e) => setTpl(lang, k, e.target.value)} />
                     <span className="muted small">Preview: {preview}</span>
                     <span className={`small ${preview.length > 160 || !plain ? 'over' : 'muted'}`}>

@@ -7,8 +7,10 @@ import {
   Smartphone,
   ArrowDownUp,
   X,
+  Megaphone,
+  Send,
 } from 'lucide-react';
-import { displayPhMobile, manilaToday, smsSegments } from '../logic';
+import { displayPhMobile, manilaToday, smsSegments, GRADE_LEVELS, gradeName, bySectionGrade } from '../logic';
 import {
   useLive,
   useRepo,
@@ -17,6 +19,7 @@ import {
   Skeleton,
   LevelChips,
   countByGrade,
+  Modal,
 } from '../ui';
 
 // =====================================================================
@@ -39,6 +42,7 @@ const KINDS = [
   { k: 'absent', label: 'Absent today' },
   { k: 'missing', label: 'Not in class' },
   { k: 'notice', label: 'School notices' },
+  { k: 'departure', label: 'Left school' },
   { k: 'failed', label: 'Failed' },
   { k: 'test', label: 'Tests' },
 ];
@@ -52,7 +56,10 @@ export function SmsMessages() {
   const [day, setDay] = useState(''); // '' = all days
   const [newestFirst, setNewestFirst] = useState(true);
   const [selected, setSelected] = useState(null);
+  const [announce, setAnnounce] = useState(false); // the "Send announcement" window (admin)
   const { data } = useLive(async (r) => ({
+    session: await r.getSession(),
+    settings: await r.getSettings(),
     sms: await r.listSms(1000),
     students: await r.listStudentRows().catch(() => []),
     sections: await r.listSections().catch(() => []),
@@ -113,6 +120,11 @@ export function SmsMessages() {
           <button className="btn" onClick={() => setNewestFirst((v) => !v)}>
             <ArrowDownUp size={16} /> {newestFirst ? 'Newest day first' : 'Oldest day first'}
           </button>
+          {data.session?.role === 'admin' && (
+            <button className="btn btn-ink" onClick={() => setAnnounce(true)}>
+              <Megaphone size={16} /> Send announcement
+            </button>
+          )}
         </div>
       </div>
       <LevelChips value={level} onChange={setLevel} counts={countByGrade(data.sms, (m) => gradeOf.get(m.sectionId))} />
@@ -147,7 +159,7 @@ export function SmsMessages() {
                           className={`sms-row ${pick?.id === m.id ? 'on' : ''} ${m.status === 'failed' ? 'bad' : ''}`}
                           onClick={() => setSelected(m.id)}
                         >
-                          <span className={`kind kind-${m.kind}`}>{m.kind === 'streak' ? '3-day' : m.kind === 'notice' ? 'school notice' : m.kind}</span>
+                          <span className={`kind kind-${m.kind}`}>{m.kind === 'streak' ? '3-day' : m.kind === 'notice' ? 'school notice' : m.kind === 'departure' ? 'left school' : m.kind}</span>
                           <span className="sms-to">
                             <strong>{name(m.studentId) || displayPhMobile(m.to)}</strong>
                             <span className="muted small">
@@ -201,6 +213,160 @@ export function SmsMessages() {
           </div>
         </div>
       </div>
+      {announce && (
+        <AnnounceModal
+          sections={data.sections}
+          school={data.settings?.schoolName}
+          onClose={() => setAnnounce(false)}
+          onSent={() => setAnnounce(false)}
+        />
+      )}
     </div>
+  );
+}
+
+// The admin's "Send announcement" window: a message from the school to parents (whole school, some grade
+// levels or one class). It shows at the top of the parent portal and can be texted (one text per family).
+function AnnounceModal({ sections, school, onClose, onSent }) {
+  const repo = useRepo();
+  const [scope, setScope] = useState('all'); // 'all' | 'levels' | 'class'
+  const [levels, setLevels] = useState([]);
+  const [sectionId, setSectionId] = useState('');
+  const [en, setEn] = useState('');
+  const [fil, setFil] = useState('');
+  const [days, setDays] = useState(3);
+  const [textParents, setTextParents] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState('');
+  const head = school ? `${school}: ` : '';
+  const parts = (t) => (t.trim() ? smsSegments(head + t.trim()) : 0);
+  const ready = en.trim() && (scope !== 'levels' || levels.length) && (scope !== 'class' || sectionId);
+  const send = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      const n = await repo.sendAnnouncement({
+        message: en,
+        messageFil: fil,
+        levels: scope === 'levels' ? levels : [],
+        sectionId: scope === 'class' ? sectionId : null,
+        days,
+        textParents,
+      });
+      setResult(n);
+    } catch (e) {
+      setError(e.message);
+    }
+    setBusy(false);
+  };
+  if (result !== null)
+    return (
+      <Modal
+        title="Announcement sent"
+        onClose={onSent}
+        footer={
+          <button className="btn btn-ink" onClick={onSent}>
+            Done
+          </button>
+        }
+      >
+        <p>
+          It is at the top of the parent portal for {days === 1 ? 'today' : `${days} days`}
+          {textParents ? `, and ${result} ${result === 1 ? 'family was' : 'families were'} texted` : ''}. Teachers got an alert too.
+        </p>
+      </Modal>
+    );
+  return (
+    <Modal
+      title="Send an announcement to parents"
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="btn btn-ink" onClick={send} disabled={!ready || busy}>
+            <Send size={16} /> {textParents ? 'Send' : 'Post'}
+          </button>
+        </>
+      }
+    >
+      <fieldset className="checks">
+        <legend>Who gets it?</legend>
+        <label>
+          <input type="radio" name="aud" checked={scope === 'all'} onChange={() => setScope('all')} /> The whole school
+        </label>
+        <label>
+          <input type="radio" name="aud" checked={scope === 'levels'} onChange={() => setScope('levels')} /> Some grade levels
+        </label>
+        {scope === 'levels' && (
+          <div className="chips-inline">
+            {GRADE_LEVELS.map((g) => {
+              const on = levels.includes(g);
+              return (
+                <label key={g} className="check">
+                  <input type="checkbox" checked={on} onChange={() => setLevels(on ? levels.filter((x) => x !== g) : [...levels, g])} /> {gradeName(g)}
+                </label>
+              );
+            })}
+          </div>
+        )}
+        <label>
+          <input type="radio" name="aud" checked={scope === 'class'} onChange={() => setScope('class')} /> One class
+        </label>
+        {scope === 'class' && (
+          <select className="input" value={sectionId} onChange={(e) => setSectionId(e.target.value)} aria-label="Class">
+            <option value="">Pick a class</option>
+            {[...sections]
+              .filter((x) => !x.archived)
+              .sort(bySectionGrade)
+              .map((x) => (
+                <option key={x.id} value={x.id}>
+                  {x.name}
+                </option>
+              ))}
+          </select>
+        )}
+      </fieldset>
+      <label className="field">
+        <span>Message (English)</span>
+        <textarea
+          className="input"
+          rows={3}
+          maxLength={300}
+          value={en}
+          onChange={(e) => setEn(e.target.value)}
+          placeholder="e.g. Please fetch your children by 11:00 AM today because of the earthquake drill."
+        />
+        <small className="muted">
+          {en.trim().length}/300 characters{en.trim() ? ` · ${parts(en)} SMS per family` : ''}
+        </small>
+      </label>
+      <label className="field">
+        <span>Message in Filipino (optional, for families who chose Filipino)</span>
+        <textarea className="input" rows={3} maxLength={300} value={fil} onChange={(e) => setFil(e.target.value)} />
+        {fil.trim() && <small className="muted">{parts(fil)} SMS per family</small>}
+      </label>
+      <label className="field">
+        <span>Show at the top of the parent portal for</span>
+        <select className="input" value={days} onChange={(e) => setDays(Number(e.target.value))}>
+          <option value={1}>Today only</option>
+          <option value={3}>3 days</option>
+          <option value={7}>7 days</option>
+        </select>
+      </label>
+      <label className="check">
+        <input type="checkbox" checked={textParents} onChange={(e) => setTextParents(e.target.checked)} /> Also text the parents (one text per family, only
+        those with SMS consent)
+      </label>
+      {en.trim() && textParents && (
+        <p className="muted small">
+          The text reads: "{head}
+          {en.trim()}"
+        </p>
+      )}
+      {error && <p className="error">{error}</p>}
+    </Modal>
   );
 }
