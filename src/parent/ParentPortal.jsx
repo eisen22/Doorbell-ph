@@ -357,8 +357,6 @@ function ChildView({ child, docs, excuses, onExcuse }) {
           </ul>
         </section>
       )}
-
-      <p className="pp-muted pp-center pp-small">You can also call the teacher or send a note to school.</p>
     </>
   );
 }
