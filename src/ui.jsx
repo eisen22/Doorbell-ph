@@ -322,10 +322,6 @@ export function longDate(d) {
     year: 'numeric',
   });
 }
-// Today in the Philippines as 'YYYY-MM-DD'.
-function todayIso() {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
-}
 const NO_CLASS = new Set(['holiday', 'suspension', 'break']);
 // Props:
 //   value / onChange  the chosen date ('YYYY-MM-DD') and what to do when it changes
@@ -347,7 +343,7 @@ export function DatePicker({
   compact,
 }) {
   const [open, setOpen] = useState(false);
-  const start = value || (max && todayIso() > max ? max : todayIso());
+  const start = value || (max && manilaToday() > max ? max : manilaToday());
   const [view, setView] = useState({ y: Number(start.slice(0, 4)), m: Number(start.slice(5, 7)) - 1 });
   const [focus, setFocus] = useState(start);
   const box = useRef(null);
@@ -416,7 +412,7 @@ export function DatePicker({
   const daysIn = new Date(view.y, view.m + 1, 0).getDate();
   const cells = [...Array(lead).fill(null), ...Array.from({ length: daysIn }, (_, i) => iso(view.y, view.m, i + 1))];
   while (cells.length % 7) cells.push(null);
-  const thisYear = Number(todayIso().slice(0, 4));
+  const thisYear = Number(manilaToday().slice(0, 4));
   const minY = min ? Number(min.slice(0, 4)) : birthdate ? thisYear - 15 : thisYear - 5;
   const maxY = max ? Number(max.slice(0, 4)) : thisYear + 2;
   const years = Array.from({ length: Math.max(1, maxY - minY + 1) }, (_, i) => minY + i);
@@ -434,7 +430,7 @@ export function DatePicker({
       pick(focus);
     }
   };
-  const quickList = quick ?? (allowed(todayIso()) ? [['Today', todayIso()]] : []);
+  const quickList = quick ?? (allowed(manilaToday()) ? [['Today', manilaToday()]] : []);
   const mark = (d) => marks.get(d);
   return (
     <div className={`dp ${className}`} ref={box}>
@@ -496,7 +492,7 @@ export function DatePicker({
               const cls = [
                 'dp-day',
                 d === value ? 'on' : '',
-                d === todayIso() ? 'today' : '',
+                d === manilaToday() ? 'today' : '',
                 wd >= 6 ? 'weekend' : '',
                 m && NO_CLASS.has(m.type) ? 'noclass' : '',
               ].join(' ');

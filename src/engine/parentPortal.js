@@ -143,7 +143,9 @@ export const parentPortalMethods = {
         out.push({ date: d, type: away ? 'noclass' : (e?.type ?? 'noclass'), label: this.noClassLabel(section, d) });
       } else if (e?.type === 'partial') {
         out.push({ date: d, type: 'partial', label: `Suspended from ${to12h(e.from)}: ${e.label}` });
-      } else if (e && ['makeup', 'halfday', 'exam', 'event'].includes(e.type)) {
+      } else if (e?.type === 'halfday') {
+        out.push({ date: d, type: 'halfday', label: `${e.label}${e.until ? ` (classes end at ${to12h(e.until)})` : ''}` });
+      } else if (e && ['makeup', 'exam', 'event'].includes(e.type)) {
         out.push({ date: d, type: e.type, label: e.label });
       }
     }

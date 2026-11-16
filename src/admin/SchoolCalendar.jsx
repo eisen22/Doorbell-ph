@@ -29,6 +29,7 @@ import {
   isoWeekday,
   levelsLabel,
   to12h,
+  textedNote,
 } from '../logic';
 
 // =====================================================================
@@ -48,17 +49,16 @@ const TYPE_OPTIONS = [
   { value: 'class', hint: 'Normal class day (removes any special entry)' },
   { value: 'event', hint: 'Classes continue, with a school event' },
   { value: 'exam', hint: 'Classes continue: summative test or term exam' },
-  { value: 'halfday', hint: 'Classes for half the day' },
+  { value: 'halfday', hint: 'Classes end early, at a time you set' },
   { value: 'holiday', hint: 'No classes, regular or special holiday' },
-  { value: 'suspension', hint: 'No classes, e.g. weather or emergency' },
-  { value: 'partial', hint: 'Classes stop at a time, e.g. from 1:00 PM' },
+  { value: 'suspension', hint: 'Whole day or from a time; opens the suspension window' },
   { value: 'break', hint: 'No classes, e.g. wellness or year-end break' },
   { value: 'makeup', hint: 'Class on a day that is normally off, e.g. Saturday' },
 ];
 export function AdminCalendar() {
   const repo = useRepo();
   const [draft, setDraft] = useState(null);
-  const [notice, setNotice] = useState(false); // the "Tell parents" window (suspension or announcement)
+  const [notice, setNotice] = useState(null); // the "Tell parents" window: {} or the days to suspend
   const [resetOpen, setResetOpen] = useState(false);
   const [yearDraft, setYearDraft] = useState(null);
   const [toast, setToast] = useState(null);
@@ -86,7 +86,9 @@ export function AdminCalendar() {
       to: date,
       type: entry?.type ?? 'class',
       label: entry?.label ?? '',
-      fromTime: entry?.from ?? '13:00', // suspended from this time (type 'partial')
+      until: entry?.until ?? '11:30', // half day: classes end at this time
+      levels: entry?.levels ?? [],
+      time: entry?.from ?? null, // part-day suspension: from this time
       scope: entry?.scope ?? 'national',
       weekdaysOnly: true,
       was: entry?.type ?? 'class', // what the day was before (to offer "classes push through" texts)
@@ -96,6 +98,12 @@ export function AdminCalendar() {
   // Saves the edited day(s). Choosing "Class day" removes the special entry instead.
   const save = async () => {
     if (!draft) return;
+    // A suspension day opened from the calendar: changed in the suspension window, like a new one.
+    if (['suspension', 'partial'].includes(draft.type)) {
+      setNotice({ from: draft.from, to: draft.to, label: draft.label, levels: draft.levels, time: draft.time });
+      setDraft(null);
+      return;
+    }
     const dates = eachDate(draft.from, draft.to < draft.from ? draft.from : draft.to).filter(
       (d) => !draft.weekdaysOnly || draft.type === 'makeup' || draft.from === draft.to || isoWeekday(d) <= 5,
     );
@@ -110,13 +118,13 @@ export function AdminCalendar() {
           type: draft.type,
           label,
           ...(draft.type === 'holiday' ? { scope: draft.scope } : {}),
-          ...(draft.type === 'partial' ? { from: draft.fromTime } : {}),
+          ...(draft.type === 'halfday' ? { until: draft.until } : {}),
         })),
         { textParents: draft.textParents },
       );
     }
     flash(
-      `${dates.length} day${dates.length > 1 ? 's' : ''} updated. Teachers and the parent portal were notified${texted ? `, and ${texted} ${texted === 1 ? 'family was' : 'families were'} texted` : ''}.`,
+      `${dates.length} day${dates.length > 1 ? 's' : ''} updated. Teachers and the parent portal were notified${textedNote(texted)}.`,
     );
     setDraft(null);
   };
@@ -134,7 +142,7 @@ export function AdminCalendar() {
           <button className="btn" onClick={() => setResetOpen(true)}>
             <RotateCcw size={17} /> Reset to DepEd template
           </button>
-          <button className="btn btn-danger" onClick={() => setNotice(true)}>
+          <button className="btn btn-danger" onClick={() => setNotice({})}>
             <CloudRain size={17} /> Suspension or announcement
           </button>
         </div>
@@ -198,6 +206,7 @@ export function AdminCalendar() {
               <span>
                 {c.label}
                 {c.type === 'partial' && c.from ? ` (from ${to12h(c.from)})` : ''}
+                {c.type === 'halfday' && c.until ? ` (classes end at ${to12h(c.until)})` : ''}
                 {c.levels?.length ? <b className="muted small"> · {levelsLabel(c.levels)}</b> : null}
               </span>
               <button className="icon-btn sm" onClick={() => open(c.date)} aria-label={`Edit ${c.date}`}>
@@ -237,7 +246,20 @@ export function AdminCalendar() {
           <div className="type-pick" role="radiogroup" aria-label="Day type">
             {TYPE_OPTIONS.map((o) => (
               <label key={o.value} className={`type-opt ${draft.type === o.value ? 'on' : ''}`}>
-                <input type="radio" name="type" checked={draft.type === o.value} onChange={() => setDraft({ ...draft, type: o.value })} />
+                <input
+                  type="radio"
+                  name="type"
+                  checked={draft.type === o.value || (o.value === 'suspension' && draft.type === 'partial')}
+                  onChange={() => {
+                    // A suspension is always made in the same window as "Suspension or announcement",
+                    // with these days filled in (same alerts, portal notice and texts).
+                    if (o.value === 'suspension') {
+                      const wasSusp = ['suspension', 'partial'].includes(draft.was);
+                      setNotice({ from: draft.from, to: draft.to, label: wasSusp ? draft.label : '', levels: wasSusp ? draft.levels : [], time: wasSusp ? draft.time : null });
+                      setDraft(null);
+                    } else setDraft({ ...draft, type: o.value });
+                  }}
+                />
                 <span className={`swatch k-${o.value}`} />
                 <span>
                   <b>{DAY_KIND_META[o.value].label}</b>
@@ -257,10 +279,10 @@ export function AdminCalendar() {
               />
             </label>
           )}
-          {draft.type === 'partial' && (
+          {draft.type === 'halfday' && (
             <label className="field">
-              <span>Suspended from</span>
-              <input className="input" type="time" step="1800" value={draft.fromTime} onChange={(e) => setDraft({ ...draft, fromTime: e.target.value })} />
+              <span>Classes end at</span>
+              <input className="input" type="time" step="900" value={draft.until} onChange={(e) => setDraft({ ...draft, until: e.target.value })} />
             </label>
           )}
           {draft.type === 'holiday' && (
@@ -318,9 +340,10 @@ export function AdminCalendar() {
       {notice && (
         <ParentNoticeWindow
           start="suspension"
-          onClose={() => setNotice(false)}
+          initial={notice}
+          onClose={() => setNotice(null)}
           onDone={(m) => {
-            setNotice(false);
+            setNotice(null);
             flash(m);
           }}
         />

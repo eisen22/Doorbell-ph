@@ -11,7 +11,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { AlertTriangle, CalendarClock, CalendarDays, CloudRain, Megaphone, ChevronLeft, ChevronRight, FileText, KeyRound, LogOut, Send } from 'lucide-react';
 import { Logo, Wordmark, useRepo } from '../ui';
-import { addDays, isoWeekday, manilaToday, to12h, ordinal, periodsLabel, excuseStatusLabel, EXCUSE_REASONS } from '../logic';
+import { addDays, isoWeekday, manilaToday, manilaTime, to12h, ordinal, periodsLabel, excuseStatusLabel, EXCUSE_REASONS } from '../logic';
 import { changeParentPassword, portalAvailable, sendExcuse, signOutParent, watchParent } from './parentCloud';
 
 // "Coming up" tags: what kind of day it is for the child.
@@ -392,7 +392,7 @@ function timesOf(rec, date, today, endTime) {
       ? `Confirmed in class by the teacher: ${to12h(rec.c)}${rec.s === 'late' ? ' (late)' : ''}${joined}`
       : `In class${rec.s === 'late' ? ' (late)' : ''}${joined}`,
   );
-  const nowTime = new Date().toLocaleTimeString('en-GB', { timeZone: 'Asia/Manila', hour: '2-digit', minute: '2-digit' });
+  const nowTime = manilaTime();
   if (rec.o) lines.push(`Scanned out at the gate: ${to12h(rec.o)}`);
   else if (date < today || (endTime && nowTime > endTime)) lines.push('Did not scan out');
   else lines.push('Not scanned out yet');
@@ -410,7 +410,7 @@ function rowsOf(rec, date, today, endTime) {
     if (rec.e && rec.et) rows.push([rec.e === 'missing' ? 'Text sent: entered the school but not in class yet' : 'Text sent: absent at the 1st period', to12h(rec.et)]);
     const joined = rec.p ? ` (joined at the ${ordinal(rec.p)} period${rec.j ? `, ${rec.j}` : ''})` : '';
     rows.push([`Confirmed in class by the teacher${rec.s === 'late' ? ', late' : ''}${joined}`, rec.c ? to12h(rec.c) : '—']);
-    const nowTime = new Date().toLocaleTimeString('en-GB', { timeZone: 'Asia/Manila', hour: '2-digit', minute: '2-digit' });
+    const nowTime = manilaTime();
     rows.push(['Scanned out at the gate', rec.o ? to12h(rec.o) : date < today || (endTime && nowTime > endTime) ? 'Did not scan out' : 'Not yet']);
   }
   // Time order (rows without a time keep their place at the top).

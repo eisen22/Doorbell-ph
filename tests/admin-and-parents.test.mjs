@@ -244,3 +244,21 @@ const kinds = (w, id) => w.smsFor(id).map((m) => m.kind).join('+') || '-';
   const kTexts = [...w.state.sms.values()].slice(before).filter((m) => w.state.sections.get(m.sectionId).schedule.endTime <= '13:00');
   check('PS a class that ends before the time is not texted', !kTexts.length);
 }
+// ---- suspension for several days, half day with an end time, the preview before sending ----
+{
+  const w = world(); const D = w.clock.d; const { addDays: ad } = await import('../src/logic.js');
+  const fri = (() => { let d = D; while (new Date(d + 'T00:00:00Z').getUTCDay() !== 5) d = ad(d, 1); return d; })();
+  const tue = ad(fri, 4); // Friday to the next Tuesday: Saturday and Sunday are skipped
+  await w.eng.declareSuspension(fri, 'Typhoon', [], { to: tue });
+  const set = [...w.state.calendar.values()].filter((e) => e.type === 'suspension' && e.label === 'Typhoon').map((e) => e.date);
+  check('R1 suspension from ... to: weekdays only', set.length === 3 && set[0] === fri && set.at(-1) === tue, set.join());
+  const pv = await w.eng.previewNotice({ type: 'suspension', dates: [fri, tue], body: 'Typhoon' });
+  check('R1 preview: families and the same text the engine sends', pv.families > 0 && new RegExp(`suspended from .* to .*Reason: Typhoon`).test(pv.text), pv.text);
+  const hd = ad(D, 2);
+  for (const k of w.roster(SEC)) w.eng.guardianOf(k.id).smsConsent = true;
+  await w.eng.saveCalendarDays([{ date: hd, type: 'halfday', label: 'Teachers in-service', until: '11:30' }], { textParents: true });
+  const t = [...w.state.sms.values()].find((m) => m.kind === 'notice' && /half day/.test(m.body));
+  check('R2 half day text says when classes end', /classes end at 11:30 AM|matatapos ang klase ng 11:30 AM/.test(t?.body ?? ''), t?.body);
+  const pd = w.log.filter((l) => l[1] === 'parentDays' && l[3].studentId === w.roster(SEC)[0].id).pop()?.[3];
+  check('R2 parent portal "Coming up" shows the end time', pd?.upcoming?.some((u) => u.type === 'halfday' && /11:30 AM/.test(u.label)), JSON.stringify(pd?.upcoming));
+}

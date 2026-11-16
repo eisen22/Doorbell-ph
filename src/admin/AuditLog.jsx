@@ -15,7 +15,7 @@ import { bySectionGrade, manilaToday } from '../logic';
 // Entries are plain text, so class, student and teacher match by name in the entry.
 // ---------------------------------------------------------------------
 // The date of an entry in the Philippines ('YYYY-MM-DD').
-const dayOf = (iso) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(iso));
+const dayOf = (iso) => manilaToday(new Date(iso));
 
 export function AuditLog() {
   const [q, setQ] = useState('');

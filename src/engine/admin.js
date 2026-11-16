@@ -178,11 +178,23 @@ export const adminMethods = {
     }
     return kids.size;
   },
-  // How many families a suspension or announcement would text, before it is sent (the "Tell parents"
-  // window shows it): { type, dates, levels, sectionId, from }.
-  async countFamilies(n) {
+  // Before sending (the "Tell parents" window): how many families a notice would text, and the exact text
+  // the first of them would get (made by the same noticeText() as the real one).
+  //   { type, dates, levels, sectionId, from, until, body, bodyFil, title }
+  async previewNotice(n) {
     await this.ready;
-    return this.familiesFor({ dates: [this.clock.today()], levels: null, sectionId: null, ...n }).size;
+    const notice = { dates: [this.clock.today()], levels: null, sectionId: null, title: '', ...n };
+    const kids = this.familiesFor(notice);
+    const first = kids.values().next().value;
+    const text = noticeText(notice, {
+      fil: false,
+      child: first?.student.firstName ?? 'Juan',
+      section: first?.section.name ?? 'Grade 1 - Rizal',
+      school: this.settings.schoolName,
+      today: this.clock.today(),
+      here: [],
+    });
+    return { families: kids.size, text };
   },
   // The families a notice concerns: guardian id -> { g, student (eldest), section, here (children at school now) }.
   familiesFor(notice) {
@@ -235,7 +247,7 @@ export const adminMethods = {
           : first.type === 'exam'
             ? `Exam day: ${when}`
             : first.type === 'halfday'
-              ? `Half day: ${when}`
+              ? `Half day${first.until ? ` (classes end at ${to12h(first.until)})` : ''}: ${when}`
               : first.type === 'makeup'
                 ? `Make-up class: ${when}`
                 : `School event: ${when}`;
@@ -253,6 +265,7 @@ export const adminMethods = {
       dates: days.map((d) => d.date),
       levels: first.levels?.length ? first.levels : null,
       ...(partial ? { from: first.from } : {}),
+      ...(first.type === 'halfday' && first.until ? { until: first.until } : {}),
     });
     this.saveCalendar();
     // CHILD SAFETY: no class TODAY, declared after children already came in (e.g. a suspension during
@@ -310,21 +323,24 @@ export const adminMethods = {
   // Shortcut for one suspended day.
   // levels: which grade levels are suspended (empty or all = the whole school). DepEd Order 22, s. 2024:
   // Signal No. 1 suspends Kindergarten only; Signal No. 2 Kindergarten to Grade 10; Signal No. 3 all levels.
-  // opts.from = 'HH:MM': suspended from that time only (classes before it go on, attendance is taken).
+  // The one way to suspend classes (the "Tell parents" window, and the day editor's "Class suspension"):
+  //   opts.to = last date ('YYYY-MM-DD', Saturdays and Sundays skipped); opts.time = 'HH:MM': suspended from
+  //   that time only (classes before it go on, attendance is taken); opts.textParents.
   async declareSuspension(date, label, levels = [], opts = {}) {
+    return this.saveCalendarDays(this.suspensionDays(date, label, levels, opts), opts);
+  },
+  suspensionDays(date, label, levels = [], opts = {}) {
     const some = levels.length && levels.length < 7;
-    return this.saveCalendarDays(
-      [
-        {
-          date,
-          type: opts.from ? 'partial' : 'suspension',
-          label,
-          ...(opts.from ? { from: opts.from } : {}),
-          ...(some ? { levels: [...levels].sort((a, b) => gradeRank(a) - gradeRank(b)) } : {}),
-        },
-      ],
-      opts,
-    );
+    const time = opts.time ?? opts.from ?? null;
+    const end = opts.to && opts.to > date ? opts.to : date;
+    const dates = eachDate(date, end).filter((d) => d === date || isoWeekday(d) <= 5);
+    return dates.map((d) => ({
+      date: d,
+      type: time ? 'partial' : 'suspension',
+      label,
+      ...(time ? { from: time } : {}),
+      ...(some ? { levels: [...levels].sort((a, b) => gradeRank(a) - gradeRank(b)) } : {}),
+    }));
   },
   async listTeachers() {
     await this.ready;
@@ -865,7 +881,9 @@ function noticeBody(n, { fil, child, section, school, today }) {
     case 'break':
       return fil ? `${head}Walang pasok${whoFil} ${when}.${reason}` : `${head}No classes${only ? ` for ${only}` : ''} ${when}.${reason}`;
     case 'halfday':
-      return fil ? `${head}Half day ang klase${whoFil} ${when}; mas maagang matatapos ang klase.${reason}` : `${head}${who} are half day ${when}; classes end early.${reason}`;
+      return fil
+        ? `${head}Half day ang klase${whoFil} ${when}; ${n.until ? `matatapos ang klase ng ${to12h(n.until)}` : 'mas maagang matatapos ang klase'}.${reason}`
+        : `${head}${who} are half day ${when}; ${n.until ? `classes end at ${to12h(n.until)}` : 'classes end early'}.${reason}`;
     case 'makeup':
       return fil ? `${head}May make-up class${whoFil} ${when}. Kailangang pumasok si ${child}.${reason}` : `${head}${who} have a make-up class ${when}. ${child} should come to school.${reason}`;
     case 'resume':

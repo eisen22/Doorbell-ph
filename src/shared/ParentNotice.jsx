@@ -1,22 +1,25 @@
 import { useEffect, useState } from 'react';
 import { format, parseISO } from 'date-fns';
 import { CloudRain, Megaphone, Send } from 'lucide-react';
-import { addDays, GRADE_LEVELS, gradeName, levelsLabel, bySectionGrade, smsSegments, to12h } from '../logic';
+import { addDays, isoWeekday, GRADE_LEVELS, gradeName, levelsLabel, bySectionGrade, smsSegments, to12h, textedNote } from '../logic';
 import { useLive, useRepo, Modal, DatePicker } from '../ui';
 
 // =====================================================================
 // SUSPENSION OR ANNOUNCEMENT (admin): one window for telling parents something, opened from
 // School Calendar and from SMS Messages.
-//   - Class suspension: a date, the whole day or from a time (e.g. 1:00 PM: classes before it go on
+//   - Class suspension: a date or several (from ... to), the whole day or from a time (e.g. 1:00 PM: classes before it go on
 //     and attendance is taken), which grade levels, the reason. Saved in the school calendar.
 //   - Announcement: any message from the school, to the whole school, some grade levels or one class.
 // Both show at the top of the parent portal, alert every teacher, and can be texted (one text per family).
+// The School Calendar's day editor opens this same window for "Class suspension" (initial = its days),
+// so a suspension is always made the same way, with the same alerts and texts.
 // =====================================================================
 
 // "From" times for a suspension during the day (every 30 minutes, 8:00 AM to 4:00 PM).
 const FROM_TIMES = Array.from({ length: 17 }, (_, i) => `${String(8 + Math.floor(i / 2)).padStart(2, '0')}:${i % 2 ? '30' : '00'}`);
 
-export function ParentNoticeWindow({ start = 'suspension', onClose, onDone }) {
+// initial (optional): { from, to, label, levels, time } to start a suspension with (e.g. the days clicked).
+export function ParentNoticeWindow({ start = 'suspension', initial = {}, onClose, onDone }) {
   const repo = useRepo();
   const { data } = useLive(async (r) => ({
     today: await r.getToday(),
@@ -27,12 +30,14 @@ export function ParentNoticeWindow({ start = 'suspension', onClose, onDone }) {
   }));
   const [kind, setKind] = useState(start); // 'suspension' | 'announcement'
   // Suspension
-  const [date, setDate] = useState(null);
-  const [from, setFrom] = useState(''); // '' = the whole day
-  const [label, setLabel] = useState('Class suspension: weather');
+  const [date, setDate] = useState(initial.from ?? null); // first day
+  const [until, setUntil] = useState(initial.to ?? null); // last day (null = the same day)
+  const [from, setFrom] = useState(initial.time ?? ''); // '' = the whole day, or 'HH:MM'
+  const [label, setLabel] = useState(initial.label || 'Class suspension: weather');
   // Who: 'all' | 'k' (Signal No. 1: Kindergarten only) | 'levels' | 'class' (announcements only)
-  const [scope, setScope] = useState('all');
-  const [levels, setLevels] = useState([]);
+  const startLevels = initial.levels ?? [];
+  const [scope, setScope] = useState(!startLevels.length ? 'all' : startLevels.join() === 'K' ? 'k' : 'levels');
+  const [levels, setLevels] = useState(startLevels);
   const [sectionId, setSectionId] = useState('');
   // Announcement
   const [en, setEn] = useState('');
@@ -41,50 +46,49 @@ export function ParentNoticeWindow({ start = 'suspension', onClose, onDone }) {
   const [textParents, setTextParents] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [families, setFamilies] = useState(null); // how many families the text goes to
+  // How many families get the text, and the exact text (made by the engine, like the real one).
+  const [preview, setPreview] = useState(null); // { families, text }
   const levelsNow = scope === 'k' ? ['K'] : scope === 'levels' ? levels : [];
   const dayNow = date ?? data?.today?.actualDate;
+  const lastNow = until && dayNow && until > dayNow ? until : dayNow;
   useEffect(() => {
     let live = true;
     if (!dayNow) return undefined;
+    const lv = levelsNow.length ? levelsNow : null;
     repo
-      .countFamilies(
+      .previewNotice(
         kind === 'suspension'
-          ? { type: from ? 'partial' : 'suspension', dates: [dayNow], levels: levelsNow.length ? levelsNow : null, from: from || undefined }
-          : { type: 'announcement', dates: [dayNow], levels: levelsNow.length ? levelsNow : null, sectionId: scope === 'class' ? sectionId || '-' : null },
+          ? { type: from ? 'partial' : 'suspension', dates: lastNow === dayNow ? [dayNow] : [dayNow, lastNow], levels: lv, from: from || undefined, body: label.trim() }
+          : { type: 'announcement', dates: [dayNow], levels: lv, sectionId: scope === 'class' ? sectionId || '-' : null, body: en.trim() },
       )
-      .then((n) => live && setFamilies(n))
-      .catch(() => live && setFamilies(null));
+      .then((p) => live && setPreview(p))
+      .catch(() => live && setPreview(null));
     return () => {
       live = false;
     };
-  }, [repo, kind, dayNow, from, scope, levelsNow.join(), sectionId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [repo, kind, dayNow, lastNow, from, scope, levelsNow.join(), sectionId, label, en]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!data) return null;
   const { today, year, calendar, settings, sections } = data;
   const day = date ?? today.actualDate ?? today.date;
+  const last = until && until > day ? until : day;
   const head = settings?.schoolName ? `${settings.schoolName}: ` : '';
   const chosen = scope === 'all' || scope === 'class' ? [] : scope === 'k' ? ['K'] : levels;
-  const who = chosen.length ? `${levelsLabel(chosen).replace(/ only$/, '')} classes` : 'Classes';
-  const whenWord = day === today.actualDate ? 'today, ' : day === addDays(today.actualDate, 1) ? 'tomorrow, ' : 'on ';
-  const preview =
-    kind === 'suspension'
-      ? `${head}${who} are suspended${from ? ` from ${to12h(from)}` : ''} ${whenWord}${format(parseISO(day), 'EEE, MMM d')}. Reason: ${label.trim().replace(/\.$/, '')}.`
-      : `${head}${en.trim()}`;
   const ready =
     kind === 'suspension'
       ? label.trim() && (scope !== 'levels' || levels.length)
       : en.trim() && (scope !== 'levels' || levels.length) && (scope !== 'class' || sectionId);
-  const texted = (n) => (n ? `, and ${n} ${n === 1 ? 'family was' : 'families were'} texted` : '');
-  const parts = smsSegments(preview);
+  const parts = preview?.text ? smsSegments(preview.text) : 1;
+  const families = preview?.families ?? null;
 
   const send = async () => {
     setBusy(true);
     setError('');
     try {
       if (kind === 'suspension') {
-        const n = await repo.declareSuspension(day, label.trim(), chosen, { textParents, from: from || null });
+        const n = await repo.declareSuspension(day, label.trim(), chosen, { textParents, time: from || null, to: last });
+        const span = last === day ? format(parseISO(day), 'EEE, MMM d') : `${format(parseISO(day), 'MMM d')} to ${format(parseISO(last), 'MMM d')}`;
         onDone(
-          `Suspension saved${from ? ` from ${to12h(from)}` : ''}${chosen.length ? ` (${levelsLabel(chosen)})` : ''}. Teachers and the parent portal were notified${texted(n)}.`,
+          `Suspension saved for ${span}${from ? ` from ${to12h(from)}` : ''}${chosen.length ? ` (${levelsLabel(chosen)})` : ''}. Teachers and the parent portal were notified${textedNote(n)}.`,
         );
       } else {
         const n = await repo.sendAnnouncement({
@@ -95,7 +99,7 @@ export function ParentNoticeWindow({ start = 'suspension', onClose, onDone }) {
           days,
           textParents,
         });
-        onDone(`Announcement posted in the parent portal for ${days === 1 ? 'today' : `${days} days`}${texted(n)}. Teachers got an alert too.`);
+        onDone(`Announcement posted in the parent portal for ${days === 1 ? 'today' : `${days} days`}${textedNote(n)}. Teachers got an alert too.`);
       }
     } catch (e) {
       setError(e.message);
@@ -136,20 +140,41 @@ export function ParentNoticeWindow({ start = 'suspension', onClose, onDone }) {
           </p>
           <div className="form-row">
             <div className="field">
-              <span>Date</span>
+              <span>From</span>
               <DatePicker
                 value={day}
                 min={year.start}
                 max={year.end}
                 calendar={calendar}
-                onChange={setDate}
-                ariaLabel="Suspension date"
+                onChange={(d) => {
+                  setDate(d);
+                  if (until && until < d) setUntil(null);
+                }}
+                ariaLabel="First day of the suspension"
                 quick={[
                   ['Today', today.actualDate],
                   ['Tomorrow', addDays(today.actualDate, 1)],
                 ]}
               />
             </div>
+            <div className="field">
+              <span>To</span>
+              <DatePicker
+                value={last}
+                min={day}
+                max={year.end}
+                calendar={calendar}
+                onChange={setUntil}
+                ariaLabel="Last day of the suspension"
+                quick={[
+                  ['Same day', day],
+                  ['Through Friday', addDays(day, Math.max(0, 5 - isoWeekday(day)))],
+                ]}
+              />
+            </div>
+          </div>
+          {last > day && <p className="muted small">Saturdays and Sundays in between are skipped.</p>}
+          <div className="form-row">
             <label className="field">
               <span>Which classes?</span>
               <select className="input" value={from} onChange={(e) => setFrom(e.target.value)}>
@@ -275,9 +300,9 @@ export function ParentNoticeWindow({ start = 'suspension', onClose, onDone }) {
           {(kind === 'suspension' || en.trim()) && ` · about ${families * parts} SMS (${parts} per family)`}
         </p>
       )}
-      {textParents && (kind === 'suspension' || en.trim()) && (
+      {textParents && preview?.text && (kind === 'suspension' || en.trim()) && (
         <p className="muted small">
-          The text reads: "{preview}"
+          The text reads: "{preview.text}"
           {kind === 'suspension' && from ? ` Parents whose child is already at school also get: "Please fetch them at ${to12h(from)}…"` : ''}
           {kind === 'suspension' ? ' Families who chose Filipino get it in Filipino.' : ''}
         </p>

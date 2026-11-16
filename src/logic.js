@@ -85,6 +85,9 @@ export function manilaToday(now = new Date()) {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila' }).format(now); // en-CA writes YYYY-MM-DD
 }
 
+/** ", and 12 families were texted" (empty when nobody was texted), after a notice is saved. */
+export const textedNote = (n) => (n ? `, and ${n} ${n === 1 ? 'family was' : 'families were'} texted` : '');
+
 /** The time now in the Philippines, e.g. '07:45'. */
 export function manilaTime(now = new Date()) {
   return new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Manila', hour: '2-digit', minute: '2-digit', hour12: false }).format(now);

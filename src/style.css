@@ -306,7 +306,8 @@ nav { display: flex; flex-direction: column; gap: 4px; }
 
 .k-class { background: var(--k-class); color: var(--k-class-ink); }
 .k-event { background: var(--k-event); color: var(--k-event-ink); }
-.k-halfday { background: var(--k-halfday); color: var(--k-halfday-ink); }
+/* Half day: half class day, half off (the time classes end is in the day's label). */
+.k-halfday { background: linear-gradient(135deg, var(--k-class) 50%, var(--k-halfday) 50%); color: var(--k-halfday-ink); }
 .k-holiday { background: var(--k-holiday); color: var(--k-holiday-ink); }
 .k-suspension { background: var(--k-suspension); color: var(--k-suspension-ink); }
 .k-break { background: repeating-linear-gradient(135deg, var(--k-break), var(--k-break) 3px, #f4f5f6 3px, #f4f5f6 6px); color: var(--k-break-ink); }
