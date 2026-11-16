@@ -86,5 +86,8 @@ export function withTemplateDefaults(saved) {
       templates[lang][k] = v == null || v === OLD_DEFAULTS[lang]?.[k] ? settings.templates[lang][k] : v;
     }
   }
-  return { ...saved, templates };
+  // The first sample school was a kindergarten called "Sunnyside Kinder"; loading the sample again keeps
+  // the saved settings, so that old name stayed. Untouched, it becomes the sample school's name.
+  const schoolName = !saved.schoolName || saved.schoolName === 'Sunnyside Kinder' ? settings.schoolName : saved.schoolName;
+  return { ...saved, schoolName, templates };
 }

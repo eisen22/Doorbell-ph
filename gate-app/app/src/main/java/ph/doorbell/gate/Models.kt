@@ -129,7 +129,8 @@ data class SchoolSettings(
                 (v as? Map<String, Any?>)?.mapValues { it.value as? String ?: "" } ?: emptyMap()
             } ?: emptyMap()
             return SchoolSettings(
-                schoolName = s["schoolName"] as? String ?: "Doorbell",
+                // "Sunnyside Kinder" was the first sample school's name (see withTemplateDefaults on the website).
+                schoolName = (s["schoolName"] as? String)?.takeIf { it.isNotBlank() }?.let { if (it == "Sunnyside Kinder") "Sunnyside Elementary School" else it } ?: "Doorbell",
                 contactNumber = s["contactNumber"] as? String ?: "",
                 arrivalSmsEnabled = s["arrivalSmsEnabled"] != false,
                 departureSmsEnabled = s["departureSmsEnabled"] != false,

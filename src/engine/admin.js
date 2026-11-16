@@ -42,9 +42,12 @@ export const adminMethods = {
   },
   // Admin -> Settings: SMS templates, streak days, school name, etc.
   async updateSettings(patch) {
+    const renamed = patch.schoolName !== undefined && patch.schoolName !== this.settings.schoolName;
     this.s.meta = { ...this.s.meta, settings: { ...this.settings, ...patch } };
     this.normalizeSections();
     this.saveMeta();
+    // The parent portal shows the school's name: rewrite this month's pages with the new one.
+    if (renamed) this.syncParentDays(null, [this.clock.today().slice(0, 7)]);
     await this.logAudit('settings.update', 'settings', Object.keys(patch).join(', '));
     this.emit();
     return this.settings;
