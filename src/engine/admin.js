@@ -24,12 +24,13 @@ export const adminMethods = {
     await this.ready;
     return [...this.s.audit.values()].sort((a, b) => b.at.localeCompare(a.at)).slice(0, limit);
   },
-  // Audit entries from a date ('YYYY-MM-DD', Philippine time) on, newest first. The cloud version
+  // Audit entries of one day ('YYYY-MM-DD', Philippine time), newest first. The cloud version
   // (firebase.js) asks Firestore, because only the newest 300 entries are kept loaded.
-  async listAuditFrom(from) {
+  async listAuditOn(date) {
     await this.ready;
-    const since = new Date(`${from}T00:00:00+08:00`).toISOString();
-    return [...this.s.audit.values()].filter((a) => a.at >= since).sort((a, b) => b.at.localeCompare(a.at));
+    const since = new Date(`${date}T00:00:00+08:00`).toISOString();
+    const until = new Date(`${addDays(date, 1)}T00:00:00+08:00`).toISOString();
+    return [...this.s.audit.values()].filter((a) => a.at >= since && a.at < until).sort((a, b) => b.at.localeCompare(a.at));
   },
   // Adds a line to the audit log: who did what, to whom, and when.
   async logAudit(action, target, detail) {

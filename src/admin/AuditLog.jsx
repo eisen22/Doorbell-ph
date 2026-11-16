@@ -1,6 +1,6 @@
-import { format } from 'date-fns';
+import { format, parseISO } from 'date-fns';
 import { X } from 'lucide-react';
-import { useLive, Card, Skeleton, Empty } from '../ui';
+import { useLive, Card, Skeleton, Empty, DatePicker } from '../ui';
 import { useState } from 'react';
 import { bySectionGrade, manilaToday } from '../logic';
 
@@ -11,28 +11,25 @@ import { bySectionGrade, manilaToday } from '../logic';
 // =====================================================================
 // ---------------------------------------------------------------------
 // AUDIT LOG: who changed what and when (read-only, cannot be edited or deleted).
-// Filters: dates (from / to), class, student, teacher (who did it, or who it was about), and any words.
+// Filters: one date, class, student, teacher (who did it, or who it was about), and any words.
 // Entries are plain text, so class, student and teacher match by name in the entry.
 // ---------------------------------------------------------------------
-// The date of an entry in the Philippines ('YYYY-MM-DD').
-const dayOf = (iso) => manilaToday(new Date(iso));
 
 export function AuditLog() {
   const [q, setQ] = useState('');
-  const [from, setFrom] = useState('');
-  const [to, setTo] = useState('');
+  const [date, setDate] = useState(''); // one day, or '' = the newest entries
   const [sectionId, setSectionId] = useState('');
   const [teacher, setTeacher] = useState('');
   const [student, setStudent] = useState('');
   const { data } = useLive(
     async (r) => ({
-      // With a "From" date, every entry since then (older ones are fetched); otherwise the newest.
-      audit: from ? await r.listAuditFrom(from) : await r.listAudit(300),
+      // A date: every entry of that day (fetched if older); otherwise the newest.
+      audit: date ? await r.listAuditOn(date) : await r.listAudit(300),
       sections: (await r.listSections()).filter((x) => !x.archived).sort(bySectionGrade),
       teachers: await r.listTeachers().catch(() => []),
       students: await r.listStudentRows().catch(() => []),
     }),
-    [from],
+    [date],
   );
   if (!data)
     return (
@@ -47,19 +44,15 @@ export function AuditLog() {
   const text = (a) => `${a.actor} ${a.action} ${a.target ?? ''} ${a.detail ?? ''}`.toLowerCase();
   const has = (a, words) => text(a).includes(words.toLowerCase());
   const list = audit.filter((a) => {
-    const d = dayOf(a.at);
-    if (from && d < from) return false;
-    if (to && d > to) return false;
     if (section && !has(a, section.name)) return false;
     if (teacher && a.actor !== teacher && !has(a, teacher)) return false;
     if (student.trim() && !student.trim().toLowerCase().split(/\s+/).every((w) => text(a).includes(w))) return false;
     if (q.trim() && !q.trim().toLowerCase().split(/\s+/).every((w) => text(a).includes(w))) return false;
     return true;
   });
-  const filtered = from || to || sectionId || teacher || student || q;
+  const filtered = date || sectionId || teacher || student || q;
   const clear = () => {
-    setFrom('');
-    setTo('');
+    setDate('');
     setSectionId('');
     setTeacher('');
     setStudent('');
@@ -76,14 +69,17 @@ export function AuditLog() {
       </div>
       <Card>
         <div className="audit-filters">
-          <label className="field">
-            <span>From</span>
-            <input className="input" type="date" value={from} max={to || today} onChange={(e) => setFrom(e.target.value)} />
-          </label>
-          <label className="field">
-            <span>To</span>
-            <input className="input" type="date" value={to} min={from} max={today} onChange={(e) => setTo(e.target.value)} />
-          </label>
+          <div className="field">
+            <span>
+              Date
+              {date && (
+                <button className="link-btn small-link" onClick={() => setDate('')}>
+                  Any date
+                </button>
+              )}
+            </span>
+            <DatePicker value={date} max={today} onChange={setDate} placeholder="Any date" ariaLabel="Date" />
+          </div>
           <label className="field">
             <span>Class</span>
             <select className="input" value={sectionId} onChange={(e) => setSectionId(e.target.value)}>
@@ -121,7 +117,7 @@ export function AuditLog() {
           </label>
         </div>
         <p className="muted small audit-count">
-          {filtered ? `${list.length} of ${audit.length} entries` : `${audit.length} entries`}
+          {filtered ? `${list.length} of ${audit.length} ${audit.length === 1 ? 'entry' : 'entries'}` : `${audit.length} ${audit.length === 1 ? 'entry' : 'entries'}`}
           {filtered && (
             <>
               {' '}
@@ -160,8 +156,8 @@ export function AuditLog() {
                     <td>
                       <span className="tag">{a.action}</span>
                     </td>
-                    <td>{a.target}</td>
-                    <td className="muted">{a.detail}</td>
+                    <td>{readableDates(a.target)}</td>
+                    <td className="muted">{readableDates(a.detail)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -173,3 +169,7 @@ export function AuditLog() {
   );
 }
 
+// Dates saved as 2026-11-18 inside an entry are shown as Nov 18, 2026 (month first, like the rest of the app).
+function readableDates(text) {
+  return typeof text === 'string' ? text.replace(/\b(\d{4})-(\d{2})-(\d{2})\b/g, (m) => format(parseISO(m), 'MMM d, yyyy')) : text;
+}

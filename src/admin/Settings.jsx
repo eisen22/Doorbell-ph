@@ -14,6 +14,7 @@ import {
   useRepo,
   Toast,
   Modal,
+  DatePicker,
 } from '../ui';
 import { useState, useEffect } from 'react';
 import {
@@ -602,10 +603,17 @@ function LimitsCard({ s, setS }) {
           </div>
         ))}
       </div>
-      <label className="field">
+      <div className="field">
         <span>Second semester starts (empty = halfway through the school year)</span>
-        <input type="date" className="input" value={s.semester2Start ?? ''} onChange={(e) => setS({ ...s, semester2Start: e.target.value })} />
-      </label>
+      </div>
+      <div className="form-row">
+        <DatePicker value={s.semester2Start ?? ''} onChange={(d) => setS({ ...s, semester2Start: d })} placeholder="Halfway through the school year" ariaLabel="Second semester starts" />
+        {s.semester2Start && (
+          <button className="btn" onClick={() => setS({ ...s, semester2Start: '' })}>
+            Use halfway
+          </button>
+        )}
+      </div>
     </Card>
   );
 }

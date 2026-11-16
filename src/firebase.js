@@ -455,10 +455,11 @@ export function createCloudEngine() {
     return { documents: writes.length, teachers: [...sample.teachers.values()].map((t) => t.email), problems };
   };
 
-  // Audit Log -> "From" date: older entries than the 300 kept loaded come straight from Firestore.
-  engine.listAuditFrom = async (from) => {
-    const since = new Date(`${from}T00:00:00+08:00`).toISOString();
-    const snap = await getDocs(query(collection(db, 'audit'), where('at', '>=', since), orderBy('at', 'desc'), limit(3000)));
+  // Audit Log -> a date: that day's entries come straight from Firestore (only the newest 300 are kept loaded).
+  engine.listAuditOn = async (date) => {
+    const since = new Date(`${date}T00:00:00+08:00`).toISOString();
+    const next = new Date(new Date(`${date}T00:00:00+08:00`).getTime() + 864e5).toISOString();
+    const snap = await getDocs(query(collection(db, 'audit'), where('at', '>=', since), where('at', '<', next), orderBy('at', 'desc'), limit(3000)));
     return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
   };
 
