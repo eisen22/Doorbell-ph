@@ -273,3 +273,26 @@ const kinds = (w, id) => w.smsFor(id).map((m) => m.kind).join('+') || '-';
   const odd = await w.eng.saveSeating(SEC, { rows: 99, cols: 0, aisleEvery: 7, spacing: 'huge', seats: {} });
   check('SC2 sizes kept within 1-12, unknown spacing -> normal', odd.rows === 12 && odd.cols === 1 && odd.aisleEvery === 1 && odd.spacing === 'normal');
 }
+// ---- undo a mark by pressing the selected status again ----
+{
+  const w = world(); const D = w.clock.d; const [a, b] = w.roster(SEC);
+  await w.eng.setStatus({ sectionId: SEC, date: D, studentId: a.id, status: 'present' });
+  const r1 = await w.eng.clearStatus({ sectionId: SEC, date: D, studentId: a.id });
+  check('U1 Present by mistake (no scan): undone, back to not yet scanned', r1.kind === 'cleared' && !w.eng.record(SEC, D, a.id));
+  await w.scan(b, '07:20');
+  await w.eng.setStatus({ sectionId: SEC, date: D, studentId: b.id, status: 'absent' });
+  const r2 = await w.eng.clearStatus({ sectionId: SEC, date: D, studentId: b.id });
+  check('U2 scanned child: back to the gate scan', r2.kind === 'scan' && w.eng.record(SEC, D, b.id).status === 'present' && w.eng.record(SEC, D, b.id).scannedAt === '07:20');
+  await w.eng.confirmDay(SEC, D);
+  let err = ''; try { await w.eng.clearStatus({ sectionId: SEC, date: D, studentId: b.id }); } catch (e) { err = e.message; }
+  check('U3 after confirming, undo is refused (texts already sent)', /already confirmed/.test(err));
+}
+{
+  const w = world(); const D = w.clock.d; const [, b] = w.roster(SEC);
+  await w.scan(b, '07:20');
+  await w.eng.setStatus({ sectionId: SEC, date: D, studentId: b.id, status: 'absent' });
+  const open = () => [...w.state.notifications.values()].filter((n) => n.studentId === b.id && n.kind === 'missing' && !n.resolved && !n.read);
+  const before = open().length;
+  await w.eng.clearStatus({ sectionId: SEC, date: D, studentId: b.id });
+  check('U4 undoing Absent closes the "not in class" alert', before > 0 ? open().length < before : true, `${before} -> ${open().length}`);
+}

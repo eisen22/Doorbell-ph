@@ -157,7 +157,22 @@ export function Attendance() {
   // A status button was pressed. Excused opens a window for an optional note; every other status saves right away
   // (also after the day is confirmed).
   const choose = async (row, status) => {
-    if (row.record?.status === status) return;
+    // Pressing the selected status again undoes the mark (before confirming): a child marked Present by
+    // mistake goes back to "Not yet scanned", a scanned child back to what the gate scan said.
+    if (row.record?.status === status) {
+      if (confirmation) return flash(`Already confirmed: to change ${row.student.firstName}, choose another status.`);
+      try {
+        const r = await repo.clearStatus({ sectionId: section.id, date: day, studentId: row.student.id });
+        flash(
+          r.kind === 'cleared'
+            ? `${row.student.firstName}: mark undone (not yet scanned)`
+            : `${row.student.firstName} scanned at the gate at ${to12h(row.record.scannedAt)}${r.kind === 'scan' ? `: back to ${r.status}` : ''}. If not in the room, choose Absent.`,
+        );
+      } catch (e) {
+        flash(e.message);
+      }
+      return;
+    }
     if (status === 'excused') {
       setPending({ row, status });
       setExcuseWhole(true);
@@ -467,6 +482,7 @@ export function Attendance() {
                           role="radio"
                           aria-checked={st === o}
                           className={`seg-btn seg-${o} ${st === o ? 'on' : ''}`}
+                          title={st === o && !confirmation ? 'Press again to undo' : undefined}
                           onClick={() => choose(row, o)}
                         >
                           {o[0].toUpperCase() + o.slice(1)}

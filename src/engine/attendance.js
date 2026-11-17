@@ -6,6 +6,7 @@
 import {
   addDays,
   decideScan,
+  classifyScan,
   isSchoolDay,
   recentSchoolDays,
   bySectionGrade,
@@ -257,6 +258,41 @@ export const attendanceMethods = {
     this.put('seating', sectionId, doc);
     this.emit();
     return doc;
+  },
+  // Undo a teacher's mark (pressing the selected status button again), only before the class is
+  // confirmed (no text has gone out yet):
+  //   - the child scanned at the gate: back to what the scan said (present, or late by the scan time);
+  //   - no scan (marked by hand, e.g. Present by mistake): the mark is removed, "Not yet scanned" again.
+  // Returns { kind: 'cleared' | 'scan', status? } or { kind: 'same' } when there was nothing to undo.
+  async clearStatus({ sectionId, date, studentId }) {
+    await this.ready;
+    if (this.s.confirmations.has(dayId(sectionId, date))) {
+      throw new Error('Attendance is already confirmed and parents were texted: choose the right status instead.');
+    }
+    const prev = this.record(sectionId, date, studentId);
+    if (!prev) return { kind: 'same' };
+    const sec = this.s.sections.get(sectionId);
+    const stu = this.s.students.get(studentId);
+    const who = stu ? `${stu.firstName} ${stu.lastName}` : studentId;
+    let result;
+    if (prev.scannedAt) {
+      const status = classifyScan(prev.scannedAt, sec.schedule) === 'late' ? 'late' : 'present';
+      if (prev.status === status && prev.source !== 'manual') return { kind: 'same', status };
+      this.writeRecord({ date, studentId, sectionId, status, scannedAt: prev.scannedAt, scannedOut: prev.scannedOut, source: 'scan' });
+      result = { kind: 'scan', status };
+      // Absent by mistake for a child who scanned in: close the "not in class" alert it raised.
+      if (stu && prev.status === 'absent') this.resolveAlerts(stu, date, status);
+    } else {
+      const id = dayId(sectionId, date);
+      const day = this.s.attendance.get(id);
+      delete day.records[studentId];
+      this.put('attendance', id, day);
+      result = { kind: 'cleared' };
+    }
+    await this.logAudit('attendance.undo', who, `${date}: ${prev.status} undone${result.status ? ` (back to the gate scan: ${result.status})` : ''}`);
+    this.syncParentDays([studentId], [date.slice(0, 7)]);
+    this.emit();
+    return result;
   },
   // A teacher changes a status by hand, before or after confirming (every change is saved in the audit log).
   // Parent texts are only sent for TODAY: correcting an older day never texts anyone.
