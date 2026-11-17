@@ -250,12 +250,17 @@ export function Modal({ title, onClose, children, footer, wide }) {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
-  // The page behind does not scroll while a window is open.
+  // The page behind does not scroll while a window is open, and stays where it was: the lock is put on
+  // the page's scrolling element (html), because locking <body> made the browser jump to the top.
   useEffect(() => {
-    const before = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
+    const el = document.scrollingElement ?? document.documentElement;
+    const y = el.scrollTop;
+    const before = el.style.overflowY;
+    el.style.overflowY = 'hidden';
+    if (el.scrollTop !== y) el.scrollTop = y;
     return () => {
-      document.body.style.overflow = before;
+      el.style.overflowY = before;
+      if (el.scrollTop !== y) el.scrollTop = y;
     };
   }, []);
   return (
