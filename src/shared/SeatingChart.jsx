@@ -184,8 +184,8 @@ export function SeatingChart({ section, roster, layout, canEdit, onChoose, onSav
                   >
                     {row ? (
                       <>
-                        <b>{row.student.firstName}</b>
-                        <span>{row.student.lastName}</span>
+                        <b>{row.student.lastName}</b>
+                        <span>{row.student.firstName}</span>
                         {!draft && <i>{st ? WORD[st] : row.record?.scannedAt ? `In ${to12h(row.record.scannedAt)}` : '—'}</i>}
                       </>
                     ) : (
