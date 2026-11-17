@@ -4,7 +4,8 @@ import { Modal } from '../ui';
 import { to12h } from '../logic';
 
 // =====================================================================
-// SEATING CHART (Attendance -> Seating chart): the class drawn as the teacher sees it from the front.
+// SEATING CHART (Attendance -> Seating chart): the class drawn as the teacher sees it from the front
+// (the back row on top, the row nearest the board at the bottom).
 // Tap a seat to mark that child Present, Late, Absent or Excused (the same as the list).
 // "Arrange seats" sets how many rows and columns, an aisle every few columns, how far apart the
 // seats are, and who sits where. It is saved for the class, so every teacher of the class sees it.
@@ -160,9 +161,10 @@ export function SeatingChart({ section, roster, layout, canEdit, onChoose, onSav
 
       <div className="table-wrap">
         <div className="seat-room" style={{ minWidth: shown.cols * 70 }}>
-          <div className="seat-front">Front of the room (board and teacher's table)</div>
+          {/* Drawn as the teacher sees the class from the board: the back row on top, the front row at the bottom. */}
+          <div className="seat-back">Back of the room</div>
           <div className="seat-grid" style={{ gridTemplateColumns: template.join(' '), gap: `${GAP[shown.spacing]}px` }}>
-            {Array.from({ length: shown.rows }, (_, i) => i + 1).flatMap((r) =>
+            {Array.from({ length: shown.rows }, (_, i) => shown.rows - i).flatMap((r) =>
               Array.from({ length: shown.cols }, (_, j) => j + 1).flatMap((c) => {
                 const key = `${r}-${c}`;
                 const row = byId.get(shown.seats[key]);
@@ -196,7 +198,7 @@ export function SeatingChart({ section, roster, layout, canEdit, onChoose, onSav
               }),
             )}
           </div>
-          <div className="seat-back">Back of the room</div>
+          <div className="seat-front">Front of the room (board and teacher's table)</div>
         </div>
       </div>
 
