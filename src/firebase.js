@@ -296,7 +296,7 @@ export function createCloudEngine() {
         listen('excuses', mine('excuses')).catch((e) => console.warn('Excuse requests not loaded: publish the new firestore.rules', e)),
         listen('seating', mine('seating')).catch((e) => console.warn('Seating charts not loaded: publish the new firestore.rules', e)),
         // All of them: a teacher rewriting a parent's portal page must keep the school-wide ones too.
-        all('announcements').catch((e) => console.warn('Announcements not loaded: publish the new firestore.rules', e)),
+        listen('announcements', query(collection(db, 'announcements'))).catch((e) => console.warn('Announcements not loaded: publish the new firestore.rules', e)),
       );
     }
     classUnsubs = unsubs.splice(before); // keep these separate so they can be restarted alone
