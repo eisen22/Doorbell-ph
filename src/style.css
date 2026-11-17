@@ -367,6 +367,11 @@ button.cal-day { cursor: pointer; }
 .icon-btn.sm { width: 36px; height: 36px; }
 .icon-btn.glass { background: rgba(255, 255, 255, 0.6); border-color: rgba(17, 17, 17, 0.12); }
 .row-actions { display: flex; gap: 6px; justify-content: flex-end; }
+/* In a table the cell must stay a table cell (display: flex made its bottom line sit at the buttons'
+   height, not the row's, so the row lines looked broken). The buttons line up inside it instead. */
+td.row-actions { display: table-cell; text-align: right; white-space: nowrap; }
+td.row-actions > * + * { margin-left: 6px; }
+td.row-actions > .icon-btn { display: inline-grid; vertical-align: middle; }
 .dim td { opacity: 0.55; }
 .note-row { display: flex; gap: 6px; align-items: center; }
 .tag-warn { background: var(--late-bg); color: var(--late); }
