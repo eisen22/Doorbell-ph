@@ -89,6 +89,12 @@ service cloud.firestore {
         || coversSection(request.resource.data.sectionId, request.resource.data.date);
       allow delete: if isAdmin();
     }
+    // Seating chart of a class (one document per section, id = section id). Every teacher can see it;
+    // the adviser, the class's subject teachers and the admin can change it.
+    match /seating/{sectionId} {
+      allow read: if isStaff();
+      allow write: if isAdmin() || teachesSection(sectionId) || subjectTeacher(sectionId);
+    }
     // A confirmed (locked) day. Only the admin can undo it.
     match /confirmations/{id} {
       allow read: if isStaff();

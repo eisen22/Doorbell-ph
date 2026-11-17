@@ -262,3 +262,14 @@ const kinds = (w, id) => w.smsFor(id).map((m) => m.kind).join('+') || '-';
   const pd = w.log.filter((l) => l[1] === 'parentDays' && l[3].studentId === w.roster(SEC)[0].id).pop()?.[3];
   check('R2 parent portal "Coming up" shows the end time', pd?.upcoming?.some((u) => u.type === 'halfday' && /11:30 AM/.test(u.label)), JSON.stringify(pd?.upcoming));
 }
+// ---- seating chart ----
+{
+  const w = world(); const kids = w.roster(SEC);
+  const seats = { '1-1': kids[0].id, '1-2': kids[1].id, '9-9': kids[2].id, '2-1': kids[0].id, '2-2': 'not-a-child' };
+  const doc = await w.eng.saveSeating(SEC, { rows: 5, cols: 6, aisleEvery: 2, spacing: 'wide', seats });
+  check('SC1 seats kept only inside the room, one seat per child, children of the class', Object.keys(doc.seats).join() === '1-1,1-2' && doc.rows === 5 && doc.spacing === 'wide', JSON.stringify(doc.seats));
+  check('SC1 saved to Firestore', w.log.some((l) => l[1] === 'seating' && l[2] === SEC));
+  check('SC1 read back', (await w.eng.getSeating(SEC)).seats['1-2'] === kids[1].id);
+  const odd = await w.eng.saveSeating(SEC, { rows: 99, cols: 0, aisleEvery: 7, spacing: 'huge', seats: {} });
+  check('SC2 sizes kept within 1-12, unknown spacing -> normal', odd.rows === 12 && odd.cols === 1 && odd.aisleEvery === 1 && odd.spacing === 'normal');
+}

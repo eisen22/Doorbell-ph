@@ -1,3 +1,4 @@
+import { SeatingChart } from './SeatingChart';
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { format, parseISO } from 'date-fns';
@@ -9,6 +10,8 @@ import {
   ChevronLeft,
   LogOut,
   Phone,
+  List,
+  Armchair,
 } from 'lucide-react';
 import {
   addDays,
@@ -67,6 +70,22 @@ export function Attendance() {
     p.delete('status');
     setParams(p);
   };
+  // List or seating chart (remembered on this device only).
+  const [view, setViewState] = useState(() => {
+    try {
+      return localStorage.getItem('db-att-view') === 'seats' ? 'seats' : 'list';
+    } catch {
+      return 'list';
+    }
+  });
+  const setView = (v) => {
+    setViewState(v);
+    try {
+      localStorage.setItem('db-att-view', v);
+    } catch {
+      /* private window: not remembered */
+    }
+  };
   // pending = an Excused change waiting for its (optional) note.
   const [pending, setPending] = useState(null);
   // arrived = a child being confirmed after the class was already confirmed (classes with subject teachers ask which period).
@@ -90,7 +109,8 @@ export function Attendance() {
       const teachers = await r.listTeachers(); // for the "covering for ..." banner
       // Children who came in today and have not left (shown on a no-class day: suspension, teacher absent).
       const stillHere = day === today.date ? await r.listStillAtSchool(section.id) : [];
-      return { session, today, classes, section, calendar, year, day, roster, confirmation, teachers, stillHere };
+      const seating = await r.getSeating(section.id);
+      return { session, today, classes, section, calendar, year, day, roster, confirmation, teachers, stillHere, seating };
     },
     [date, classId],
   );
@@ -103,7 +123,10 @@ export function Attendance() {
         </div>
       </div>
     );
-  const { session, today, classes, section, calendar, year, day, roster, confirmation, teachers, stillHere } = data;
+  const { session, today, classes, section, calendar, year, day, roster, confirmation, teachers, stillHere, seating } = data;
+  // The adviser, the class's subject teachers and the admin can arrange the seats.
+  const canArrange =
+    session.role === 'admin' || section.teacherId === session.teacherId || (section.subjectTeacherIds ?? []).includes(session.teacherId);
   const periods = classPeriods(section.program); // Grades 4 to 6: from the class program
   const schoolDay = isSchoolDay(day, section.schedule, calendar);
   // Suspended from a time today (e.g. 1:00 PM): after it, the children still at school are listed.
@@ -340,7 +363,30 @@ export function Attendance() {
               alerted right away, and the parent is texted "entered the school but is not in class" when you confirm.
             </p>
           )}
+          {/* List of names, or the seating chart (tap a seat). */}
+          <div className="view-switch" role="tablist" aria-label="Show">
+            <button role="tab" aria-selected={view === 'list'} className={view === 'list' ? 'on' : ''} onClick={() => setView('list')}>
+              <List size={15} /> List
+            </button>
+            <button role="tab" aria-selected={view === 'seats'} className={view === 'seats' ? 'on' : ''} onClick={() => setView('seats')}>
+              <Armchair size={15} /> Seating chart
+            </button>
+          </div>
+          {view === 'seats' && (
+            <SeatingChart
+              section={section}
+              roster={roster}
+              layout={seating}
+              canEdit={canArrange}
+              onChoose={choose}
+              onSave={async (layout) => {
+                await repo.saveSeating(section.id, layout);
+                flash('Seating chart saved. Every teacher of this class sees it.');
+              }}
+            />
+          )}
           {/* One row per child: name, scan time, streak, SMS consent, and the four status buttons. */}
+          {view === 'list' && (
           <ul className="roster">
             {statusFilter && (
               <div className="filter-note">
@@ -431,6 +477,7 @@ export function Attendance() {
                 );
               })}
           </ul>
+          )}
         </Card>
       )}
 

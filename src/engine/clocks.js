@@ -55,5 +55,6 @@ export function emptyState(meta, calendar = []) {
     notifications: new Map(),
     audit: new Map(),
     excuses: new Map(), // excuse requests from the parent portal
+    seating: new Map(), // seating charts: section id -> { rows, cols, aisleEvery, spacing, seats: { 'row-col': studentId } }
   };
 }

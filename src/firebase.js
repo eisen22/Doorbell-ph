@@ -245,6 +245,8 @@ export function createCloudEngine() {
         all('confirmations'),
         // Excuse requests from the parent portal (if firestore.rules is older than the portal, skip them).
         all('excuses').catch((e) => console.warn('Excuse requests not loaded: publish the new firestore.rules', e)),
+        // Seating charts (skipped if firestore.rules is older than the seating chart).
+        all('seating').catch((e) => console.warn('Seating charts not loaded: publish the new firestore.rules', e)),
         listen('sms', query(collection(db, 'sms'), orderBy('createdAt', 'desc'), limit(400))),
         listen('notifications', query(collection(db, 'notifications'), orderBy('createdAt', 'desc'), limit(300))),
         listen('audit', query(collection(db, 'audit'), orderBy('at', 'desc'), limit(300))),
@@ -291,6 +293,7 @@ export function createCloudEngine() {
         listen('sms', query(collection(db, 'sms'), where('sectionId', 'in', ids))),
         // Excuse requests from parents of this class (skipped if firestore.rules is older than the portal).
         listen('excuses', mine('excuses')).catch((e) => console.warn('Excuse requests not loaded: publish the new firestore.rules', e)),
+        listen('seating', mine('seating')).catch((e) => console.warn('Seating charts not loaded: publish the new firestore.rules', e)),
       );
     }
     classUnsubs = unsubs.splice(before); // keep these separate so they can be restarted alone
@@ -471,7 +474,7 @@ export function createCloudEngine() {
      (only their Doorbell profile is removed); sample teachers are reused when the sample is loaded again.
      ================================================================= */
   engine.clearSchoolData = async (onProgress = () => {}) => {
-    const cols = ['attendance', 'confirmations', 'sms', 'notifications', 'excuses', 'parentDays', 'parentKeys', 'parents', 'enrollments', 'guardians', 'students', 'sections', 'teachers'];
+    const cols = ['attendance', 'confirmations', 'sms', 'notifications', 'excuses', 'seating', 'parentDays', 'parentKeys', 'parents', 'enrollments', 'guardians', 'students', 'sections', 'teachers'];
     let removed = 0;
     for (const col of [...cols, 'users']) {
       onProgress(`Removing ${col}…`);

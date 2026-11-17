@@ -226,6 +226,38 @@ export const attendanceMethods = {
     }
     return out.sort((a, b) => a.section.name.localeCompare(b.section.name) || a.student.lastName.localeCompare(b.student.lastName));
   },
+  // ---- Seating chart (Attendance -> Seating chart) ----
+  // { sectionId, rows, cols, aisleEvery, spacing: 'close'|'normal'|'wide', seats: { '1-3': studentId } }
+  // Row 1 is the row nearest the board; column 1 is on the left as the teacher faces the class.
+  async getSeating(sectionId) {
+    await this.ready;
+    return this.s.seating.get(sectionId) ?? null;
+  },
+  async saveSeating(sectionId, layout) {
+    await this.ready;
+    const sec = this.s.sections.get(sectionId);
+    if (!sec) throw new Error('Class not found.');
+    const clamp = (n, lo, hi) => Math.min(hi, Math.max(lo, Math.round(Number(n) || lo)));
+    const rows = clamp(layout.rows, 1, 12);
+    const cols = clamp(layout.cols, 1, 12);
+    const aisleEvery = clamp(layout.aisleEvery ?? 0, 0, cols);
+    const spacing = ['close', 'normal', 'wide'].includes(layout.spacing) ? layout.spacing : 'normal';
+    // Only children of this class, each in one seat, and only seats inside the room.
+    const inClass = new Set(this.rosterOn(sectionId, this.clock.today()).map((k) => k.id));
+    const seen = new Set();
+    const seats = {};
+    for (const [key, id] of Object.entries(layout.seats ?? {})) {
+      const [r, c] = key.split('-').map(Number);
+      if (!id || r < 1 || r > rows || c < 1 || c > cols || !inClass.has(id) || seen.has(id)) continue;
+      seen.add(id);
+      seats[`${r}-${c}`] = id;
+    }
+    const doc = { sectionId, rows, cols, aisleEvery, spacing, seats, updatedAt: new Date().toISOString(), updatedBy: this.actor() };
+    this.s.seating.set(sectionId, doc);
+    this.put('seating', sectionId, doc);
+    this.emit();
+    return doc;
+  },
   // A teacher changes a status by hand, before or after confirming (every change is saved in the audit log).
   // Parent texts are only sent for TODAY: correcting an older day never texts anyone.
   async setStatus(input) {
