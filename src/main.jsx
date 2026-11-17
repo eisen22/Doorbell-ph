@@ -156,14 +156,14 @@ export function Login() {
           </div>
           <div className="art-bubbles">
             <div className="art-bubble b1">
-              <b>Doorbell:</b> Juan arrived at school at 7:42 AM.
+              <b>Doorbell:</b> Derek arrived at school at 7:42 AM.
             </div>
             <div className="art-bubble b2">
-              <b>Doorbell:</b> Nakarating na si Bea sa paaralan ng 7:45 AM.
+              <b>Doorbell:</b> Gio na si Bea sa paaralan ng 7:45 AM.
             </div>
             <div className="art-bubble b3">Attendance confirmed for Grade 2 - Mango</div>
           </div>
-          <p>Scan the ID. Parents know right away.</p>
+          <p>Scanned at the gate. Confirmed in class. Parents are told.</p>
         </section>
         {setup ? (
           <section className="login-form">
