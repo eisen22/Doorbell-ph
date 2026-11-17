@@ -28,7 +28,7 @@ import {
   signOut as fbSignOut,
   updatePassword,
 } from 'firebase/auth';
-import { collection, deleteField, doc, getDoc, getFirestore, onSnapshot, query, setDoc, updateDoc, where } from 'firebase/firestore';
+import { arrayUnion, collection, deleteField, doc, getDoc, getFirestore, onSnapshot, query, setDoc, updateDoc, where } from 'firebase/firestore';
 import { firebaseConfig, cloudConfigured } from '../firebase';
 import { parentEmail, parentKeyOf, sha256Hex } from '../logic';
 
@@ -162,6 +162,14 @@ export async function sendExcuse({ studentId, sectionId, studentName, guardianNa
  *   { status: 'loading' | 'signedOut' | 'ready' | 'error', profile, key, months: { studentId: [month docs] }, excuses, error }
  * Chain: sign-in -> parents/{uid} (the number) -> parentKeys/{number} (the children) -> each child's months + excuses.
  */
+// The parent closed an announcement ("Got it"): saved on their profile, so it stays closed on every phone.
+export async function dismissAnnouncement(id) {
+  const { auth, db } = start();
+  const uid = auth.currentUser?.uid;
+  if (!uid) return;
+  await updateDoc(doc(db, 'parents', uid), { dismissed: arrayUnion(id) });
+}
+
 export function watchParent(onChange) {
   const { auth, db } = start();
   let state = { status: 'loading', months: {}, excuses: [] };

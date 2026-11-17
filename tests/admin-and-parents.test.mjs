@@ -218,7 +218,7 @@ const kinds = (w, id) => w.smsFor(id).map((m) => m.kind).join('+') || '-';
   const ann = [...w.state.sms.values()].filter((m) => m.kind === 'notice' && m.body.includes('11:00 AM'));
   check('L4 class announcement texts that class only, one per family', n > 0 && ann.length === n && ann.every((m) => m.sectionId === SEC2));
   const pdoc = w.log.filter((l) => l[1] === 'parentDays' && l[3].sectionId === SEC2).pop()?.[3];
-  check("L4 it shows in that class's parent portal", pdoc?.notices?.[0]?.type === 'announcement');
+  check("L4 it shows in that class's parent portal", pdoc?.announcements?.[0]?.from === 'school' && /11:00 AM/.test(pdoc.announcements[0].body));
   let err = ''; try { await w.eng.sendAnnouncement({ message: ' ' }); } catch (e) { err = e.message; }
   check('L4 empty message refused', /Write the message/.test(err));
 }
@@ -305,7 +305,7 @@ const kinds = (w, id) => w.smsFor(id).map((m) => m.kind).join('+') || '-';
   const texts = [...w.state.sms.values()].filter((m) => m.body.includes('crayons'));
   check('TA1 texted only that class, one per family', n > 0 && texts.length === n && texts.every((m) => m.sectionId === SEC));
   const pd = w.log.filter((l) => l[1] === 'parentDays' && l[3].sectionId === SEC).pop()?.[3];
-  check('TA1 in the parent portal of that class', pd?.notices?.[0]?.type === 'announcement' && /crayons/.test(pd.notices[0].body));
+  check('TA1 in the parent portal of that class, marked as from a teacher', pd?.announcements?.[0]?.from === 'teacher' && /crayons/.test(pd.announcements[0].body));
   let err = ''; try { await w.eng.sendAnnouncement({ message: 'Hi', sectionId: SEC2 }); } catch (e) { err = e.message; }
   check('TA2 not to another teacher\'s class', /only to the classes you teach/.test(err), err);
   err = ''; try { await w.eng.sendAnnouncement({ message: 'Hi' }); } catch (e) { err = e.message; }
@@ -314,5 +314,5 @@ const kinds = (w, id) => w.smsFor(id).map((m) => m.kind).join('+') || '-';
   await w.eng.sendAnnouncement({ message: 'School fair Friday.', textParents: false });
   w.as('u-maria'); await w.eng.setStatus({ sectionId: SEC, date: w.clock.d, studentId: w.roster(SEC)[0].id, status: 'present' });
   const pd2 = w.log.filter((l) => l[1] === 'parentDays' && l[3].sectionId === SEC).pop()?.[3];
-  check('TA3 a teacher rewriting a portal page keeps the school-wide announcement', pd2?.notices?.some((x) => /School fair/.test(x.body)) && pd2.notices.some((x) => /crayons/.test(x.body)));
+  check('TA3 a teacher rewriting a portal page keeps the school-wide announcement', pd2?.announcements?.some((x) => /School fair/.test(x.body) && x.from === 'school') && pd2.announcements.some((x) => /crayons/.test(x.body)));
 }

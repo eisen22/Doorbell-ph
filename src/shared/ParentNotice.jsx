@@ -45,7 +45,6 @@ export function ParentNoticeWindow({ start = 'suspension', initial = {}, onClose
   // Announcement
   const [en, setEn] = useState('');
   const [fil, setFil] = useState('');
-  const [days, setDays] = useState(3);
   const [textParents, setTextParents] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -113,10 +112,9 @@ export function ParentNoticeWindow({ start = 'suspension', initial = {}, onClose
           levels: scope === 'levels' ? levels : scope === 'k' ? ['K'] : [],
           sectionId: scope === 'class' ? oneClass : null,
           sectionIds: scope === 'mine' ? mineIds : undefined,
-          days,
           textParents,
         });
-        onDone(`Announcement posted in the parent portal for ${days === 1 ? 'today' : `${days} days`}${textedNote(n)}. Teachers got an alert too.`);
+        onDone(`Announcement posted in the parent portal${textedNote(n)}. Teachers got an alert too.`);
       }
     } catch (e) {
       setError(e.message);
@@ -324,24 +322,28 @@ export function ParentNoticeWindow({ start = 'suspension', initial = {}, onClose
           <input className="input" value={label} onChange={(e) => setLabel(e.target.value)} />
         </label>
       ) : (
-        <label className="field">
-          <span>Show at the top of the parent portal for</span>
-          <select className="input" value={days} onChange={(e) => setDays(Number(e.target.value))}>
-            <option value={1}>Today only</option>
-            <option value={3}>3 days</option>
-            <option value={7}>7 days</option>
-          </select>
-        </label>
+        <p className="muted small">
+          It stays at the top of the parent portal until the parent closes it, and is kept on the portal's Announcements page.
+        </p>
       )}
 
       <label className="check">
         <input type="checkbox" checked={textParents} onChange={(e) => setTextParents(e.target.checked)} /> Text the parents now (one text per family,
         only those with SMS consent)
       </label>
-      {textParents && families !== null && (
+      {families !== null && (
         <p className="send-count">
-          Goes to <b>{families}</b> {families === 1 ? 'family' : 'families'}
-          {(kind === 'suspension' || en.trim()) && ` · about ${families * parts} SMS (${parts} per family)`}
+          Parent portal: <b>{preview.allFamilies}</b> {preview.allFamilies === 1 ? 'family' : 'families'}
+          {textParents && (
+            <>
+              {' '}
+              · Texted: <b>{families}</b>
+              {(kind === 'suspension' || en.trim()) && families ? ` (about ${families * parts} SMS)` : ''}
+              {preview.allFamilies > families && (
+                <span className="muted"> · {preview.allFamilies - families} without SMS consent or a number see it in the portal only</span>
+              )}
+            </>
+          )}
         </p>
       )}
       {textParents && preview?.text && (kind === 'suspension' || en.trim()) && (

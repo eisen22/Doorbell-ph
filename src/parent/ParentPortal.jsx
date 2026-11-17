@@ -9,10 +9,10 @@
 // =====================================================================
 import React, { useEffect, useMemo, useState } from 'react';
 import { Navigate } from 'react-router-dom';
-import { AlertTriangle, CalendarClock, CalendarDays, CloudRain, Megaphone, ChevronLeft, ChevronRight, FileText, KeyRound, LogOut, Send } from 'lucide-react';
+import { AlertTriangle, X, CalendarClock, CalendarDays, CloudRain, Megaphone, ChevronLeft, ChevronRight, FileText, KeyRound, LogOut, Send } from 'lucide-react';
 import { Logo, Wordmark, useRepo } from '../ui';
 import { addDays, isoWeekday, manilaToday, manilaTime, to12h, ordinal, periodsLabel, excuseStatusLabel, EXCUSE_REASONS } from '../logic';
-import { changeParentPassword, portalAvailable, sendExcuse, signOutParent, watchParent } from './parentCloud';
+import { changeParentPassword, dismissAnnouncement, portalAvailable, sendExcuse, signOutParent, watchParent } from './parentCloud';
 
 // "Coming up" tags: what kind of day it is for the child.
 const UP_KIND = {
@@ -119,7 +119,8 @@ function Shell({ children, school, onSignOut }) {
 function Home({ st }) {
   const children = st.key?.children ?? [];
   const [childId, setChildId] = useState(children[0]?.id ?? null);
-  const [screen, setScreen] = useState('home'); // 'home' | 'excuse' | 'password'
+  const [screen, setScreen] = useState('home'); // 'home' | 'excuse' | 'password' | 'announcements'
+  const [closedHere, setClosedHere] = useState([]); // closed on this page (the demo, or before the cloud saves it)
   const [flash, setFlash] = useState(null);
   useEffect(() => {
     if (!children.some((c) => c.id === childId)) setChildId(children[0]?.id ?? null);
@@ -133,6 +134,29 @@ function Home({ st }) {
   const docs = (childId && st.months?.[childId]) || [];
   const latest = docs[docs.length - 1];
   const school = latest?.schoolName;
+  // Announcements for all the parent's children (each once), newest first.
+  const announcements = [
+    ...new Map(
+      children.flatMap((c) => {
+        const d = st.months?.[c.id] ?? [];
+        return (d[d.length - 1]?.announcements ?? []).map((a) => [a.id, { ...a, child: c.firstName }]);
+      }),
+    ).values(),
+  ].sort((a, b) => b.at.localeCompare(a.at));
+  const closed = new Set([...(st.profile?.dismissed ?? []), ...closedHere]);
+  // Shown at the top until the parent closes it (only the last 30 days, at most 3).
+  const since = new Date(Date.now() - 30 * 864e5).toISOString();
+  const open = announcements.filter((a) => !closed.has(a.id) && a.at >= since).slice(0, 3);
+  const close = (id) => {
+    setClosedHere((x) => [...x, id]);
+    if (!st.demo) dismissAnnouncement(id).catch(() => {});
+  };
+  if (screen === 'announcements')
+    return (
+      <Shell school={school}>
+        <AnnouncementsPage items={announcements} closed={closed} onBack={() => setScreen('home')} />
+      </Shell>
+    );
 
   if (screen === 'password')
     return (
@@ -182,6 +206,24 @@ function Home({ st }) {
         <p className="pp-flash" role="status">
           {flash}
         </p>
+      )}
+      {open.map((a) => (
+        <section key={a.id} className={`pp-notice pp-notice-announcement pp-ann-${a.from}`} role="status">
+          <Megaphone size={20} aria-hidden="true" />
+          <div>
+            <strong>{a.title}</strong>
+            <p>{a.body}</p>
+            <span className="pp-small">{postedAt(a.at)}</span>
+          </div>
+          <button type="button" className="pp-ann-close" onClick={() => close(a.id)} aria-label="Got it, close this announcement">
+            <X size={18} aria-hidden="true" />
+          </button>
+        </section>
+      ))}
+      {announcements.length > 0 && (
+        <button type="button" className="pp-link pp-ann-link" onClick={() => setScreen('announcements')}>
+          <Megaphone size={15} aria-hidden="true" /> Announcements ({announcements.length})
+        </button>
       )}
       {!children.length && (
         <p className="pp-card">No child is linked to this number yet. Ask your child's teacher to check the mobile number on file.</p>
@@ -755,5 +797,53 @@ function ChangePassword({ codeHash, onDone, onBack }) {
         {busy ? 'Saving…' : 'Save new password'}
       </button>
     </form>
+  );
+}
+
+// ---------------------------------------------------------------------
+// ANNOUNCEMENTS: everything the school and the children's teachers sent this school year, newest first.
+// Filter: all, from the school, from teachers. Closed ones are still listed here.
+// ---------------------------------------------------------------------
+function AnnouncementsPage({ items, closed, onBack }) {
+  const [from, setFrom] = useState('all'); // 'all' | 'school' | 'teacher'
+  const list = items.filter((a) => from === 'all' || a.from === from);
+  const count = (f) => items.filter((a) => a.from === f).length;
+  return (
+    <section className="pp-card">
+      <button type="button" className="pp-link" onClick={onBack}>
+        <ChevronLeft size={16} aria-hidden="true" /> Back
+      </button>
+      <h2 className="pp-h2">
+        <Megaphone size={17} aria-hidden="true" /> Announcements
+      </h2>
+      <div className="pp-chips" role="group" aria-label="Show">
+        {[
+          ['all', `All (${items.length})`],
+          ['school', `From the school (${count('school')})`],
+          ['teacher', `From teachers (${count('teacher')})`],
+        ].map(([k, label]) => (
+          <button key={k} type="button" className={from === k ? 'on' : ''} aria-pressed={from === k} onClick={() => setFrom(k)}>
+            {label}
+          </button>
+        ))}
+      </div>
+      {list.length ? (
+        <ul className="pp-ann-list">
+          {list.map((a) => (
+            <li key={a.id} className={closed.has(a.id) ? '' : 'pp-ann-new'}>
+              <strong>{a.title}</strong>
+              <p>{a.body}</p>
+              {a.bodyFil && <p className="pp-muted">{a.bodyFil}</p>}
+              <span className="pp-small">
+                {postedAt(a.at)}
+                {!closed.has(a.id) && ' · New'}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="pp-muted">No announcements {from === 'school' ? 'from the school' : from === 'teacher' ? 'from teachers' : ''} yet.</p>
+      )}
+    </section>
   );
 }

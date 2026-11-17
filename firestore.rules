@@ -149,7 +149,7 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/parentKeys/$(request.resource.data.mobile)).data.codeHash
            == hashing.sha256(request.resource.data.proof).toHexString().lower();
       allow update: if signedIn() && request.auth.uid == uid
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['proof', 'defaultPassword'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['proof', 'defaultPassword', 'dismissed'])
         && !('proof' in request.resource.data);
       allow delete: if isAdmin();
     }

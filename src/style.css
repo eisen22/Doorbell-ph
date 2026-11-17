@@ -1081,3 +1081,17 @@ textarea.input { height: auto; padding-top: 10px; padding-bottom: 10px; line-hei
 .seat-pick-list { display: grid; gap: 6px; max-height: 60vh; overflow-y: auto; }
 .seat-pick-list .btn { justify-content: flex-start; }
 .seat-help-inline { flex: 1; margin: 0; }
+/* Parent portal: announcements (stay on top until closed) and the Announcements page. */
+.pp-notice { position: relative; }
+.pp-ann-close { margin-left: auto; align-self: flex-start; display: grid; place-items: center; width: 34px; height: 34px; border: 0; border-radius: 50%; background: rgba(0, 0, 0, 0.06); color: inherit; cursor: pointer; flex-shrink: 0; }
+.pp-ann-close:hover { background: rgba(0, 0, 0, 0.12); }
+.pp-ann-teacher { background: #eef3ff; color: #23365f; border-color: #c9d6f3; }
+.pp-ann-link { justify-self: start; align-self: flex-start; }
+.pp-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 12px; }
+.pp-chips button { border: 1px solid var(--line); background: var(--card, #fff); border-radius: 999px; padding: 7px 12px; font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer; color: var(--ink); }
+.pp-chips button.on { background: var(--ink); color: #fff; border-color: var(--ink); }
+.pp-ann-list { list-style: none; margin: 0; padding: 0; }
+.pp-ann-list li { padding: 12px 0; border-top: 1px solid var(--line); }
+.pp-ann-list li:first-child { border-top: 0; }
+.pp-ann-list p { margin: 4px 0; font-size: 14px; line-height: 1.45; }
+.pp-ann-new strong::before { content: ''; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #2f6fd6; margin-right: 6px; vertical-align: 1px; }

@@ -118,6 +118,9 @@ export const parentPortalMethods = {
       // calendar changes, shown at the top of the portal. Rewritten whenever the calendar changes.
       upcoming: section ? this.parentUpcoming(section, today) : [],
       notices: section ? this.parentNotices(section, today) : [],
+      // Announcements from the school and the child's teachers this school year (the portal keeps one
+      // at the top until the parent closes it, and lists them all on its Announcements page).
+      announcements: section ? this.parentAnnouncements(section) : [],
       updatedAt: new Date().toISOString(),
     };
   },
@@ -154,13 +157,32 @@ export const parentPortalMethods = {
   // Calendar changes from the last 14 days that concern this class (newest first, at most 3).
   parentNotices(section, today) {
     const since = addDays(today, -14);
-    // Calendar changes (meta/calendar) and announcements from the admin or a teacher of the class.
-    return [...(this.s.calendarNotices ?? []), ...(this.s.announcements?.values() ?? [])]
-      .sort((a, b) => b.at.localeCompare(a.at))
+    // Calendar changes (meta/calendar). Announcements have their own list (parentAnnouncements).
+    return (this.s.calendarNotices ?? [])
+      .filter((n) => n.type !== 'announcement')
       .filter((n) => n.at.slice(0, 10) >= since)
       .filter((n) => (!n.sectionId || n.sectionId === section.id) && (!n.levels?.length || n.levels.includes(section.gradeLevel)))
       .slice(0, 3)
       .map((n) => ({ at: n.at, type: n.type, title: n.title, body: n.body ?? '', dates: n.dates }));
+  },
+  // Announcements for one class this school year, newest first (at most 40): from the school (whole
+  // school, its grade level, or the class) or from a teacher of the class.
+  parentAnnouncements(section) {
+    const since = this.year?.start ?? '0000';
+    const old = (this.s.calendarNotices ?? []).filter((n) => n.type === 'announcement'); // sent before Nov 18, 2026
+    return [...(this.s.announcements?.values() ?? []), ...old]
+      .filter((n) => n.at.slice(0, 10) >= since)
+      .filter((n) => (!n.sectionId || n.sectionId === section.id) && (!n.levels?.length || n.levels.includes(section.gradeLevel)))
+      .sort((a, b) => b.at.localeCompare(a.at))
+      .slice(0, 40)
+      .map((n) => ({
+        id: n.id,
+        at: n.at,
+        from: n.fromTeacher ? 'teacher' : 'school',
+        title: n.title,
+        body: n.body ?? '',
+        ...(n.bodyFil ? { bodyFil: n.bodyFil } : {}),
+      }));
   },
   // Rewrites the parent portal months. studentIds null = every child.
   syncParentDays(studentIds, months) {

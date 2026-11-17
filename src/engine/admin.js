@@ -125,10 +125,11 @@ export const adminMethods = {
       this.put('notifications', n.id, n);
     }
   },
-  // Admin: a message from the school to parents, e.g. "Please fetch your children by 11 AM due to an
-  // earthquake drill." To the whole school, some grade levels, or one class. It shows at the top of the
-  // parent portal for `days` days and (textParents) is texted, one text per family.
-  async sendAnnouncement({ message, messageFil, levels, sectionId, sectionIds, days = 3, textParents = true }) {
+  // A message from the school (admin: whole school, some grade levels or one class) or from a teacher (their
+  // classes), e.g. "Please fetch your children by 11 AM due to an earthquake drill." It stays at the top of
+  // the parent portal until the parent closes it, is listed on the portal's Announcements page, and
+  // (textParents) is texted, one text per family.
+  async sendAnnouncement({ message, messageFil, levels, sectionId, sectionIds, textParents = true }) {
     await this.ready;
     const text = (message ?? '').trim();
     if (!text) throw new Error('Write the message first.');
@@ -152,7 +153,7 @@ export const adminMethods = {
       fromTeacher: admin ? null : `Teacher ${this.actor()}`,
       body: text,
       bodyFil: (messageFil ?? '').trim() || null,
-      dates: Array.from({ length: Math.max(1, days) }, (_, i) => addDays(today, i)),
+      dates: [today],
       at: new Date().toISOString(),
       by: this.actor(),
     };
@@ -232,9 +233,12 @@ export const adminMethods = {
     await this.ready;
     const notice = { dates: [this.clock.today()], levels: null, sectionId: null, title: '', ...n };
     // Several classes (a teacher's "All my classes"): the families of all of them, each once.
-    const kids = n.sectionIds?.length
-      ? new Map(n.sectionIds.flatMap((sectionId) => [...this.familiesFor({ ...notice, sectionId })]))
-      : this.familiesFor(notice);
+    const each = (all) =>
+      n.sectionIds?.length
+        ? new Map(n.sectionIds.flatMap((sectionId) => [...this.familiesFor({ ...notice, sectionId }, all)]))
+        : this.familiesFor(notice, all);
+    const kids = each(false);
+    const everyone = each(true);
     const first = kids.values().next().value;
     const text = noticeText(notice, {
       fil: false,
@@ -244,10 +248,12 @@ export const adminMethods = {
       today: this.clock.today(),
       here: [],
     });
-    return { families: kids.size, text };
+    // families: texted (SMS consent and a number); allFamilies: everyone who sees it in the portal.
+    return { families: kids.size, allFamilies: everyone.size, text };
   },
   // The families a notice concerns: guardian id -> { g, student (eldest), section, here (children at school now) }.
-  familiesFor(notice) {
+  // everyone = true: every family of those children, with or without SMS consent (for the counts).
+  familiesFor(notice, everyone = false) {
     const today = this.clock.today();
     const dates = [...notice.dates].sort();
     const kids = new Map(); // guardian id -> { g, student, section }
@@ -263,7 +269,7 @@ export const adminMethods = {
       // Only classes that meet on one of those days (a Saturday holiday does not concern a Mon-Fri class).
       if (!['makeup', 'announcement'].includes(notice.type) && !dates.some((d) => sec.schedule.classDays.includes(isoWeekday(d)))) continue;
       const g = this.guardianOf(stu.id);
-      if (!g?.smsConsent || !g.mobile) continue;
+      if (!g || (!everyone && (!g.smsConsent || !g.mobile))) continue;
       // No class today but the child is already at school (came in before the suspension): say so.
       const r = dates.includes(today) && ['suspension', 'partial', 'holiday', 'break', 'noclass'].includes(notice.type) ? this.record(sec.id, today, stu.id) : null;
       const atSchool = r?.scannedAt && !r.scannedOut ? [stu.firstName] : [];
