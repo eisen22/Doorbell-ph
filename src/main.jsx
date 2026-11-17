@@ -159,7 +159,7 @@ export function Login() {
               <b>Doorbell:</b> Derek arrived at school at 7:42 AM.
             </div>
             <div className="art-bubble b2">
-              <b>Doorbell:</b> Gio na si Bea sa paaralan ng 7:45 AM.
+              <b>Doorbell:</b> Nakarating na si Gio sa paaralan ng 7:45 AM.
             </div>
             <div className="art-bubble b3">Attendance confirmed for Grade 2 - Mango</div>
           </div>
