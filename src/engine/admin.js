@@ -128,36 +128,82 @@ export const adminMethods = {
   // Admin: a message from the school to parents, e.g. "Please fetch your children by 11 AM due to an
   // earthquake drill." To the whole school, some grade levels, or one class. It shows at the top of the
   // parent portal for `days` days and (textParents) is texted, one text per family.
-  async sendAnnouncement({ message, messageFil, levels, sectionId, days = 3, textParents = true }) {
+  async sendAnnouncement({ message, messageFil, levels, sectionId, sectionIds, days = 3, textParents = true }) {
     await this.ready;
     const text = (message ?? '').trim();
     if (!text) throw new Error('Write the message first.');
     if (text.length > 300 || (messageFil ?? '').trim().length > 300) throw new Error('Keep the message under 300 characters (2 texts).');
     const today = this.clock.today();
-    const sec = sectionId ? this.s.sections.get(sectionId) : null;
+    const admin = this.session?.role === 'admin';
+    const ids = sectionIds?.length ? [...new Set(sectionIds)] : sectionId ? [sectionId] : [];
+    // A teacher: only to the classes they teach (adviser or subject teacher), one or all of them.
+    if (!admin) {
+      const mine = new Set([...this.classesOf(this.session.teacherId), ...this.subjectClassesOf(this.session.teacherId)].map((c) => c.id));
+      if (!ids.length) throw new Error('Choose one of your classes.');
+      if (ids.some((id) => !mine.has(id))) throw new Error('You can send announcements only to the classes you teach.');
+    }
+    const secs = ids.map((id) => this.s.sections.get(id)).filter(Boolean);
     const only = levelsLabel(levels);
-    const who = sec ? sec.name : only || 'the whole school';
-    const notice = this.addCalendarNotice({
+    const who = secs.length ? secs.map((x) => x.name).join(', ') : only || 'the whole school';
+    const base = {
       type: 'announcement',
-      title: 'Announcement from the school',
+      title: admin ? 'Announcement from the school' : `Announcement from Teacher ${this.actor()}`,
+      // A teacher's announcement says who it is from in the text too.
+      fromTeacher: admin ? null : `Teacher ${this.actor()}`,
       body: text,
       bodyFil: (messageFil ?? '').trim() || null,
       dates: Array.from({ length: Math.max(1, days) }, (_, i) => addDays(today, i)),
-      levels: !sec && levels?.length ? levels : null,
-      sectionId: sec?.id ?? null,
-    });
-    this.saveCalendar();
-    const texted = textParents ? this.textFamilies(notice) : 0;
+      at: new Date().toISOString(),
+      by: this.actor(),
+    };
+    // One announcement per class (firestore.rules lets a teacher write only for a class they teach), or
+    // one for the whole school / some grade levels. Kept in the announcements collection.
+    const notices = secs.length
+      ? secs.map((x) => ({ ...base, id: uid('ann'), sectionId: x.id, levels: null }))
+      : [{ ...base, id: uid('ann'), sectionId: null, levels: levels?.length ? levels : null }];
+    const seen = new Set(); // a family with children in two of these classes gets one text
+    let texted = 0;
+    for (const n of notices) {
+      this.s.announcements.set(n.id, n);
+      this.put('announcements', n.id, n);
+      if (textParents) texted += this.textFamilies(n, seen);
+      // Teachers of that class (and the admin) see it in their alerts.
+      const alert = {
+        id: uid('cal'),
+        kind: 'calendar',
+        sectionId: n.sectionId ?? 'all',
+        date: today,
+        createdAt: n.at,
+        read: false,
+        title: `Announcement to parents (${n.sectionId ? this.s.sections.get(n.sectionId).name : who})`,
+        body: `"${text}" Sent by ${this.actor()}.`,
+      };
+      this.s.notifications.set(alert.id, alert);
+      this.put('notifications', alert.id, alert);
+    }
     await this.logAudit('announcement.send', who, `${text}${texted ? ` (texted ${texted} families)` : ''}`);
-    this.notifyCalendar(`Announcement to parents (${who})`, `"${text}"${texted ? ` Texted to ${texted} families.` : ''}`, today);
-    this.syncParentDays(sec ? this.rosterOn(sec.id, today).map((k) => k.id) : null, [today.slice(0, 7)]);
+    this.syncParentDays(secs.length ? secs.flatMap((x) => this.rosterOn(x.id, today).map((k) => k.id)) : null, [today.slice(0, 7)]);
     this.emit();
     return texted;
   },
+  // The classes this user can send an announcement to: every class (admin) or the ones they teach.
+  async listAnnounceClasses() {
+    await this.ready;
+    if (this.session?.role === 'admin') return [...this.s.sections.values()].filter((x) => !x.archived);
+    const t = this.session?.teacherId;
+    return [...new Map([...this.classesOf(t), ...this.subjectClassesOf(t)].map((c) => [c.id, c])).values()];
+  },
   // Texts every family the notice applies to: one text per family (siblings share one), only with SMS
   // consent, in the family's language. Returns how many families were texted.
-  textFamilies(notice) {
+  // seen (optional): guardians already texted in this send (skipped, and added to it).
+  textFamilies(notice, seen) {
     const kids = this.familiesFor(notice);
+    if (seen) {
+      for (const gid of [...kids.keys()]) {
+        if (seen.has(gid)) kids.delete(gid);
+        else seen.add(gid);
+      }
+    }
     for (const { g, student, section, here } of kids.values()) {
       const fil = g.preferredLanguage === 'fil';
       const id = `ntc_${notice.id}_${g.id}`;
@@ -185,7 +231,10 @@ export const adminMethods = {
   async previewNotice(n) {
     await this.ready;
     const notice = { dates: [this.clock.today()], levels: null, sectionId: null, title: '', ...n };
-    const kids = this.familiesFor(notice);
+    // Several classes (a teacher's "All my classes"): the families of all of them, each once.
+    const kids = n.sectionIds?.length
+      ? new Map(n.sectionIds.flatMap((sectionId) => [...this.familiesFor({ ...notice, sectionId })]))
+      : this.familiesFor(notice);
     const first = kids.values().next().value;
     const text = noticeText(notice, {
       fil: false,
@@ -890,7 +939,7 @@ function noticeBody(n, { fil, child, section, school, today }) {
     case 'resume':
       return fil ? `${head}Tuloy ang klase${whoFil} ${when}.` : `${head}${who} will push through as usual ${when}.`;
     case 'announcement':
-      return `${head}${fil && n.bodyFil ? n.bodyFil : n.body}`;
+      return `${head}${n.fromTeacher ? `${n.fromTeacher}: ` : ''}${fil && n.bodyFil ? n.bodyFil : n.body}`;
     case 'noclass':
       return fil
         ? `${head}Walang klase ang ${section} ${when} dahil liban ang guro.`

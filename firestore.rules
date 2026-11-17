@@ -89,6 +89,15 @@ service cloud.firestore {
         || coversSection(request.resource.data.sectionId, request.resource.data.date);
       allow delete: if isAdmin();
     }
+    // Announcements to parents (shown in the parent portal, optionally texted). The admin: the whole
+    // school, some grade levels or one class; a teacher: one class they teach per document.
+    match /announcements/{id} {
+      allow read: if isStaff();
+      allow create: if isAdmin()
+        || (request.resource.data.get('sectionId', '') is string && request.resource.data.get('sectionId', '') != ''
+            && (teachesSection(request.resource.data.sectionId) || subjectTeacher(request.resource.data.sectionId)));
+      allow update, delete: if isAdmin();
+    }
     // Seating chart of a class (one document per section, id = section id). Every teacher can see it;
     // the adviser, the class's subject teachers and the admin can change it.
     match /seating/{sectionId} {

@@ -137,11 +137,10 @@ export function SmsMessages() {
           <button className="btn" onClick={() => setNewestFirst((v) => !v)}>
             <ArrowDownUp size={16} /> {newestFirst ? 'Newest day first' : 'Oldest day first'}
           </button>
-          {data.session?.role === 'admin' && (
-            <button className="btn btn-ink" onClick={() => setAnnounce(true)}>
-              <Megaphone size={16} /> Suspension or announcement
-            </button>
-          )}
+          {/* The admin: suspension or announcement; a teacher: an announcement to their own classes. */}
+          <button className="btn btn-ink" onClick={() => setAnnounce(true)}>
+            <Megaphone size={16} /> {data.session?.role === 'admin' ? 'Suspension or announcement' : 'Send announcement'}
+          </button>
         </div>
       </div>
       <LevelChips

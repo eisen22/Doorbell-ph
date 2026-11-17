@@ -154,7 +154,9 @@ export const parentPortalMethods = {
   // Calendar changes from the last 14 days that concern this class (newest first, at most 3).
   parentNotices(section, today) {
     const since = addDays(today, -14);
-    return (this.s.calendarNotices ?? [])
+    // Calendar changes (meta/calendar) and announcements from the admin or a teacher of the class.
+    return [...(this.s.calendarNotices ?? []), ...(this.s.announcements?.values() ?? [])]
+      .sort((a, b) => b.at.localeCompare(a.at))
       .filter((n) => n.at.slice(0, 10) >= since)
       .filter((n) => (!n.sectionId || n.sectionId === section.id) && (!n.levels?.length || n.levels.includes(section.gradeLevel)))
       .slice(0, 3)

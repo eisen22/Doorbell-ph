@@ -296,3 +296,23 @@ const kinds = (w, id) => w.smsFor(id).map((m) => m.kind).join('+') || '-';
   await w.eng.clearStatus({ sectionId: SEC, date: D, studentId: b.id });
   check('U4 undoing Absent closes the "not in class" alert', before > 0 ? open().length < before : true, `${before} -> ${open().length}`);
 }
+// ---- teachers' announcements to their own classes ----
+{
+  const w = world(); w.as('u-maria');
+  const n = await w.eng.sendAnnouncement({ message: 'Bring crayons tomorrow.', sectionId: SEC, days: 3 });
+  const ann = [...w.state.announcements.values()];
+  check('TA1 a teacher sends to their class: saved per class, by the teacher', ann.length === 1 && ann[0].sectionId === SEC && /Announcement from/.test(ann[0].title) && w.log.some((l) => l[1] === 'announcements'), ann[0]?.title);
+  const texts = [...w.state.sms.values()].filter((m) => m.body.includes('crayons'));
+  check('TA1 texted only that class, one per family', n > 0 && texts.length === n && texts.every((m) => m.sectionId === SEC));
+  const pd = w.log.filter((l) => l[1] === 'parentDays' && l[3].sectionId === SEC).pop()?.[3];
+  check('TA1 in the parent portal of that class', pd?.notices?.[0]?.type === 'announcement' && /crayons/.test(pd.notices[0].body));
+  let err = ''; try { await w.eng.sendAnnouncement({ message: 'Hi', sectionId: SEC2 }); } catch (e) { err = e.message; }
+  check('TA2 not to another teacher\'s class', /only to the classes you teach/.test(err), err);
+  err = ''; try { await w.eng.sendAnnouncement({ message: 'Hi' }); } catch (e) { err = e.message; }
+  check('TA2 a teacher cannot send to the whole school', /Choose one of your classes/.test(err), err);
+  w.as('u-admin');
+  await w.eng.sendAnnouncement({ message: 'School fair Friday.', textParents: false });
+  w.as('u-maria'); await w.eng.setStatus({ sectionId: SEC, date: w.clock.d, studentId: w.roster(SEC)[0].id, status: 'present' });
+  const pd2 = w.log.filter((l) => l[1] === 'parentDays' && l[3].sectionId === SEC).pop()?.[3];
+  check('TA3 a teacher rewriting a portal page keeps the school-wide announcement', pd2?.notices?.some((x) => /School fair/.test(x.body)) && pd2.notices.some((x) => /crayons/.test(x.body)));
+}

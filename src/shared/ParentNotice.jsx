@@ -26,9 +26,12 @@ export function ParentNoticeWindow({ start = 'suspension', initial = {}, onClose
     year: await r.getSchoolYear(),
     calendar: await r.getCalendar(),
     settings: await r.getSettings(),
-    sections: await r.listSections(),
+    sections: await r.listAnnounceClasses(), // every class (admin) or the teacher's own
+    session: await r.getSession(),
   }));
-  const [kind, setKind] = useState(start); // 'suspension' | 'announcement'
+  // A teacher sends announcements only (no suspensions), to one or all of their classes.
+  const teacher = data?.session && data.session.role !== 'admin';
+  const [kindState, setKind] = useState(start); // 'suspension' | 'announcement'
   // Suspension
   const [date, setDate] = useState(initial.from ?? null); // first day
   const [until, setUntil] = useState(initial.to ?? null); // last day (null = the same day)
@@ -36,7 +39,7 @@ export function ParentNoticeWindow({ start = 'suspension', initial = {}, onClose
   const [label, setLabel] = useState(initial.label || 'Class suspension: weather');
   // Who: 'all' | 'k' (Signal No. 1: Kindergarten only) | 'levels' | 'class' (announcements only)
   const startLevels = initial.levels ?? [];
-  const [scope, setScope] = useState(!startLevels.length ? 'all' : startLevels.join() === 'K' ? 'k' : 'levels');
+  const [scopeState, setScope] = useState(!startLevels.length ? 'all' : startLevels.join() === 'K' ? 'k' : 'levels');
   const [levels, setLevels] = useState(startLevels);
   const [sectionId, setSectionId] = useState('');
   // Announcement
@@ -46,6 +49,11 @@ export function ParentNoticeWindow({ start = 'suspension', initial = {}, onClose
   const [textParents, setTextParents] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const kind = teacher ? 'announcement' : kindState;
+  // A teacher: 'mine' (all my classes) or 'class'; the admin: 'all', 'k', 'levels' or 'class'.
+  const scope = teacher && !['mine', 'class'].includes(scopeState) ? ((data?.sections.length ?? 0) > 1 ? 'mine' : 'class') : scopeState;
+  const mineIds = teacher ? (data?.sections ?? []).map((x) => x.id) : [];
+  const oneClass = scope === 'class' ? sectionId || (teacher && data?.sections.length === 1 ? data.sections[0].id : '') : '';
   // How many families get the text, and the exact text (made by the engine, like the real one).
   const [preview, setPreview] = useState(null); // { families, text }
   const levelsNow = scope === 'k' ? ['K'] : scope === 'levels' ? levels : [];
@@ -59,14 +67,22 @@ export function ParentNoticeWindow({ start = 'suspension', initial = {}, onClose
       .previewNotice(
         kind === 'suspension'
           ? { type: from ? 'partial' : 'suspension', dates: lastNow === dayNow ? [dayNow] : [dayNow, lastNow], levels: lv, from: from || undefined, body: label.trim() }
-          : { type: 'announcement', dates: [dayNow], levels: lv, sectionId: scope === 'class' ? sectionId || '-' : null, body: en.trim() },
+          : {
+              type: 'announcement',
+              dates: [dayNow],
+              levels: lv,
+              sectionId: scope === 'class' ? oneClass || '-' : null,
+              sectionIds: scope === 'mine' ? mineIds : undefined,
+              fromTeacher: teacher ? `Teacher ${data.session.name ?? ''}`.trim() : null,
+              body: en.trim(),
+            },
       )
       .then((p) => live && setPreview(p))
       .catch(() => live && setPreview(null));
     return () => {
       live = false;
     };
-  }, [repo, kind, dayNow, lastNow, from, scope, levelsNow.join(), sectionId, label, en]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [repo, kind, dayNow, lastNow, from, scope, levelsNow.join(), oneClass, mineIds.join(), label, en]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!data) return null;
   const { today, year, calendar, settings, sections } = data;
   const day = date ?? today.actualDate ?? today.date;
@@ -76,7 +92,7 @@ export function ParentNoticeWindow({ start = 'suspension', initial = {}, onClose
   const ready =
     kind === 'suspension'
       ? label.trim() && (scope !== 'levels' || levels.length)
-      : en.trim() && (scope !== 'levels' || levels.length) && (scope !== 'class' || sectionId);
+      : en.trim() && (scope !== 'levels' || levels.length) && (scope !== 'class' || oneClass);
   const parts = preview?.text ? smsSegments(preview.text) : 1;
   const families = preview?.families ?? null;
 
@@ -95,7 +111,8 @@ export function ParentNoticeWindow({ start = 'suspension', initial = {}, onClose
           message: en,
           messageFil: fil,
           levels: scope === 'levels' ? levels : scope === 'k' ? ['K'] : [],
-          sectionId: scope === 'class' ? sectionId : null,
+          sectionId: scope === 'class' ? oneClass : null,
+          sectionIds: scope === 'mine' ? mineIds : undefined,
           days,
           textParents,
         });
@@ -109,7 +126,7 @@ export function ParentNoticeWindow({ start = 'suspension', initial = {}, onClose
 
   return (
     <Modal
-      title="Tell parents"
+      title={teacher ? 'Send an announcement to parents' : 'Tell parents'}
       onClose={onClose}
       footer={
         <>
@@ -123,6 +140,7 @@ export function ParentNoticeWindow({ start = 'suspension', initial = {}, onClose
         </>
       }
     >
+      {!teacher && (
       <div className="kind-tabs" role="tablist" aria-label="What is it?">
         <button role="tab" aria-selected={kind === 'suspension'} className={kind === 'suspension' ? 'on' : ''} onClick={() => setKind('suspension')}>
           <CloudRain size={16} /> Class suspension
@@ -131,6 +149,7 @@ export function ParentNoticeWindow({ start = 'suspension', initial = {}, onClose
           <Megaphone size={16} /> Announcement
         </button>
       </div>
+      )}
 
       {kind === 'suspension' ? (
         <>
@@ -217,8 +236,32 @@ export function ParentNoticeWindow({ start = 'suspension', initial = {}, onClose
         </>
       )}
 
-      {/* Which levels. DepEd Order 22, s. 2024: Signal No. 1 suspends Kindergarten only; Signal No. 2 and up, all levels. */}
-      <fieldset className="checks">
+      {teacher ? (
+        <fieldset className="checks">
+          <legend>Which class?</legend>
+          {sections.length > 1 && (
+            <label>
+              <input type="radio" name="who" checked={scope === 'mine'} onChange={() => setScope('mine')} /> All my classes ({sections.length})
+            </label>
+          )}
+          <label>
+            <input type="radio" name="who" checked={scope === 'class'} onChange={() => setScope('class')} />{' '}
+            {sections.length === 1 ? sections[0].name : 'One class'}
+          </label>
+          {scope === 'class' && sections.length > 1 && (
+            <select className="input" value={sectionId} onChange={(e) => setSectionId(e.target.value)} aria-label="Class">
+              <option value="">Pick a class</option>
+              {[...sections].sort(bySectionGrade).map((x) => (
+                <option key={x.id} value={x.id}>
+                  {x.name}
+                </option>
+              ))}
+            </select>
+          )}
+        </fieldset>
+      ) : (
+        /* Which levels. DepEd Order 22, s. 2024: Signal No. 1 suspends Kindergarten only; Signal No. 2 and up, all levels. */
+        <fieldset className="checks">
         <legend>Who is it for?</legend>
         <label>
           <input type="radio" name="who" checked={scope === 'all'} onChange={() => setScope('all')} /> The whole school (Kindergarten to Grade 6)
@@ -273,6 +316,7 @@ export function ParentNoticeWindow({ start = 'suspension', initial = {}, onClose
           </>
         )}
       </fieldset>
+      )}
 
       {kind === 'suspension' ? (
         <label className="field">
