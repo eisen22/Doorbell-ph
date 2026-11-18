@@ -67,6 +67,7 @@ export function AdminStudents() {
   const [edit, setEdit] = useState(null);
   const [assignOpen, setAssignOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [reissue, setReissue] = useState(null); // the child whose new ID card is being confirmed
   const [leave, setLeave] = useState(null);
   const [toast, setToast] = useState(null);
   const { data } = useLive(async (r) => ({
@@ -337,10 +338,7 @@ export function AdminStudents() {
                           className="icon-btn sm"
                           title="Reissue ID card (lost or damaged)"
                           aria-label="Reissue QR"
-                          onClick={async () => {
-                            await repo.reissueQr(r.student.id);
-                            flash(`New card code for ${r.student.firstName}. The old card is now revoked. Print it on the ID Cards page.`);
-                          }}
+                          onClick={() => setReissue(r)}
                         >
                           <QrCode size={15} />
                         </button>
@@ -369,6 +367,37 @@ export function AdminStudents() {
             flash(m);
           }}
         />
+      )}
+      {/* Reissue ID card: asks first, because the current card stops working at the gate right away. */}
+      {reissue && (
+        <Modal
+          title={`Make a new ID card for ${reissue.student.firstName}?`}
+          onClose={() => setReissue(null)}
+          footer={
+            <>
+              <button className="btn" onClick={() => setReissue(null)}>
+                Cancel
+              </button>
+              <button
+                className="btn btn-danger"
+                onClick={async () => {
+                  const r = reissue;
+                  setReissue(null);
+                  await repo.reissueQr(r.student.id);
+                  flash(`New card code for ${r.student.firstName}. The old card is now revoked. Print it on the ID Cards page.`);
+                }}
+              >
+                <QrCode size={16} /> Make new card
+              </button>
+            </>
+          }
+        >
+          <p>
+            {reissue.student.firstName} {reissue.student.lastName}'s current card will stop working at the gate. Scanning it will show "card
+            revoked". Use this only if the card is lost, stolen or damaged.
+          </p>
+          <p className="muted small">After this, print the new card on the ID Cards page. The child's records do not change.</p>
+        </Modal>
       )}
       {importOpen && (
         <ImportModal
