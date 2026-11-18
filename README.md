@@ -1,6 +1,6 @@
 # Doorbell 
 
-**Safe Arrival: A Barcode-Based Attendance Checking and SMS Notification System for Child Safety in Schools**
+**Safe Arrival: A QR Code-Based Attendance Checking and SMS Notification System for Child Safety in Elementary Schools**
 
 This is the full Doorbell system, rewritten in plain **JavaScript**, with the same features and the same look as the main version (written in TypeScript). The code is in **9 source files** instead of about 50, and every file is commented so it can be read and debugged.
 

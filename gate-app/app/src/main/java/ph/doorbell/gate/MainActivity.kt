@@ -125,7 +125,7 @@ private fun WithCameraPermission(content: @Composable () -> Unit) {
     } else {
         Message(
             title = "Doorbell Gate needs the camera",
-            detail = "The camera reads the QR code or barcode on each child's ID card. No pictures are saved.",
+            detail = "The camera reads the QR code on each child's ID card. No pictures are saved.",
             action = "Allow camera",
             onAction = { ask.launch(Manifest.permission.CAMERA) },
         )

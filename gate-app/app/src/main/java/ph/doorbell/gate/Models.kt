@@ -53,7 +53,7 @@ data class Student(
     val id: String,
     val firstName: String,
     val lastName: String,
-    val qrToken: String, // the text inside the ID card's QR code / barcode
+    val qrToken: String, // the text inside the ID card's QR code
     val revoked: Boolean, // true when the card was replaced (lost card)
 ) {
     val fullName get() = "$firstName $lastName"

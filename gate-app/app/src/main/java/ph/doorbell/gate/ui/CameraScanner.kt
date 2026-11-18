@@ -26,8 +26,8 @@ import java.util.concurrent.Executors
 // =====================================================================
 // CameraScanner.kt — THE LIVE CAMERA THAT READS ID CARDS
 // ---------------------------------------------------------------------
-// CameraX shows the back camera; every frame goes to ML Kit, which finds QR codes and
-// CODE-128 barcodes (the two kinds Doorbell prints on ID cards). It runs on the phone, so it
+// CameraX shows the back camera; every frame goes to ML Kit, which finds the QR code
+// Doorbell prints on ID cards (QR only). It runs on the phone, so it
 // works without internet. Frames are only read while `active` is true (after "Scan ID" is
 // pressed); onCode() is called with the text inside the code.
 // =====================================================================
@@ -43,7 +43,7 @@ fun CameraScanner(active: Boolean, onCode: (String) -> Unit, modifier: Modifier 
     DisposableEffect(owner) {
         val executor = Executors.newSingleThreadExecutor() // frames are read off the main thread
         val reader = BarcodeScanning.getClient(
-            BarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE, Barcode.FORMAT_CODE_128).build(),
+            BarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build(),
         )
         val providerFuture = ProcessCameraProvider.getInstance(context)
         providerFuture.addListener({

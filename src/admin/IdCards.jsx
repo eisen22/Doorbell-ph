@@ -10,17 +10,16 @@ import {
   LevelChips,
   countByGrade,
 } from '../ui';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import QRCode from 'qrcode';
-import JsBarcode from 'jsbarcode';
 
 // =====================================================================
-// ID CARDS (/admin/cards): printable QR and barcode cards for scanning at the gate.
+// ID CARDS (/admin/cards): printable QR code cards for scanning at the gate.
 // Pattern: useLive(...) loads data from the engine and reloads on any change; while loading,
 // <Skeleton> placeholders show; buttons call repo.something(...). Addresses are set in main.jsx.
 // =====================================================================
 // ---------------------------------------------------------------------
-// ID CARDS: printable cards or stickers with a QR code or barcode. The code holds only a
+// ID CARDS: printable cards or stickers with a QR code. The code holds only a
 // random token (never the child's name). "Print this card" prints one card for a lost card.
 // ---------------------------------------------------------------------
 /** Printable ID cards / stickers. Codes hold only a random token, never personal data. */
@@ -29,7 +28,6 @@ export function QrCards() {
   const [sectionId, setSectionId] = useState(null);
   const [level, setLevel] = useState('all');
   const [layout, setLayout] = useState('card');
-  const [format, setFormat] = useState('qr');
   const [printId, setPrintId] = useState(null);
   const [find, setFind] = useState('');
   const { data } = useLive(async (r) => ({
@@ -159,17 +157,6 @@ export function QrCards() {
               </button>
             </div>
           </div>
-          <div className="field">
-            <span>Code type</span>
-            <div className="chips">
-              <button className={`fchip ${format === 'qr' ? 'fchip-on' : ''}`} onClick={() => setFormat('qr')}>
-                QR code
-              </button>
-              <button className={`fchip ${format === 'code128' ? 'fchip-on' : ''}`} onClick={() => setFormat('code128')}>
-                Barcode (Code 128)
-              </button>
-            </div>
-          </div>
         </div>
         <p className="muted small note-row">
           <Info size={14} /> Print at 100% scale (not "fit to page"), black on white, matte lamination. A lost card: press "Reissue" on the Students
@@ -184,7 +171,7 @@ export function QrCards() {
         <div className={`print-sheet sheet-${layout} ${printId ? 'print-single' : ''}`}>
           {rows.map((r) => (
             <div key={r.student.id} className={`card-slot ${printId === r.student.id ? 'print-target' : ''}`}>
-              <IdCard row={r} layout={layout} format={format} color={sec.color} school={data.settings.schoolName} />
+              <IdCard row={r} layout={layout} color={sec.color} school={data.settings.schoolName} />
               <button className="btn btn-sm no-print slot-print" onClick={() => printOne(r)}>
                 <Printer size={14} /> Print this card
               </button>
@@ -195,16 +182,14 @@ export function QrCards() {
     </div>
   );
 }
-// One printable card. QR codes are drawn by the 'qrcode' package, barcodes (CODE128) by 'jsbarcode'.
-function IdCard({ row, layout, format, color, school }) {
+// One printable card. The QR code is drawn by the 'qrcode' package.
+function IdCard({ row, layout, color, school }) {
   const [qr, setQr] = useState('');
-  const svg = useRef(null);
   const token = row.student.qrToken;
   useEffect(() => {
-    if (format === 'qr') QRCode.toDataURL(token, { margin: 1, width: 240, errorCorrectionLevel: 'M' }).then(setQr);
-    else if (svg.current) JsBarcode(svg.current, token, { format: 'CODE128', displayValue: false, margin: 4, height: 50, width: 1.6 });
-  }, [token, format]);
-  const code = format === 'qr' ? <img src={qr} alt="" className="code-qr" /> : <svg ref={svg} className="code-bar" />;
+    QRCode.toDataURL(token, { margin: 1, width: 240, errorCorrectionLevel: 'M' }).then(setQr);
+  }, [token]);
+  const code = <img src={qr} alt="" className="code-qr" />;
   if (layout === 'sticker') {
     return (
       <div className="sticker" style={{ borderColor: color }}>

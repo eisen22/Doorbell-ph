@@ -444,11 +444,9 @@ a.kpi:hover { background: var(--surface) !important; }
 .idcard-text span { font-size: 10pt; color: #444; }
 .idcard-text em { font-style: normal; font-size: 7.5pt; font-weight: 700; padding: 0.6mm 2mm; border-radius: 99px; align-self: flex-start; margin-top: 1mm; }
 .idcard .code-qr { width: 28mm; height: 28mm; }
-.idcard .code-bar { width: 44mm; height: 16mm; }
 .sheet-sticker { display: grid; grid-template-columns: repeat(3, 63.5mm); gap: 0; background: #fff; width: max-content; }
 .sticker { width: 63.5mm; height: 33.9mm; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1mm; border: 1px dashed #ccc; break-inside: avoid; }
 .sticker .code-qr { width: 22mm; height: 22mm; }
-.sticker .code-bar { width: 54mm; height: 14mm; }
 .sticker strong { font-size: 9pt; }
 
 @media print {
