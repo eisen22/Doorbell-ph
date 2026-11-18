@@ -839,6 +839,43 @@ export function fitToSlots(program, gradeLevel, start, withTeachers = hasSubject
     return { start: slot.start, end: slot.end, subject, ...(withTeachers ? { teacherId } : {}) };
   });
 }
+/**
+ * Each class period's status for one child's day (the attendance history's "Full day" table):
+ *   [{ n, subject, start, end, status: 'present'|'late'|'absent'|'excused'|'left'|null, note }]
+ * Built from the day's record: the day status, a later-period arrival (joinedPeriod), excused periods,
+ * class periods missed at school (cuts, until "back in class"), and the gate scan-out. Periods that
+ * have not started yet (today, before `nowTime`) have status null.
+ */
+export function periodStatuses(rec, periods, nowTime = null) {
+  if (!rec || !periods?.length) return [];
+  const out = periods.map((p, i) => ({ n: i + 1, subject: p.subject, start: p.start, end: p.end, status: null, note: '' }));
+  const set = (n, status, note = '') => {
+    if (out[n - 1]) Object.assign(out[n - 1], { status, note });
+  };
+  const partial = rec.excusedPeriods?.length > 0;
+  if (rec.status === 'absent') out.forEach((o) => set(o.n, 'absent'));
+  else if (rec.status === 'excused' && !partial) out.forEach((o) => set(o.n, 'excused'));
+  else if (rec.status === 'present' || rec.status === 'late') {
+    const first = rec.joinedPeriod ?? 1;
+    out.forEach((o) => {
+      if (o.n < first) set(o.n, 'absent', 'Not in class yet');
+      else if (o.n === first) set(o.n, rec.status === 'late' || rec.joinedPeriod ? 'late' : 'present', rec.joinedPeriod ? 'Arrived this period' : '');
+      else set(o.n, 'present');
+    });
+  }
+  for (const n of rec.excusedPeriods ?? []) set(n, 'excused');
+  // Missed while at school: from the period marked until the period the child was back in class.
+  for (const c of rec.cuts ?? []) {
+    const until = c.backPeriod ?? out.length + 1;
+    for (let n = c.period; n < until; n++) set(n, 'absent', 'Not in class (at school)');
+    if (c.backPeriod) set(c.backPeriod, 'present', `Back in class at ${to12h(c.backAt)}`);
+  }
+  // Scanned out at the gate: the periods that start after it.
+  if (rec.scannedOut) out.forEach((o) => o.start >= rec.scannedOut && o.status !== 'excused' && set(o.n, 'left', `Left school at ${to12h(rec.scannedOut)}`));
+  // Today: periods that have not started yet (a teacher's mark for one, e.g. "back in class", is kept).
+  if (nowTime) out.forEach((o) => o.start > nowTime && !o.note && o.status !== 'excused' && set(o.n, null, 'Not yet'));
+  return out;
+}
 /** A sample class program for any grade from `start`, on the fixed DepEd slots. */
 export function sampleProgramFor(gradeLevel, start = '07:30', teacherFor = () => null, rotate = 0) {
   return fitToSlots([], gradeLevel, start, hasSubjectTeachers(gradeLevel), teacherFor, rotate);

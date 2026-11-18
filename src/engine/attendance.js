@@ -640,6 +640,8 @@ export const attendanceMethods = {
         excusedNote: r.excusedNote ?? null,
         excusedPeriods: r.excusedPeriods ?? null,
         cuts: this.cutsOn(r.sectionId, date, studentId),
+        // The class periods of that day's class (for the "Full day" table).
+        periods: classPeriods(sec?.program).map((p) => ({ subject: p.subject, start: p.start, end: p.end })),
         excuse: r.excuse ?? null,
         editedReason: r.editedReason ?? null,
         needsCheck: !!r.needsCheck,
@@ -659,6 +661,7 @@ export const attendanceMethods = {
     return {
       days,
       today,
+      nowTime: this.clock.peek(),
       year: this.year,
       calendar: [...this.s.calendar.values()],
       schedule: section?.schedule,

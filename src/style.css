@@ -1140,3 +1140,11 @@ textarea.input { height: auto; padding-top: 10px; padding-bottom: 10px; line-hei
 .cut-note { color: var(--late); font-weight: 600; }
 .sa-timeline li.sa-ev-cut::before { background: var(--absent); } .sa-timeline li.sa-ev-cut { color: var(--absent); }
 .seat-cut { margin-top: 12px; width: 100%; justify-content: center; }
+/* Attendance history: the full day by class period. */
+.sa-periods { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; }
+.sa-periods table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.sa-periods th { text-align: left; font-size: 12px; color: var(--muted); font-weight: 700; padding: 4px 6px; border-bottom: 1px solid var(--line); }
+.sa-periods td { padding: 5px 6px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.sa-periods tr:last-child td { border-bottom: 0; }
+.sa-period-note { margin-left: 4px; }
+.chip-left { background: var(--surface-2); color: var(--ink-2); }

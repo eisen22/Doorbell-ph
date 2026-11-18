@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, useMemo } from 'react';
-import { GRADE_LEVELS, gradeName, bySectionGrade, levelsLabel, manilaToday, addDays, isoWeekday, DAY_KIND_META, dayKind, classNow, classPhase, shortClassName, sortByStart, to12h, isSchoolDay, ordinal, periodsLabel } from './logic';
+import { GRADE_LEVELS, gradeName, bySectionGrade, levelsLabel, manilaToday, addDays, isoWeekday, DAY_KIND_META, dayKind, classNow, classPhase, shortClassName, sortByStart, to12h, isSchoolDay, ordinal, periodsLabel, periodStatuses } from './logic';
 import { DemoClock, Engine, noopPersistence, buildDemoState, demoAuth } from './engine';
 import { cloudConfigured, createCloudEngine } from './firebase';
 import { CheckCircle2, Clock3, XCircle, FileCheck2, CircleDashed, X, CalendarDays, ChevronLeft, ChevronRight, Eye, EyeOff } from 'lucide-react';
@@ -616,7 +616,7 @@ const TEXT_LABEL = {
   cut: '"Not in class for a period" text',
   back: '"Back in class" text',
 };
-function DayDetail({ date, rec, look, picked }) {
+function DayDetail({ date, rec, look, picked, today, nowTime }) {
   if (!date) return <p className="muted small sa-hint">Click a day to see its times.</p>;
   const when = format(parseISO(date), 'EEEE, MMMM d, yyyy');
   if (!rec) {
@@ -680,6 +680,7 @@ function DayDetail({ date, rec, look, picked }) {
       ) : (
         <p className="muted small">No times recorded for this day.</p>
       )}
+      <PeriodTable rows={periodStatuses(rec, rec.periods, date === today ? nowTime : null)} />
       <p className="muted small sa-notes">
         {!rec.scannedAt && (inClass ? 'Did not scan in at the gate (marked by the teacher). ' : 'No gate scan. ')}
         {inClass && !rec.scannedOut && 'Did not scan out. '}
@@ -689,6 +690,41 @@ function DayDetail({ date, rec, look, picked }) {
         {rec.excusedNote && `Excuse: ${rec.excusedNote}. `}
         {rec.editedReason && rec.status !== 'excused' && `Note: ${rec.editedReason}.`}
       </p>
+    </div>
+  );
+}
+// The full day, period by period (Period · Time · Subject · Status), under a day's timeline.
+const PERIOD_WORD = { left: 'Left school' };
+function PeriodTable({ rows }) {
+  if (!rows.length) return null;
+  return (
+    <div className="sa-periods">
+      <strong className="small">Full day, by class period</strong>
+      <table>
+        <thead>
+          <tr>
+            <th>Period</th>
+            <th>Time</th>
+            <th>Subject</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.n}>
+              <td>{ordinal(r.n)}</td>
+              <td className="mono">
+                {to12h(r.start)} – {to12h(r.end)}
+              </td>
+              <td>{r.subject}</td>
+              <td>
+                {r.status && STATUS_META[r.status] ? <StatusChip status={r.status} /> : r.status ? <span className="chip chip-left">{PERIOD_WORD[r.status]}</span> : null}
+                {r.note && <span className="muted small sa-period-note"> {r.note}</span>}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -740,7 +776,7 @@ export function StudentAttendanceModal({ student, section, onClose }) {
           </span>
         ))}
       </div>
-      <DayDetail date={picked ?? (days[today] ? today : Object.keys(days).sort().at(-1))} rec={days[picked ?? (days[today] ? today : Object.keys(days).sort().at(-1))]} look={look} picked={!!picked} />
+      <DayDetail date={picked ?? (days[today] ? today : Object.keys(days).sort().at(-1))} rec={days[picked ?? (days[today] ? today : Object.keys(days).sort().at(-1))]} look={look} picked={!!picked} today={today} nowTime={data.nowTime} />
       <div className="sa-months">
         {months.map((first) => {
           const lead = isoWeekday(first) % 7; // Sunday-first grid
