@@ -12,6 +12,8 @@ import {
   Phone,
   List,
   Armchair,
+  UserX,
+  CornerDownLeft,
 } from 'lucide-react';
 import {
   addDays,
@@ -90,6 +92,9 @@ export function Attendance() {
   const [pending, setPending] = useState(null);
   // arrived = a child being confirmed after the class was already confirmed (classes with subject teachers ask which period).
   const [arrived, setArrived] = useState(null);
+  // cutting = a child at school but not in a period's class ({ row, back: false }), or coming back ({ row, back: true }).
+  const [cutting, setCutting] = useState(null);
+  const [cutPeriod, setCutPeriod] = useState(1);
   const [period, setPeriod] = useState(2);
   const [excuseWhole, setExcuseWhole] = useState(true); // Excused: the whole day, or some periods only
   const [excusedPeriods, setExcusedPeriods] = useState([]);
@@ -198,6 +203,33 @@ export function Attendance() {
     await repo.setStatus({ sectionId: section.id, date: day, studentId: row.student.id, status, period });
     setArrived(null);
     flash(`${row.student.firstName} marked ${status}. The parent is texted.`);
+  };
+  // Missed class periods: only today, after the class is confirmed, for a child who is Present or Late.
+  const canCut = (row) =>
+    !!confirmation && day === today.date && periods.length > 0 && (row.record?.status === 'present' || row.record?.status === 'late');
+  const openCutOf = (row) => row.cuts?.find((c) => !c.backAt);
+  const askCut = (row) => {
+    const back = !!openCutOf(row);
+    const now = periodAt(section.program, today.time)?.n ?? 1;
+    setCutPeriod(back ? Math.max(now, openCutOf(row).period) : now);
+    setError(null);
+    setCutting({ row, back });
+  };
+  const saveCut = async () => {
+    const { row, back } = cutting;
+    try {
+      const args = { sectionId: section.id, date: day, studentId: row.student.id, period: cutPeriod };
+      const r = back ? await repo.markBack(args) : await repo.markCut(args);
+      setCutting(null);
+      const texted = r?.texted ? 'The parent is texted.' : 'No text sent (no SMS consent on file).';
+      flash(
+        back
+          ? `${row.student.firstName} is back in class. ${texted}`
+          : `${row.student.firstName} marked not in class for the ${ordinal(cutPeriod)} period. Staff are alerted. ${texted}`,
+      );
+    } catch (e) {
+      setError(e.message);
+    }
   };
   const savePending = async () => {
     if (!pending) return;
@@ -394,6 +426,8 @@ export function Attendance() {
               layout={seating}
               canEdit={canArrange}
               onChoose={choose}
+              cutFor={(row) => (canCut(row) ? (openCutOf(row) ? 'back' : 'cut') : null)}
+              onCut={askCut}
               onSave={async (layout) => {
                 await repo.saveSeating(section.id, layout);
                 flash('Seating chart saved. Every teacher of this class sees it.');
@@ -440,6 +474,13 @@ export function Attendance() {
                             · joined at the {ordinal(row.record.joinedPeriod)} period{row.record.joinedSubject ? ` (${row.record.joinedSubject})` : ''}
                           </span>
                         )}
+                        {row.cuts?.map((c) => (
+                          <span key={c.period} className={c.backAt ? 'cut-note' : 'missing-note'}>
+                            {' '}
+                            · {c.backAt ? 'missed' : 'NOT IN CLASS since'} the {ordinal(c.period)} period{c.subject ? ` (${c.subject})` : ''}
+                            {c.backAt ? `, back at ${to12h(c.backAt)}` : ': look for the child'}
+                          </span>
+                        ))}
                         {(st === 'present' || st === 'late') && row.record?.earlierText && (
                           <span>
                             {' '}
@@ -489,6 +530,16 @@ export function Attendance() {
                         </button>
                       ))}
                     </div>
+                    {canCut(row) &&
+                      (openCutOf(row) ? (
+                        <button className="btn btn-sm cut-btn cut-back" onClick={() => askCut(row)}>
+                          <CornerDownLeft size={14} /> Back in class
+                        </button>
+                      ) : (
+                        <button className="btn btn-sm cut-btn" onClick={() => askCut(row)} title="At school today but not in this period's class">
+                          <UserX size={14} /> Not in class this period
+                        </button>
+                      ))}
                   </li>
                 );
               })}
@@ -586,6 +637,49 @@ export function Attendance() {
             The parent gets: "{arrived.row.student.firstName} arrived at school at {to12h(arrived.row.record?.scannedAt ?? today.time)} (
             {ordinal(period)} period{periods[period - 1] ? `, ${periods[period - 1].subject}` : ''}) and is in class, confirmed by the teacher."
           </p>
+        </Modal>
+      )}
+
+      {/* Missed class period: which period, and what happens (staff alert, parent text). */}
+      {cutting && (
+        <Modal
+          title={cutting.back ? `${cutting.row.student.firstName} is back in class` : `${cutting.row.student.firstName} is not in class?`}
+          onClose={() => setCutting(null)}
+          footer={
+            <>
+              <button className="btn" onClick={() => setCutting(null)}>
+                Cancel
+              </button>
+              <button className={`btn ${cutting.back ? 'btn-ink' : 'btn-danger'}`} onClick={saveCut}>
+                {cutting.back ? 'Back in class: text the parent' : 'Not in class: alert staff and text the parent'}
+              </button>
+            </>
+          }
+        >
+          <label className="field">
+            <span>{cutting.back ? `Which period is ${cutting.row.student.firstName} back in?` : `Which period is ${cutting.row.student.firstName} missing?`}</span>
+            <select className="input" value={cutPeriod} onChange={(e) => setCutPeriod(Number(e.target.value))} autoFocus>
+              {periods.map((p, i) =>
+                cutting.back && i + 1 < openCutOf(cutting.row).period ? null : (
+                  <option key={i} value={i + 1}>
+                    {ordinal(i + 1)} period · {p.subject} · {to12h(p.start)}
+                  </option>
+                ),
+              )}
+            </select>
+          </label>
+          {cutting.back ? (
+            <p className="muted small">
+              The parent gets: "{cutting.row.student.firstName} is back in class at {to12h(today.time)} ({ordinal(cutPeriod)} period
+              {periods[cutPeriod - 1] ? `, ${periods[cutPeriod - 1].subject}` : ''}), confirmed by the teacher." The staff alert is closed.
+            </p>
+          ) : (
+            <p className="muted small">
+              {cutting.row.student.firstName} is marked {cutting.row.record.status} for the day and stays that way; this period is recorded as
+              missed. Staff get an urgent alert to look for the child, and the parent gets a text now. Missed periods count in Absence Watch.
+            </p>
+          )}
+          {error && <p className="error">{error}</p>}
         </Modal>
       )}
 

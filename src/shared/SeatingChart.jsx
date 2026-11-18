@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Armchair, Pencil, Shuffle, Eraser, Save, X } from 'lucide-react';
+import { Armchair, Pencil, Shuffle, Eraser, Save, X, UserX, CornerDownLeft } from 'lucide-react';
 import { Modal } from '../ui';
 import { to12h } from '../logic';
 
@@ -20,7 +20,8 @@ const AISLE = { close: 18, normal: 28, wide: 40 }; // px of an aisle
 // A new chart: 6 rows of 6 seats, an aisle every 2 columns.
 const blank = { rows: 6, cols: 6, aisleEvery: 2, spacing: 'normal', seats: {} };
 
-export function SeatingChart({ section, roster, layout, canEdit, onChoose, onSave }) {
+// cutFor(row): 'cut' | 'back' | null (the "Not in class this period" / "Back in class" button); onCut(row) opens it.
+export function SeatingChart({ section, roster, layout, canEdit, onChoose, onSave, cutFor = () => null, onCut }) {
   const [draft, setDraft] = useState(null); // arranging: a copy of the layout being changed
   const [open, setOpen] = useState(null); // the child whose status window is open (a roster row)
   const [pick, setPick] = useState(null); // arranging: the seat being filled ('row-col')
@@ -173,7 +174,7 @@ export function SeatingChart({ section, roster, layout, canEdit, onChoose, onSav
                   <button
                     key={key}
                     type="button"
-                    className={`seat ${row ? `st-${st ?? 'none'}` : 'seat-free'} ${row?.record?.needsCheck ? 'seat-check' : ''} ${draft && pick === key ? 'seat-picking' : ''}`}
+                    className={`seat ${row ? `st-${st ?? 'none'}` : 'seat-free'} ${row?.record?.needsCheck || row?.cuts?.some((c) => !c.backAt) ? 'seat-check' : ''} ${draft && pick === key ? 'seat-picking' : ''}`}
                     onClick={() => (draft ? setPick(key) : row && setOpen(row))}
                     disabled={!draft && !row}
                     aria-label={
@@ -186,7 +187,17 @@ export function SeatingChart({ section, roster, layout, canEdit, onChoose, onSav
                       <>
                         <b>{row.student.lastName}</b>
                         <span>{row.student.firstName}</span>
-                        {!draft && <i>{st ? WORD[st] : row.record?.scannedAt ? `In ${to12h(row.record.scannedAt)}` : '—'}</i>}
+                        {!draft && (
+                          <i>
+                            {row.cuts?.some((c) => !c.backAt)
+                              ? 'Not in class'
+                              : st
+                                ? WORD[st]
+                                : row.record?.scannedAt
+                                  ? `In ${to12h(row.record.scannedAt)}`
+                                  : '—'}
+                          </i>
+                        )}
                       </>
                     ) : (
                       <span className="muted">{draft ? '+ Seat' : ''}</span>
@@ -242,6 +253,26 @@ export function SeatingChart({ section, roster, layout, canEdit, onChoose, onSav
               </button>
             ))}
           </div>
+          {cutFor(open) && (
+            <button
+              className={`btn btn-sm cut-btn ${cutFor(open) === 'back' ? 'cut-back' : ''} seat-cut`}
+              onClick={() => {
+                const row = open;
+                setOpen(null);
+                onCut(row);
+              }}
+            >
+              {cutFor(open) === 'back' ? (
+                <>
+                  <CornerDownLeft size={14} /> Back in class
+                </>
+              ) : (
+                <>
+                  <UserX size={14} /> Not in class this period
+                </>
+              )}
+            </button>
+          )}
         </Modal>
       )}
 

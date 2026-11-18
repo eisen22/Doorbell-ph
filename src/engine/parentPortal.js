@@ -77,6 +77,11 @@ export const parentPortalMethods = {
         ...(r.joinedPeriod ? { p: r.joinedPeriod, j: r.joinedSubject ?? null } : {}),
         ...(r.earlierText ? { e: r.earlierText, et: r.earlierTextAt } : {}),
         ...(r.excusedPeriods?.length ? { xp: r.excusedPeriods } : {}), // excused for these class periods only
+        // Class periods missed at school: n period, j subject, a time marked, b back in class (time), bp back period
+        ...(() => {
+          const cuts = this.cutsOn(r.sectionId, date, studentId);
+          return cuts.length ? { x: cuts.map((c) => ({ n: c.period, j: c.subject ?? null, a: c.start ?? c.at, b: c.backAt ?? null, bp: c.backPeriod ?? null })) } : {};
+        })(),
       };
     }
     // Class days with no class (holidays, breaks, suspensions, teacher absent), with their names.

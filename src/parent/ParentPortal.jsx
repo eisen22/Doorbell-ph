@@ -434,6 +434,11 @@ function timesOf(rec, date, today, endTime) {
       ? `Confirmed in class by the teacher: ${to12h(rec.c)}${rec.s === 'late' ? ' (late)' : ''}${joined}`
       : `In class${rec.s === 'late' ? ' (late)' : ''}${joined}`,
   );
+  // Class periods missed while at school, and when the child was back in class.
+  for (const c of rec.x ?? [])
+    lines.push(
+      `Not in class for the ${ordinal(c.n)} period${c.j ? ` (${c.j})` : ''}${c.b ? `, back in class at ${to12h(c.b)}` : ''}`,
+    );
   const nowTime = manilaTime();
   if (rec.o) lines.push(`Scanned out at the gate: ${to12h(rec.o)}`);
   else if (date < today || (endTime && nowTime > endTime)) lines.push('Did not scan out');
@@ -452,6 +457,10 @@ function rowsOf(rec, date, today, endTime) {
     if (rec.e && rec.et) rows.push([rec.e === 'missing' ? 'Text sent: entered the school but not in class yet' : 'Text sent: absent at the 1st period', to12h(rec.et)]);
     const joined = rec.p ? ` (joined at the ${ordinal(rec.p)} period${rec.j ? `, ${rec.j}` : ''})` : '';
     rows.push([`Confirmed in class by the teacher${rec.s === 'late' ? ', late' : ''}${joined}`, rec.c ? to12h(rec.c) : '—']);
+    for (const c of rec.x ?? []) {
+      rows.push([`Not in class: ${ordinal(c.n)} period${c.j ? ` (${c.j})` : ''}`, c.a ? to12h(c.a) : '—']);
+      if (c.b) rows.push([`Back in class${c.bp ? ` (${ordinal(c.bp)} period)` : ''}`, to12h(c.b)]);
+    }
     const nowTime = manilaTime();
     rows.push(['Scanned out at the gate', rec.o ? to12h(rec.o) : date < today || (endTime && nowTime > endTime) ? 'Did not scan out' : 'Not yet']);
   }

@@ -269,6 +269,9 @@ export const DEFAULT_LIMITS = {
   absentSemester: { watch: 6, alert: 10, serious: 18 },
   lateMonth: { watch: 3, alert: 5 },
   lateSemester: { alert: 10, serious: 15 },
+  // Class periods missed while at school ("cutting class": present for the day, not in one period's class).
+  cutMonth: { watch: 2, alert: 3 },
+  cutSemester: { alert: 6, serious: 10 },
 };
 
 /** The semester a date is in: { key: 'S1'|'S2', from, to }. The 2nd starts on `secondStart` (default: halfway). */
@@ -286,15 +289,21 @@ export function semesterOf(date, year, secondStart) {
  * Counts one child's absences, excused days and lates this month and this semester, up to `date`,
  * on class days only (a day later made a break or holiday is not counted).
  */
-export function attendanceTotals(date, statusByDate, schedule, calendar, year, secondStart) {
+// cutsByDate (optional): { '2026-11-18': 1, ... } class periods missed at school on each day.
+export function attendanceTotals(date, statusByDate, schedule, calendar, year, secondStart, cutsByDate = {}) {
   const sem = semesterOf(date, year, secondStart);
   const monthFrom = `${date.slice(0, 7)}-01`;
   const out = {
     monthKey: date.slice(0, 7),
     semesterKey: sem.key,
-    month: { absent: 0, excused: 0, late: 0 },
-    semester: { absent: 0, excused: 0, late: 0 },
+    month: { absent: 0, excused: 0, late: 0, cut: 0 },
+    semester: { absent: 0, excused: 0, late: 0, cut: 0 },
   };
+  for (const [d, n] of Object.entries(cutsByDate)) {
+    if (d > date || (d < sem.from && d < monthFrom) || !isSchoolDay(d, schedule, calendar)) continue;
+    if (d >= sem.from) out.semester.cut += n;
+    if (d >= monthFrom) out.month.cut += n;
+  }
   for (const [d, st] of Object.entries(statusByDate)) {
     if (d > date || (d < sem.from && d < monthFrom) || !isSchoolDay(d, schedule, calendar)) continue;
     if (st !== 'absent' && st !== 'excused' && st !== 'late') continue;
@@ -314,6 +323,8 @@ export function totalLevels(t, limits = DEFAULT_LIMITS) {
     absentSemester: level(t.semester.absent, t.semester.absent + t.semester.excused, limits.absentSemester),
     lateMonth: level(t.month.late, t.month.late, limits.lateMonth),
     lateSemester: level(t.semester.late, t.semester.late, limits.lateSemester),
+    cutMonth: level(t.month.cut ?? 0, t.month.cut ?? 0, limits.cutMonth ?? DEFAULT_LIMITS.cutMonth),
+    cutSemester: level(t.semester.cut ?? 0, t.semester.cut ?? 0, limits.cutSemester ?? DEFAULT_LIMITS.cutSemester),
   };
 }
 
@@ -321,6 +332,10 @@ export function totalLevels(t, limits = DEFAULT_LIMITS) {
 export function describeTotal(metric, n, lang = 'en') {
   const absent = metric.startsWith('absent');
   const month = metric.endsWith('Month');
+  if (metric.startsWith('cut')) {
+    if (lang === 'fil') return `wala sa klase sa isang period nang ${n} beses ngayong ${month ? 'buwan' : 'semestre'} kahit nasa paaralan`;
+    return `missing from a class period ${n} ${n === 1 ? 'time' : 'times'} this ${month ? 'month' : 'semester'} while at school`;
+  }
   if (lang === 'fil') return `${absent ? 'absent' : 'late'} nang ${n} ${absent ? 'araw' : 'beses'} ngayong ${month ? 'buwan' : 'semestre'}`;
   return `${absent ? 'absent' : 'late'} ${n} ${absent ? (n === 1 ? 'day' : 'days') : n === 1 ? 'time' : 'times'} this ${month ? 'month' : 'semester'}`;
 }

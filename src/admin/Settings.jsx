@@ -40,6 +40,8 @@ const KIND_LABELS = {
   streak: '3-day alert',
   total: 'Monthly / semester total',
   missing: 'Scanned at the gate but not in class',
+  cut: 'At school but not in class for a period',
+  back: 'Back in class after missing a period',
   departure: 'Left school (scanned out at the gate)',
   pickedUp: 'Picked up (marked by the school, e.g. no ID card)',
 };
@@ -99,7 +101,7 @@ export function AdminSettings() {
     contact: s.contactNumber,
     streak: describeStreak({ count: 3, absent: 3, late: 0 }, lang),
     summary: describeTotal('absentMonth', 5, lang),
-    period: lang === 'fil' ? 'ika-2 na period' : '2nd period',
+    period: lang === 'fil' ? 'ika-6 na period, MAPEH' : '6th period, MAPEH',
   });
   const setTpl = (lang, k, v) => setS({ ...s, templates: { ...s.templates, [lang]: { ...s.templates[lang], [k]: v } } });
   const dirty = JSON.stringify(s) !== JSON.stringify(data);
@@ -267,7 +269,7 @@ export function AdminSettings() {
           </div>
           {TEMPLATE_KINDS.map((k) => (
             <section key={k} className="tpl-row">
-              <span className={`kind kind-${k === 'laterPeriod' ? 'late' : k === 'absent' ? 'streak' : k === 'pickedUp' ? 'departure' : k}`}>{KIND_LABELS[k]}</span>
+              <span className={`kind kind-${k === 'laterPeriod' ? 'late' : k === 'absent' ? 'streak' : k === 'pickedUp' ? 'departure' : k === 'cut' ? 'missing' : k === 'back' ? 'arrival' : k}`}>{KIND_LABELS[k]}</span>
               <div className="tpl-pair">
                 {['en', 'fil'].map((lang) => {
                   const preview = renderTemplate(s.templates[lang][k], varsFor(lang));
@@ -631,6 +633,8 @@ const LIMIT_ROWS = [
   ['absentSemester', 'Absences in a semester', ['watch', 'alert', 'serious']],
   ['lateMonth', 'Lates in a month', ['watch', 'alert']],
   ['lateSemester', 'Lates in a semester', ['alert', 'serious']],
+  ['cutMonth', 'Class periods missed at school in a month', ['watch', 'alert']],
+  ['cutSemester', 'Class periods missed at school in a semester', ['alert', 'serious']],
 ];
 const LEVEL_WORD = { watch: 'Watch', alert: 'Text parent', serious: 'Conference' };
 function LimitsCard({ s, setS }) {

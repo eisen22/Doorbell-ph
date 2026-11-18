@@ -613,6 +613,8 @@ const TEXT_LABEL = {
   missing: '"Not in class" text',
   streak: 'Days-in-a-row text',
   total: 'Absence total text',
+  cut: '"Not in class for a period" text',
+  back: '"Back in class" text',
 };
 function DayDetail({ date, rec, look, picked }) {
   if (!date) return <p className="muted small sa-hint">Click a day to see its times.</p>;
@@ -650,6 +652,12 @@ function DayDetail({ date, rec, look, picked }) {
   } else if (cc?.at) {
     events.push({ at: cc.at, text: `Class attendance confirmed${by(cc.by)}: ${rec.status === 'excused' ? 'excused' : 'not in class'}`, strong: rec.status !== 'excused' });
   }
+  // Class periods missed while at school, and when the child came back.
+  for (const c of rec.cuts ?? []) {
+    const what = `the ${ordinal(c.period)} period${c.subject ? ` (${c.subject})` : ''}`;
+    events.push({ at: c.at, text: `Not in class for ${what}${by(c.by)}`, strong: true, cut: true });
+    if (c.backAt) events.push({ at: c.backAt, text: `Back in class (${ordinal(c.backPeriod)} period${c.backSubject ? `, ${c.backSubject}` : ''})${by(c.backBy)}` });
+  }
   for (const t of rec.texts ?? []) events.push({ at: t.at, text: `${TEXT_LABEL[t.kind] ?? 'Text'} to the parent${t.status === 'failed' ? ' (not delivered)' : ''}`, sms: true });
   if (rec.scannedOut) events.push({ at: rec.scannedOut, text: 'Scanned out at the gate' });
   events.sort((a, b) => a.at.localeCompare(b.at));
@@ -663,7 +671,7 @@ function DayDetail({ date, rec, look, picked }) {
       {events.length ? (
         <ol className="sa-timeline">
           {events.map((e, i) => (
-            <li key={i} className={`${e.strong ? 'sa-ev-strong' : ''} ${e.sms ? 'sa-ev-sms' : ''}`}>
+            <li key={i} className={`${e.strong ? 'sa-ev-strong' : ''} ${e.sms ? 'sa-ev-sms' : ''} ${e.cut ? 'sa-ev-cut' : ''}`}>
               <span className="sa-ev-time">{to12h(e.at)}</span>
               <span>{e.text}</span>
             </li>

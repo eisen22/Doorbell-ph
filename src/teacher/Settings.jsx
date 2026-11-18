@@ -21,6 +21,8 @@ const KIND_LABELS = {
   streak: '3-day alert',
   total: 'Monthly / semester total',
   missing: 'Scanned at the gate but not in class',
+  cut: 'At school but not in class for a period',
+  back: 'Back in class after missing a period',
   departure: 'Left school (scanned out at the gate)',
   pickedUp: 'Picked up (marked by the school, e.g. no ID card)',
 };
@@ -106,10 +108,11 @@ export function SettingsPage() {
                   contact: settings.contactNumber,
                   streak: describeStreak(sample, lang),
                   summary: describeTotal('absentMonth', 5, lang),
+                  period: lang === 'fil' ? 'ika-6 na period, MAPEH' : '6th period, MAPEH',
                 });
                 return (
                   <div key={k} className="tpl">
-                    <span className={`kind kind-${k.replace('Auto', '')}`}>{KIND_LABELS[k]}</span>
+                    <span className={`kind kind-${k === 'cut' ? 'missing' : k === 'back' ? 'arrival' : k.replace('Auto', '')}`}>{KIND_LABELS[k]}</span>
                     <p>{text}</p>
                     <span className={`muted small ${text.length > 160 ? 'over' : ''}`}>
                       {text.length}/160 · {smsSegments(text)} SMS

@@ -213,7 +213,9 @@ export function AbsenceWatch() {
           Limits: absent {data.limits.absentMonth.watch} days a month (watch) or {data.limits.absentMonth.alert} (parent texted), {data.limits.absentSemester.watch}{' '}
           a semester (watch), {data.limits.absentSemester.alert} (parent texted) or {data.limits.absentSemester.serious} (parent conference). Late{' '}
           {data.limits.lateMonth.watch} times a month (watch) or {data.limits.lateMonth.alert} (parent texted), {data.limits.lateSemester.alert} a semester
-          (parent texted) or {data.limits.lateSemester.serious} (parent conference). Excused days count toward watch only. Change them in Settings.
+          (parent texted) or {data.limits.lateSemester.serious} (parent conference). Class periods missed while at school{' '}
+          {data.limits.cutMonth?.watch} a month (watch) or {data.limits.cutMonth?.alert} (parent texted), {data.limits.cutSemester?.alert} a semester
+          (parent texted) or {data.limits.cutSemester?.serious} (parent conference). Excused days count toward watch only. Change them in Settings.
         </p>
       </Card>
       <p className="muted small">
@@ -231,7 +233,14 @@ const LEVEL = {
   alert: { cls: 'streak streak-hot', word: 'Parent texted' },
   serious: { cls: 'streak streak-hot', word: 'Parent conference' },
 };
-const WHAT = { absentMonth: 'absent this month', absentSemester: 'absent this semester', lateMonth: 'late this month', lateSemester: 'late this semester' };
+const WHAT = {
+  absentMonth: 'absent this month',
+  absentSemester: 'absent this semester',
+  lateMonth: 'late this month',
+  lateSemester: 'late this semester',
+  cutMonth: 'class periods missed this month',
+  cutSemester: 'class periods missed this semester',
+};
 function TotalsTable({ rows, onOpen }) {
   return (
     <div className="table-wrap">
@@ -248,7 +257,14 @@ function TotalsTable({ rows, onOpen }) {
         <tbody>
           {rows.map((r) => {
             const t = r.totals;
-            const n = { absentMonth: t.month.absent, absentSemester: t.semester.absent, lateMonth: t.month.late, lateSemester: t.semester.late };
+            const n = {
+              absentMonth: t.month.absent,
+              absentSemester: t.semester.absent,
+              lateMonth: t.month.late,
+              lateSemester: t.semester.late,
+              cutMonth: t.month.cut ?? 0,
+              cutSemester: t.semester.cut ?? 0,
+            };
             return (
               <tr key={r.student.id}>
                 <td>
@@ -271,11 +287,13 @@ function TotalsTable({ rows, onOpen }) {
                   <span className={t.month.absent ? 'tot-absent' : ''}>{t.month.absent} absent</span>
                   {t.month.excused ? <span className="muted"> +{t.month.excused} excused</span> : null}
                   <span className={`block ${t.month.late ? 'tot-late' : ''}`}>{t.month.late} late</span>
+                  {t.month.cut ? <span className="block tot-absent">{t.month.cut} {t.month.cut === 1 ? 'period' : 'periods'} missed</span> : null}
                 </td>
                 <td className="tot">
                   <span className={t.semester.absent ? 'tot-absent' : ''}>{t.semester.absent} absent</span>
                   {t.semester.excused ? <span className="muted"> +{t.semester.excused} excused</span> : null}
                   <span className={`block ${t.semester.late ? 'tot-late' : ''}`}>{t.semester.late} late</span>
+                  {t.semester.cut ? <span className="block tot-absent">{t.semester.cut} {t.semester.cut === 1 ? 'period' : 'periods'} missed</span> : null}
                 </td>
                 <td>
                   <span className="chips-inline">

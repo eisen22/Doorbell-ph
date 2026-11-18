@@ -1134,3 +1134,9 @@ textarea.input { height: auto; padding-top: 10px; padding-bottom: 10px; line-hei
 .change-pw { display: flex; flex-direction: column; gap: 12px; max-width: 420px; }
 .change-pw-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
 .ok-note { color: var(--ok); font-weight: 600; font-size: 14px; margin: 0; }
+/* Missed class periods (Attendance): the button under the status buttons, and the note in the row. */
+.cut-btn { color: var(--absent); border-color: var(--absent-bg); }
+.cut-btn.cut-back { color: var(--ok); border-color: var(--ok-bg); }
+.cut-note { color: var(--late); font-weight: 600; }
+.sa-timeline li.sa-ev-cut::before { background: var(--absent); } .sa-timeline li.sa-ev-cut { color: var(--absent); }
+.seat-cut { margin-top: 12px; width: 100%; justify-content: center; }

@@ -131,7 +131,15 @@ export const textsMethods = {
   },
   // One child's absences and lates this month and this semester (not in a row), with their levels.
   totalsFor(section, studentId, date) {
-    const t = attendanceTotals(date, this.statusMap(section.id, studentId), section.schedule, this.s.calendar, this.year, this.settings.semester2Start);
+    const t = attendanceTotals(
+      date,
+      this.statusMap(section.id, studentId),
+      section.schedule,
+      this.s.calendar,
+      this.year,
+      this.settings.semester2Start,
+      this.cutsByDate(studentId),
+    );
     return { ...t, levels: totalLevels(t, this.limits) };
   },
   // =====================================================================
@@ -146,7 +154,8 @@ export const textsMethods = {
       if (level !== 'alert' && level !== 'serious') continue;
       const month = metric.endsWith('Month');
       const period = month ? t.monthKey : `${this.year.id ?? this.year.start}-${t.semesterKey}`;
-      const n = metric.startsWith('absent') ? (month ? t.month.absent : t.semester.absent) : month ? t.month.late : t.semester.late;
+      const what0 = metric.startsWith('absent') ? 'absent' : metric.startsWith('late') ? 'late' : 'cut';
+      const n = (month ? t.month : t.semester)[what0];
       const id = `tot_${stu.id}_${metric}_${period}_${level}`;
       if (this.s.notifications.has(id)) continue; // already handled for this period and level
       const sms = level === 'alert' && text ? this.queueSms(stu, 'total', { id, metric, count: n, date, sectionId: section.id, createdAt: at }) : null;

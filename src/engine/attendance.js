@@ -15,6 +15,7 @@ import {
   toMinutes,
   displayPhMobile,
   periodsLabel,
+  ordinal,
 } from '../logic';
 import { dayId, byName } from './util';
 
@@ -32,6 +33,8 @@ export const attendanceMethods = {
         student,
         guardian: this.guardianOf(student.id),
         record,
+        // Class periods missed while at school today (see markCut), oldest first.
+        cuts: this.cutsOn(sectionId, date, student.id),
         // A parent's excuse for this day that the adviser approved (Parent portal): every teacher of the
         // class sees it on the class list, even before the class is confirmed.
         excuse: (() => {
@@ -389,6 +392,109 @@ export const attendanceMethods = {
     if (locked || input.date < this.clock.today()) this.syncParentDays([input.studentId], [input.date.slice(0, 7)]);
     this.emit();
   },
+  // =====================================================================
+  // MISSED CLASS PERIODS ("cutting class"): a child who is at school (Present or Late for the day)
+  // is not in one period's class. The day stays Present or Late; the missed period is saved in the
+  // day's attendance document under cuts.<childId> = [{ period, subject, start, at, by, backAt?, ... }].
+  //   markCut:  a teacher of the class says the child is not in their period's class. Staff get an urgent
+  //             alert (the child is somewhere in the school), the parent is texted (today only), and the
+  //             month and semester totals are checked (Settings -> limits: "class periods missed").
+  //   markBack: the child is in class again (the period they came back in). The alert is closed and the
+  //             parent is texted "back in class".
+  // =====================================================================
+  cutsOn(sectionId, date, studentId) {
+    return this.s.attendance.get(dayId(sectionId, date))?.cuts?.[studentId] ?? [];
+  },
+  // Periods missed at school per day for one child, every class: { '2026-11-18': 1, ... } (for the totals).
+  cutsByDate(studentId) {
+    const out = {};
+    for (const day of this.s.attendance.values()) {
+      const n = day.cuts?.[studentId]?.length;
+      if (n) out[day.date] = (out[day.date] ?? 0) + n;
+    }
+    return out;
+  },
+  async markCut({ sectionId, date, studentId, period }) {
+    await this.ready;
+    const sec = this.s.sections.get(sectionId);
+    const stu = this.s.students.get(studentId);
+    const rec = this.record(sectionId, date, studentId);
+    if (!sec || !stu) throw new Error('Child or class not found.');
+    if (!rec || (rec.status !== 'present' && rec.status !== 'late'))
+      throw new Error(`Only a child who is Present or Late today can be marked not in class for a period. If ${stu.firstName} did not come to school, mark Absent.`);
+    const n = Number(period);
+    const p = classPeriods(sec.program)[n - 1];
+    const id = dayId(sectionId, date);
+    const day = this.s.attendance.get(id);
+    const list = day.cuts?.[studentId] ?? [];
+    if (list.some((c) => c.period === n)) throw new Error(`${stu.firstName} is already marked not in class for the ${ordinal(n)} period.`);
+    if (list.some((c) => !c.backAt)) throw new Error(`${stu.firstName} is still marked not in class. Press "Back in class" first.`);
+    const now = this.clock.peek();
+    const cut = { period: n, subject: p?.subject ?? null, start: p?.start ?? null, at: now, by: this.actor() };
+    day.cuts = { ...(day.cuts ?? {}), [studentId]: [...list, cut].sort((a, b) => a.period - b.period) };
+    this.put('attendance', id, day);
+    const live = date === this.clock.today();
+    const what = `the ${ordinal(n)} period${cut.subject ? ` (${cut.subject}${cut.start ? `, ${to12h(cut.start)}` : ''})` : ''}`;
+    // CHILD SAFETY: the child came to school and is somewhere in it. Staff are alerted right away.
+    const g = this.guardianOf(stu.id);
+    const smsId = `cut_${stu.id}_${date}_${n}`;
+    const sms = live && !this.s.sms.has(smsId)
+      ? this.queueSms(stu, 'cut', { id: smsId, time: cut.start ?? now, period: n, subject: cut.subject, date, sectionId })
+      : null;
+    const alert = {
+      id: `cut_${stu.id}_${date}_${n}`,
+      kind: 'missing',
+      studentId: stu.id,
+      sectionId,
+      createdAt: this.nowIso(date),
+      read: false,
+      title: `${stu.firstName} ${stu.lastName} is at school but not in class for ${what}`,
+      body: `Marked by ${this.actor()} at ${to12h(now)} in ${sec.name}. Look for the child now (gate, office, comfort rooms, canteen, other rooms)${
+        g ? `, and call ${g.name} at ${displayPhMobile(g.mobile)} if not found` : ''
+      }. ${sms ? 'The parent was sent a text.' : live ? 'No text sent (no SMS consent on file).' : ''}`.trim(),
+    };
+    this.s.notifications.set(alert.id, alert);
+    this.put('notifications', alert.id, alert);
+    await this.logAudit('attendance.cut', `${stu.firstName} ${stu.lastName}`, `${date}: not in class for ${what}`);
+    // The month and semester counts of missed periods (texts only today).
+    this.checkTotals(sec, stu, date, this.nowIso(), live);
+    if (this.s.confirmations.has(id) || date < this.clock.today()) this.syncParentDays([studentId], [date.slice(0, 7)]);
+    this.emit();
+    return { ...cut, texted: !!sms };
+  },
+  async markBack({ sectionId, date, studentId, period }) {
+    await this.ready;
+    const sec = this.s.sections.get(sectionId);
+    const stu = this.s.students.get(studentId);
+    const id = dayId(sectionId, date);
+    const day = this.s.attendance.get(id);
+    const list = day?.cuts?.[studentId] ?? [];
+    const open = list.find((c) => !c.backAt);
+    if (!sec || !stu || !open) throw new Error('This child is not marked as missing a period.');
+    const n = Number(period) || open.period + 1;
+    const p = classPeriods(sec.program)[n - 1];
+    const now = this.clock.peek();
+    const back = { ...open, backAt: now, backPeriod: n, backSubject: p?.subject ?? null, backBy: this.actor() };
+    day.cuts = { ...day.cuts, [studentId]: list.map((c) => (c === open ? back : c)) };
+    this.put('attendance', id, day);
+    // Close the staff alert.
+    const alert = this.s.notifications.get(`cut_${stu.id}_${date}_${open.period}`);
+    if (alert && !alert.resolved) {
+      Object.assign(alert, { resolved: true, read: true, title: `Resolved: ${alert.title}`, body: `Back in class at ${to12h(now)} (${ordinal(n)} period), confirmed by ${this.actor()}. ${alert.body}` });
+      this.put('notifications', alert.id, alert);
+    }
+    const live = date === this.clock.today();
+    const smsId = `back_${stu.id}_${date}_${open.period}`;
+    // Only if the parent was told the child was not in class.
+    const sms =
+      live && this.s.sms.has(`cut_${stu.id}_${date}_${open.period}`) && !this.s.sms.has(smsId)
+        ? this.queueSms(stu, 'back', { id: smsId, time: now, period: n, subject: back.backSubject, date, sectionId })
+        : null;
+    await this.logAudit('attendance.cut_back', `${stu.firstName} ${stu.lastName}`, `${date}: back in class at ${to12h(now)} (${ordinal(n)} period)`);
+    if (this.s.confirmations.has(id) || date < this.clock.today()) this.syncParentDays([studentId], [date.slice(0, 7)]);
+    this.emit();
+    return { ...back, texted: !!sms };
+  },
   // Marks the open "not in class" alerts of a child as resolved. Returns true if there was one.
   resolveAlerts(stu, date, status) {
     let any = false;
@@ -533,6 +639,7 @@ export const attendanceMethods = {
         joinedSubject: r.joinedSubject ?? null,
         excusedNote: r.excusedNote ?? null,
         excusedPeriods: r.excusedPeriods ?? null,
+        cuts: this.cutsOn(r.sectionId, date, studentId),
         excuse: r.excuse ?? null,
         editedReason: r.editedReason ?? null,
         needsCheck: !!r.needsCheck,
