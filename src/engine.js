@@ -331,6 +331,14 @@ export class Engine {
   async sendPasswordReset(email) {
     await this.auth.sendPasswordReset(email.trim());
   }
+  // The signed-in teacher or admin changes their own password (Settings). At least 8 characters.
+  async changePassword(current, next) {
+    if (!this.session) throw new Error('Sign in again first.');
+    if (next.length < 8) throw new Error('Use at least 8 characters.');
+    if (next === current) throw new Error('The new password is the same as the current one.');
+    await this.auth.changePassword(current, next);
+    await this.logAudit('account.password', this.session.email, 'Changed own password');
+  }
   demoAccounts() {
     return this.auth.demoAccounts();
   }

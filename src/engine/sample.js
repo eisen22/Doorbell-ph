@@ -291,6 +291,11 @@ export function demoAuth(engine) {
     async sendPasswordReset() {
       throw new Error('Password reset emails work once the cloud is connected.');
     },
+    async changePassword(current, next) {
+      const email = engine().session?.email?.toLowerCase();
+      if (!email || passwords.get(email) !== current) throw new Error('Your current password is wrong.');
+      passwords.set(email, next);
+    },
     async createTeacherAccount(email) {
       const temp = `Temp-${Math.random().toString(36).slice(2, 8)}`;
       passwords.set(email.toLowerCase(), temp);

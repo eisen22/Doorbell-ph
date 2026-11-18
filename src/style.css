@@ -1130,3 +1130,7 @@ textarea.input { height: auto; padding-top: 10px; padding-bottom: 10px; line-hei
 .preview-row .small:last-child { grid-column: 2; color: var(--muted); }
 .preview-row.bad { background: var(--absent-bg); }
 .preview-row.bad .small:last-child { color: var(--absent); font-weight: 600; }
+/* Change password (teacher Settings, admin Settings). */
+.change-pw { display: flex; flex-direction: column; gap: 12px; max-width: 420px; }
+.change-pw-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
+.ok-note { color: var(--ok); font-weight: 600; font-size: 14px; margin: 0; }

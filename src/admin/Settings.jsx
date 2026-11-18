@@ -17,6 +17,7 @@ import {
   DatePicker,
   PasswordInput,
 } from '../ui';
+import { ChangePassword } from '../shared/ChangePassword';
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
@@ -42,6 +43,12 @@ const KIND_LABELS = {
   departure: 'Left school (scanned out at the gate)',
   pickedUp: 'Picked up (marked by the school, e.g. no ID card)',
 };
+
+// The signed-in admin's own password (current, then the new one twice).
+function MyPasswordCard() {
+  const { data } = useLive(async (r) => ({ session: await r.getSession() }));
+  return <Card title="Your password">{data?.session && <ChangePassword email={data.session.email} />}</Card>;
+}
 
 // The tabs of the Settings page.
 const SETTINGS_TABS = [
@@ -285,6 +292,7 @@ export function AdminSettings() {
       {tab === 'accounts' && (
         <>
           <AdminsCard flash={flash} />
+          <MyPasswordCard />
           <GateAccountCard flash={flash} />
         </>
       )}

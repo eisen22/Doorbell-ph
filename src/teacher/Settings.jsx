@@ -1,5 +1,3 @@
-import { useState } from 'react';
-import { KeyRound } from 'lucide-react';
 import {
   autoFinalizeTime,
   describeStreak,
@@ -10,8 +8,9 @@ import {
   smsSegments,
   renderTemplate,
 } from '../logic';
-import { useLive, useRepo, Card, Skeleton } from '../ui';
+import { useLive, Card, Skeleton } from '../ui';
 import { TEMPLATE_KINDS } from '../engine';
+import { ChangePassword } from '../shared/ChangePassword';
 
 // What each parent text is for (shown above each message).
 const KIND_LABELS = {
@@ -27,7 +26,7 @@ const KIND_LABELS = {
 };
 
 // =====================================================================
-// SETTINGS (/settings): my account and password, my class schedule, and the texts parents receive.
+// SETTINGS (/settings): my account, change my password, my class schedule, and the texts parents receive.
 // Pattern: useLive(...) loads data from the engine and reloads on any change; while loading,
 // <Skeleton> placeholders show; buttons call repo.something(...). Addresses are set in main.jsx.
 // =====================================================================
@@ -36,8 +35,6 @@ const KIND_LABELS = {
 // Schedules and texts are changed by the admin.
 // ---------------------------------------------------------------------
 export function SettingsPage() {
-  const repo = useRepo();
-  const [msg, setMsg] = useState(null);
   const { data } = useLive(async (r) => {
     const session = await r.getSession();
     const classes = await Promise.all(session.sectionIds.map((id) => r.getSection(id)));
@@ -69,20 +66,9 @@ export function SettingsPage() {
             <dt>{classes.length > 1 ? 'Classes' : 'Class'}</dt>
             <dd>{classes.length ? classes.map((c) => c.name).join(', ') : 'Not assigned'}</dd>
           </dl>
-          <button
-            className="btn"
-            onClick={async () => {
-              try {
-                await repo.sendPasswordReset(session.email);
-                setMsg(`A password reset link was sent to ${session.email}.`);
-              } catch (e) {
-                setMsg(e.message);
-              }
-            }}
-          >
-            <KeyRound size={16} /> Change password
-          </button>
-          {msg && <p className="muted small">{msg}</p>}
+        </Card>
+        <Card title="Change password">
+          <ChangePassword email={session.email} />
         </Card>
         {classes.map(({ id, name, schedule: s }) => (
           <Card key={id} title={classes.length > 1 ? `${name} schedule (set by admin)` : 'Class schedule (set by admin)'}>

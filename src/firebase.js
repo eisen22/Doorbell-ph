@@ -14,6 +14,9 @@ import { getApps, initializeApp } from 'firebase/app';
 import {
   browserSessionPersistence,
   createUserWithEmailAndPassword,
+  EmailAuthProvider,
+  reauthenticateWithCredential,
+  updatePassword,
   getAuth,
   initializeAuth,
   onAuthStateChanged,
@@ -161,6 +164,24 @@ export function createCloudEngine() {
     },
     async sendPasswordReset(email) {
       await sendPasswordResetEmail(auth, email);
+    },
+    // Changes the signed-in staff member's password. Firebase asks for the current one again first.
+    async changePassword(current, next) {
+      const user = auth.currentUser;
+      if (!user) throw new Error('Sign in again first.');
+      try {
+        await reauthenticateWithCredential(user, EmailAuthProvider.credential(user.email, current));
+      } catch (e) {
+        const code = e.code ?? '';
+        throw new Error(
+          code.includes('invalid') || code.includes('wrong-password')
+            ? 'Your current password is wrong.'
+            : code.includes('too-many')
+              ? 'Too many tries. Wait a minute and try again.'
+              : e.message,
+        );
+      }
+      await updatePassword(user, next);
     },
     // Makes a sign-in account for a new teacher WITHOUT signing the admin out:
     // a second copy of Firebase ("account-maker") creates it, then signs it out.
