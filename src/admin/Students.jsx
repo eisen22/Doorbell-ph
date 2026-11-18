@@ -171,13 +171,21 @@ export function AdminStudents() {
         counts={countByKey(data.rows.filter((r) => r.enrollment?.status === 'active'), (r) => r.enrollment.sectionId)}
       />
       <div className="chips">
-        {/* All levels: everyone, or the learners not in a section yet. A level: the section chips below. */}
-        {level === 'all' && (
-          <select className="input auto" value={filter} onChange={(e) => setFilter(e.target.value)} aria-label="Section">
-            <option value="all">All sections</option>
-            <option value="unassigned">Not in a section ({unassigned})</option>
-          </select>
-        )}
+        {/* The learners not in a section yet (they have no grade, so picking it shows every grade). Press again to show everyone. */}
+        <button
+          type="button"
+          className={`fchip ${filter === 'unassigned' ? 'fchip-on' : ''}`}
+          aria-pressed={filter === 'unassigned'}
+          onClick={() => {
+            const p = new URLSearchParams(params);
+            p.delete('level');
+            if (filter === 'unassigned') p.delete('filter');
+            else p.set('filter', 'unassigned');
+            setParams(p);
+          }}
+        >
+          Not in a section <b className="count">{unassigned}</b>
+        </button>
         <select className="input auto" value={sortBy} onChange={(e) => setParam('sort', e.target.value, 'grade')} aria-label="Sort">
           <option value="grade">Sort: grade and section</option>
           <option value="name">Sort: last name (A to Z)</option>
