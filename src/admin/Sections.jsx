@@ -49,6 +49,10 @@ export { GRADE_LEVELS, gradeName };
 // The admin pages group classes by grade: Kindergarten, Grade 1, Grade 2 ... Grade 6.
 export const LEVEL_BANDS = GRADE_LEVELS.map((g) => ({ id: g, label: gradeName(g) }));
 export const bandOf = (g) => g || 'K';
+// The section's own name without the grade in front: "Grade 5 - Rizal" -> "Rizal" (also "Kinder - Apple", "Grade 5 Rizal").
+// The form asks only for this; the grade level is put back in front when saving.
+export const sectionShortName = (name) =>
+  (name ?? '').trim().replace(/^(kindergarten|kinder|grade\s*\d+)\s*[-–:]?\s*/i, '').trim();
 // Default values for a new section (a morning class).
 const blank = () => ({
   name: '',
@@ -93,16 +97,22 @@ export function Sections() {
   // Checks the form, then saves. The engine refuses a teacher with two classes at the same time.
   const save = async () => {
     if (!edit) return;
-    if (!edit.name.trim()) {
+    const short = sectionShortName(edit.name);
+    if (!short) {
       setError('Give the section a name.');
       return;
     }
     try {
       // The DepEd day from the class start: the chosen subjects (and teachers) on the fixed period slots.
       const program = fitToSlots(edit.program, edit.gradeLevel ?? 'K', edit.schedule.startTime);
+      const dup = duplicateSubjects(program, edit.gradeLevel ?? 'K');
+      if (dup.size) {
+        setError(`Duplicate subject in the class program: ${[...dup].join(', ')}. Each subject can be in only one period.`);
+        return;
+      }
       // The class ends with its last period.
       const schedule = { ...edit.schedule, endTime: program[program.length - 1].end };
-      await repo.saveSection({ ...edit, name: edit.name.trim(), program, schedule });
+      await repo.saveSection({ ...edit, name: `${gradeName(edit.gradeLevel)} - ${short}`, program, schedule });
       setEdit(null);
       flash('Section saved');
     } catch (e) {
@@ -176,7 +186,7 @@ export function Sections() {
                     onClick={() => {
                       setEdit({
                         id: s.id,
-                        name: s.name,
+                        name: sectionShortName(s.name),
                         color: s.color,
                         capacity: s.capacity,
                         teacherId: s.teacherId,
@@ -236,7 +246,7 @@ export function Sections() {
             setOpenId(null);
             setEdit({
               id: s.id,
-              name: s.name,
+              name: sectionShortName(s.name),
               color: s.color,
               capacity: s.capacity,
               teacherId: s.teacherId,
@@ -267,14 +277,45 @@ export function Sections() {
           }
         >
           <label className="field">
-            <span>Section name</span>
-            <input
+            <span>Grade level</span>
+            <select
               className="input"
-              value={edit.name}
-              placeholder="e.g. Kindergarten I - Apple, Grade 5 - Rizal"
-              onChange={(e) => setEdit({ ...edit, name: e.target.value })}
-              autoFocus
-            />
+              value={edit.gradeLevel ?? 'K'}
+              onChange={(e) =>
+                setEdit({
+                  ...edit,
+                  gradeLevel: e.target.value,
+                  // Kindergarten to Grade 3: one teacher all day, so the periods have no teachers and there are no subject teachers.
+                  // A subject the new grade does not have goes back to that grade's usual subject for the period.
+                  program: (edit.program ?? []).map(({ teacherId, ...p }) => ({
+                    ...p,
+                    subject: isBreak(p) || subjectsFor(e.target.value).includes(p.subject) ? p.subject : undefined,
+                    ...(hasSubjectTeachers(e.target.value) ? { teacherId } : {}),
+                  })),
+                  ...(hasSubjectTeachers(e.target.value) ? {} : { subjectTeacherIds: [] }),
+                })
+              }
+            >
+              {GRADE_LEVELS.map((g) => (
+                <option key={g} value={g}>
+                  {gradeName(g)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span>Section name</span>
+            {/* Only the name: the grade level above is put in front ("Rizal" is saved as "Grade 5 - Rizal"). */}
+            <div className="input-prefixed">
+              <span aria-hidden="true">{gradeName(edit.gradeLevel)} -</span>
+              <input
+                className="input"
+                value={edit.name}
+                placeholder="e.g. Rizal, Sampaguita"
+                onChange={(e) => setEdit({ ...edit, name: e.target.value })}
+                aria-label={`Section name, after ${gradeName(edit.gradeLevel)} -`}
+              />
+            </div>
           </label>
           <div className="field">
             <span>Color</span>
@@ -345,33 +386,6 @@ export function Sections() {
             </label>
           </div>
 
-          <label className="field">
-            <span>Grade level</span>
-            <select
-              className="input"
-              value={edit.gradeLevel ?? 'K'}
-              onChange={(e) =>
-                setEdit({
-                  ...edit,
-                  gradeLevel: e.target.value,
-                  // Kindergarten to Grade 3: one teacher all day, so the periods have no teachers and there are no subject teachers.
-                  // A subject the new grade does not have goes back to that grade's usual subject for the period.
-                  program: (edit.program ?? []).map(({ teacherId, ...p }) => ({
-                    ...p,
-                    subject: isBreak(p) || subjectsFor(e.target.value).includes(p.subject) ? p.subject : undefined,
-                    ...(hasSubjectTeachers(e.target.value) ? { teacherId } : {}),
-                  })),
-                  ...(hasSubjectTeachers(e.target.value) ? {} : { subjectTeacherIds: [] }),
-                })
-              }
-            >
-              {GRADE_LEVELS.map((g) => (
-                <option key={g} value={g}>
-                  {gradeName(g)}
-                </option>
-              ))}
-            </select>
-          </label>
           <p className="muted small">
             The gate opens and the absence texts go out at the same times for every class (Settings: gate opening time and first period
             length). Only a teacher confirms a class.
@@ -738,6 +752,17 @@ function teacherForSubject(teachers, adviserId, subject) {
   return teachers.find(teachesIt)?.id ?? null;
 }
 
+// Subjects chosen for more than one period, when the grade has a subject for every period
+// (Kindergarten, Grades 4 to 6). Grades 1 to 3 have fewer subjects than periods, so repeats are expected there.
+function duplicateSubjects(program, gradeLevel) {
+  const periods = program.filter((p) => !isBreak(p));
+  if (subjectsFor(gradeLevel).length < periods.length) return new Set();
+  const seen = new Set();
+  const dup = new Set();
+  for (const p of periods) (seen.has(p.subject) ? dup : seen).add(p.subject);
+  return dup;
+}
+
 // The class program on DepEd's fixed day: the times are set (from "Class starts"); beside each period
 // the admin picks the subject and, for Grades 4 to 6, the teacher.
 function ProgramEditor({ gradeLevel, program, teachers, adviserId, startTime, onChange }) {
@@ -745,6 +770,7 @@ function ProgramEditor({ gradeLevel, program, teachers, adviserId, startTime, on
   const subjects = subjectsFor(gradeLevel);
   const rows = fitToSlots(program, gradeLevel, startTime, withTeachers, (sub) => teacherForSubject(teachers, adviserId, sub));
   const set = (i, patch) => onChange(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+  const dup = duplicateSubjects(rows, gradeLevel);
   let n = 0;
   return (
     <div className="field">
@@ -755,7 +781,7 @@ function ProgramEditor({ gradeLevel, program, teachers, adviserId, startTime, on
           if (!brk) n += 1;
           const options = subjects.includes(r.subject) ? subjects : [r.subject, ...subjects];
           return (
-            <div key={i} className={`pf-row ${brk ? 'program-break' : ''} ${withTeachers ? '' : 'pf-solo'}`}>
+            <div key={i} className={`pf-row ${brk ? 'program-break' : ''} ${withTeachers ? '' : 'pf-solo'} ${!brk && dup.has(r.subject) ? 'pf-dup' : ''}`}>
               <span className="pf-n">{brk ? '' : ordinal(n)}</span>
               <span className="pf-time">
                 {to12h(r.start)} – {to12h(r.end)}
@@ -764,7 +790,13 @@ function ProgramEditor({ gradeLevel, program, teachers, adviserId, startTime, on
                 <span className="pf-break">{r.subject}</span>
               ) : (
                 <>
-                  <select className="input" value={r.subject} aria-label={`${ordinal(n)} period subject`} onChange={(e) => set(i, { subject: e.target.value })}>
+                  <select
+                    className="input"
+                    value={r.subject}
+                    aria-label={`${ordinal(n)} period subject`}
+                    aria-invalid={dup.has(r.subject) || undefined}
+                    onChange={(e) => set(i, { subject: e.target.value })}
+                  >
                     {options.map((x) => (
                       <option key={x}>{x}</option>
                     ))}
@@ -780,6 +812,7 @@ function ProgramEditor({ gradeLevel, program, teachers, adviserId, startTime, on
                       ))}
                     </select>
                   )}
+                  {dup.has(r.subject) && <span className="pf-dup-note">Duplicate subject: {r.subject} is already in another period</span>}
                 </>
               )}
             </div>

@@ -8,6 +8,9 @@ import {
   Undo2,
   QrCode,
   AlertTriangle,
+  Upload,
+  FileDown,
+  CheckCircle2,
 } from 'lucide-react';
 import {
   useLive,
@@ -25,6 +28,7 @@ import {
   countByKey,
 } from '../ui';
 import { useState, useMemo } from 'react';
+import { downloadTemplate, readRows, validateRows } from '../files';
 import {
   displayPhMobile,
   normalizePhMobile,
@@ -62,6 +66,7 @@ export function AdminStudents() {
   const [selected, setSelected] = useState(new Set());
   const [edit, setEdit] = useState(null);
   const [assignOpen, setAssignOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [leave, setLeave] = useState(null);
   const [toast, setToast] = useState(null);
   const { data } = useLive(async (r) => ({
@@ -132,6 +137,9 @@ export function AdminStudents() {
             }}
           >
             <Undo2 size={17} /> Undo last move
+          </button>
+          <button className="btn" onClick={() => setImportOpen(true)}>
+            <Upload size={17} /> Import Excel
           </button>
           <button className="btn" onClick={() => setAssignOpen(true)} disabled={!unassigned}>
             <Wand2 size={17} /> Auto-assign{unassigned ? ` (${unassigned})` : ''}
@@ -358,6 +366,17 @@ export function AdminStudents() {
           onClose={() => setEdit(null)}
           onSaved={(m) => {
             setEdit(null);
+            flash(m);
+          }}
+        />
+      )}
+      {importOpen && (
+        <ImportModal
+          sections={data.sections}
+          existing={data.rows}
+          onClose={() => setImportOpen(false)}
+          onDone={(m) => {
+            setImportOpen(false);
             flash(m);
           }}
         />
@@ -642,10 +661,109 @@ function AssignModal({ rows, sections, onClose, onDone }) {
     </Modal>
   );
 }
+// Excel import: download the template, fill it in, upload. Rows with problems are listed and skipped.
+function ImportModal({ sections, existing, onClose, onDone }) {
+  const repo = useRepo();
+  const [parsed, setParsed] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const ok = parsed?.filter((p) => p.input) ?? [];
+  const bad = parsed?.filter((p) => !p.input) ?? [];
+  const onFile = async (file) => {
+    if (!file) return;
+    setError(null);
+    try {
+      setParsed(validateRows(await readRows(file), sections, existing));
+    } catch {
+      setError('Could not read that file. Use the template (.xlsx) or a .csv file.');
+    }
+  };
+  const run = async () => {
+    setBusy(true);
+    const res = await repo.importStudents(ok.map((p) => p.input));
+    onDone(
+      `Imported ${res.created} students${res.linkedSiblings ? `, ${res.linkedSiblings} linked as siblings` : ''}. QR cards were created automatically.`,
+    );
+  };
+  const errorReport = () => {
+    const csv = ['Line,Name,Problems', ...bad.map((b) => `${b.line},"${b.name}","${b.errors.join('; ')}"`)].join('\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+    a.download = 'import_errors.csv';
+    a.click();
+  };
+  return (
+    <Modal
+      title="Import students from Excel"
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="btn btn-ink" disabled={!ok.length || busy} onClick={run}>
+            {busy ? 'Importing…' : `Import ${ok.length} students`}
+          </button>
+        </>
+      }
+    >
+      <ol className="steps-list">
+        <li>
+          <button className="link-btn" onClick={() => downloadTemplate(sections)}>
+            <FileDown size={15} /> Download the template
+          </button>{' '}
+          and fill one row per child.
+        </li>
+        <li>Choose the filled file. Nothing is saved until you press Import.</li>
+      </ol>
+      <label className="dropzone">
+        <Upload size={22} />
+        <span>Choose .xlsx or .csv</span>
+        <input type="file" accept=".xlsx,.csv" onChange={(e) => onFile(e.target.files?.[0])} />
+      </label>
+      {error && <p className="error">{error}</p>}
+      {parsed && (
+        <>
+          <div className="import-summary">
+            <span className="tag tag-ok">
+              <CheckCircle2 size={14} /> {ok.length} ready
+            </span>
+            {bad.length > 0 && (
+              <span className="tag tag-bad">
+                <AlertTriangle size={14} /> {bad.length} with problems (skipped)
+              </span>
+            )}
+            {bad.length > 0 && (
+              <button className="link-btn" onClick={errorReport}>
+                Download error report
+              </button>
+            )}
+          </div>
+          <div className="preview-list">
+            {parsed.map((p) => (
+              <div key={p.line} className={`preview-row ${p.input ? '' : 'bad'}`}>
+                <span className="muted small">Row {p.line}</span>
+                <strong>{p.name}</strong>
+                <span className="small">
+                  {[...p.errors, ...p.warnings].join(' · ') ||
+                    (p.input?.sectionId ? sections.find((s) => s.id === p.input.sectionId)?.name : 'Not in a section yet')}
+                </span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </Modal>
+  );
+}
 // Transfer or drop: move to another section, or mark transferred/dropped from a date. Records are never deleted.
 export function LeaveModal({ row, sections = [], onClose, onDone }) {
   const repo = useRepo();
-  const others = sections.filter((s) => s.id !== row.enrollment?.sectionId && !s.archived);
+  // Only sections of the same grade level (a Grade 6 child moves to another Grade 6 section).
+  const grade = row.section ? (row.section.gradeLevel ?? 'K') : null;
+  const others = sections
+    .filter((s) => s.id !== row.enrollment?.sectionId && !s.archived && (!grade || (s.gradeLevel ?? 'K') === grade))
+    .sort((a, b) => a.name.localeCompare(b.name));
   const [status, setStatus] = useState(others.length ? 'move' : 'transferred');
   const [target, setTarget] = useState(others[0]?.id ?? '');
   const [date, setDate] = useState(manilaToday());

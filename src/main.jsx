@@ -30,6 +30,7 @@ import {
   MessageSquareText,
   UserX,
   FileText,
+  FileSpreadsheet,
 } from 'lucide-react';
 import { useRepo, Logo, Wordmark, Skeleton, useLive, RepoProvider } from './ui';
 import { parentKeyOf } from './logic';
@@ -53,6 +54,7 @@ import { AdminStudents } from './admin/Students';
 import { QrCards } from './admin/IdCards';
 import { AdminSettings } from './admin/Settings';
 import { AuditLog } from './admin/AuditLog';
+import { Reports } from './shared/Reports';
 import { ExcuseRequests } from './shared/ExcuseRequests';
 // The parent portal (/parent) has its own sign-in and does not use the staff frame (Shell).
 import { ParentPortal } from './parent/ParentPortal';
@@ -295,6 +297,7 @@ const TEACHER_NAV = [
   { to: '/notifications', label: 'Alerts', Icon: Bell, badge: 'alerts' },
   { to: '/excuses', label: 'Excuse requests', Icon: FileText, badge: 'excuses' },
   { to: '/sms', label: 'SMS Messages', Icon: MessageSquareText },
+  { to: '/reports', label: 'Reports', Icon: FileSpreadsheet },
   { to: '/settings', label: 'Settings', Icon: SettingsIcon },
 ];
 // Pages whose list the top bar's search filters in place (path without /admin) -> the placeholder.
@@ -315,6 +318,7 @@ const ADMIN_NAV = [
   { to: '/admin/students', label: 'Students', Icon: Users },
   { to: '/admin/cards', label: 'ID Cards', Icon: QrCode },
   { to: '/admin/sms', label: 'SMS Messages', Icon: MessageSquareText },
+  { to: '/admin/reports', label: 'Reports', Icon: FileSpreadsheet },
   { to: '/admin/settings', label: 'Settings', Icon: SettingsIcon },
   { to: '/admin/audit', label: 'Audit Log', Icon: ScrollText },
 ];
@@ -525,9 +529,11 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             <Route path="notifications" element={<Notifications />} />
             <Route path="settings" element={<SettingsPage />} />
             <Route path="sms" element={<SmsMessages />} />
+            <Route path="reports" element={<Reports />} />
             <Route path="excuses" element={<ExcuseRequests />} />
             <Route path="admin/excuses" element={<ExcuseRequests />} />
             <Route path="admin/sms" element={<SmsMessages />} />
+            <Route path="admin/reports" element={<Reports />} />
             <Route path="admin/absences" element={<AbsenceWatch />} />
             <Route path="admin/attendance" element={<Attendance />} />
             <Route path="admin" element={<AdminDashboard />} />

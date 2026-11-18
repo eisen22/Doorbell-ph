@@ -829,6 +829,21 @@ export const adminMethods = {
     this.emit();
     return student;
   },
+  // Adds many children at once (Admin -> Students -> Import Excel). Rows are checked first in files.js.
+  async importStudents(inputs) {
+    await this.ready;
+    let linkedSiblings = 0;
+    const touched = new Map();
+    for (const input of inputs) {
+      const res = this.upsertStudent(input);
+      if (res.sibling) linkedSiblings++;
+      for (const g of res.touched) touched.set(g.id, g);
+    }
+    for (const g of touched.values()) await this.syncParentKey(g);
+    await this.logAudit('student.import', `${inputs.length} students`, `${linkedSiblings} linked to an existing guardian`);
+    this.emit();
+    return { created: inputs.length, linkedSiblings };
+  },
   // Places many children at once (auto-assign or bulk move). Remembers the previous state for "Undo".
   async assignStudents(assignments, label) {
     await this.ready;
