@@ -102,6 +102,10 @@ export function Sections() {
       setError('Give the section a name.');
       return;
     }
+    if (!(edit.schedule.classDays ?? []).length) {
+      setError('Pick at least one class day.');
+      return;
+    }
     try {
       // The DepEd day from the class start: the chosen subjects (and teachers) on the fixed period slots.
       const program = fitToSlots(edit.program, edit.gradeLevel ?? 'K', edit.schedule.startTime);
@@ -384,6 +388,41 @@ export function Sections() {
                 onChange={(e) => setEdit({ ...edit, schedule: { ...edit.schedule, lateCutoffMins: Number(e.target.value) } })}
               />
             </label>
+          </div>
+          {/* The days of the week this class meets. Saturday for a class that meets every Saturday;
+              for one Saturday only, use School Calendar -> Make-up class instead. */}
+          <div className="field">
+            <span>Class days</span>
+            <div className="chips" role="group" aria-label="Class days">
+              {[
+                [1, 'Mon'],
+                [2, 'Tue'],
+                [3, 'Wed'],
+                [4, 'Thu'],
+                [5, 'Fri'],
+                [6, 'Sat'],
+              ].map(([d, label]) => {
+                const days = edit.schedule.classDays ?? [1, 2, 3, 4, 5];
+                const on = days.includes(d);
+                return (
+                  <button
+                    key={d}
+                    type="button"
+                    className={`fchip ${on ? 'fchip-on' : ''}`}
+                    aria-pressed={on}
+                    onClick={() =>
+                      setEdit({
+                        ...edit,
+                        schedule: { ...edit.schedule, classDays: on ? days.filter((x) => x !== d) : [...days, d].sort((a, b) => a - b) },
+                      })
+                    }
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+            <span className="muted small">Every week. For one Saturday only (a make-up class), use School Calendar and choose Make-up class.</span>
           </div>
 
           <p className="muted small">

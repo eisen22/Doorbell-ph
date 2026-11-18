@@ -84,7 +84,8 @@ export function AdminCalendar() {
     setDraft({
       from: date,
       to: date,
-      type: entry?.type ?? 'class',
+      // A Saturday or Sunday with nothing on it: a class there is a make-up class.
+      type: entry?.type ?? (isoWeekday(date) >= 6 ? 'makeup' : 'class'),
       label: entry?.label ?? '',
       until: entry?.until ?? '11:30', // half day: classes end at this time
       levels: entry?.levels ?? [],
@@ -108,8 +109,17 @@ export function AdminCalendar() {
       (d) => !draft.weekdaysOnly || draft.type === 'makeup' || draft.from === draft.to || isoWeekday(d) <= 5,
     );
     let texted = 0;
+    // "Normal class day" on a Saturday or Sunday means a class on a day that is normally off: a make-up class.
+    const weekend = dates.filter((d) => isoWeekday(d) >= 6);
+    if (draft.type === 'class' && weekend.length) {
+      texted += await repo.saveCalendarDays(
+        weekend.map((date) => ({ date, type: 'makeup', label: draft.label.trim() || DAY_KIND_META.makeup.label })),
+        { textParents: draft.textParents },
+      );
+    }
     if (draft.type === 'class') {
-      texted = await repo.removeCalendarDays(dates, { textParents: draft.textParents });
+      const weekdays = dates.filter((d) => isoWeekday(d) <= 5);
+      if (weekdays.length) texted += await repo.removeCalendarDays(weekdays, { textParents: draft.textParents });
     } else {
       const label = draft.label.trim() || DAY_KIND_META[draft.type].label;
       texted = await repo.saveCalendarDays(
