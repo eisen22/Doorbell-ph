@@ -205,17 +205,17 @@ export function Teachers() {
   const subjectOf = (t) => live.filter((x) => (x.subjectTeacherIds ?? []).includes(t.id));
   // The grade levels a teacher teaches (as adviser or subject teacher).
   const levelsOf = (t) => [...[...adviserOf(t), ...subjectOf(t)].map((x) => x.gradeLevel ?? 'K'), ...(t.gradeLevel ? [t.gradeLevel] : [])];
-  const firstLevel = (t) => Math.min(99, ...adviserOf(t).map((x) => gradeRank(x.gradeLevel)), ...(t.gradeLevel && !subjectOf(t).length ? [gradeRank(t.gradeLevel)] : []));
+  // The first grade a teacher advises (99 = advises no class). A grade level set on the teacher alone does not make them an adviser.
+  const firstLevel = (t) => Math.min(99, ...adviserOf(t).map((x) => gradeRank(x.gradeLevel)));
+  // Not in any class yet (no advisory class, no subject in a class program).
+  const noClass = (t) => !adviserOf(t).length && !subjectOf(t).length;
   // Teaches this section (as adviser or subject teacher).
   const teaches = (t, id) => [...adviserOf(t), ...subjectOf(t)].some((x) => x.id === id);
   const sec = level !== 'all' && secId !== 'all' ? live.find((x) => x.id === secId) : null;
   const shown = data.teachers.filter((t) => (level === 'all' || levelsOf(t).includes(level)) && (!sec || teaches(t, sec.id)));
   const byName = (a, b) => a.name.localeCompare(b.name);
-  // Advises a class in the picked grade, or was added as that grade's teacher and has no class yet.
-  const isAdv = (t) =>
-    sec
-      ? sec.teacherId === t.id
-      : adviserOf(t).some((x) => (x.gradeLevel ?? 'K') === level) || (t.gradeLevel === level && !adviserOf(t).length && !subjectOf(t).length);
+  // Advises a class in the picked grade.
+  const isAdv = (t) => (sec ? sec.teacherId === t.id : adviserOf(t).some((x) => (x.gradeLevel ?? 'K') === level));
   // Groups: by the grade they advise (subject teachers with no class of their own after Grade 6),
   // by subject (teachers of Grades 4 to 6), or one list by name.
   const groups =
@@ -246,7 +246,12 @@ export function Teachers() {
               {
                 key: 'sub',
                 label: sec ? `Subject teachers of ${sec.name}` : `Subject teachers in ${gradeName(level)}`,
-                items: shown.filter((t) => !isAdv(t)).sort(byName),
+                items: shown.filter((t) => !isAdv(t) && !noClass(t)).sort(byName),
+              },
+              {
+                key: 'none',
+                label: `${gradeName(level)} teachers with no class yet`,
+                items: shown.filter((t) => noClass(t)).sort(byName),
               },
             ].filter((g) => g.items.length)
           : [
@@ -260,7 +265,7 @@ export function Teachers() {
               label: 'Subject teachers (no class of their own)',
               items: shown.filter((t) => firstLevel(t) === 99 && subjectOf(t).length).sort(byName),
             },
-            { key: 'none', label: 'No class', items: shown.filter((t) => firstLevel(t) === 99 && !subjectOf(t).length).sort(byName) },
+            { key: 'none', label: 'No class yet', items: shown.filter((t) => noClass(t)).sort(byName) },
           ].filter((g) => g.items.length);
   const row = (t) => {
                 const secs = data.sections
