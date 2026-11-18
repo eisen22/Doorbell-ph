@@ -8,8 +8,6 @@ import './style.css'; // all the styling for the whole app
 import React, { useEffect, useState, useRef } from 'react';
 import { useNavigate, Navigate, NavLink, Link, Outlet, useLocation, useSearchParams, BrowserRouter, Route, Routes } from 'react-router-dom';
 import {
-  Eye,
-  EyeOff,
   LogIn,
   KeyRound,
   Info,
@@ -32,7 +30,7 @@ import {
   FileText,
   FileSpreadsheet,
 } from 'lucide-react';
-import { useRepo, Logo, Wordmark, Skeleton, useLive, RepoProvider } from './ui';
+import { useRepo, Logo, Wordmark, Skeleton, useLive, RepoProvider, PasswordInput } from './ui';
 import { parentKeyOf } from './logic';
 // Parents sign in on this same page with their mobile number (parent/parentCloud.js), then /parent opens.
 import { signInParent } from './parent/parentCloud';
@@ -70,7 +68,6 @@ export function Login() {
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [show, setShow] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [notice, setNotice] = useState(null);
@@ -182,7 +179,7 @@ export function Login() {
               </label>
               <label className="field">
                 <span>Password (at least 6 characters)</span>
-                <input className="input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+                <PasswordInput autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} required />
               </label>
               {error && (
                 <p className="error" role="alert">
@@ -205,23 +202,7 @@ export function Login() {
               </label>
               <label className="field">
                 <span>Password</span>
-                <div className="pw">
-                  <input
-                    className="input"
-                    type={show ? 'text' : 'password'}
-                    autoComplete="current-password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                  />
-                  <button
-                    type="button"
-                    className="icon-btn sm"
-                    onClick={() => setShow((v) => !v)}
-                    aria-label={show ? 'Hide password' : 'Show password'}
-                  >
-                    {show ? <EyeOff size={16} /> : <Eye size={16} />}
-                  </button>
-                </div>
+                <PasswordInput value={password} onChange={(e) => setPassword(e.target.value)} />
               </label>
               {error && (
                 <p className="error" role="alert">

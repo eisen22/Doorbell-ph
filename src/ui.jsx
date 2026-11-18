@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, us
 import { GRADE_LEVELS, gradeName, bySectionGrade, levelsLabel, manilaToday, addDays, isoWeekday, DAY_KIND_META, dayKind, classNow, classPhase, shortClassName, sortByStart, to12h, isSchoolDay, ordinal, periodsLabel } from './logic';
 import { DemoClock, Engine, noopPersistence, buildDemoState, demoAuth } from './engine';
 import { cloudConfigured, createCloudEngine } from './firebase';
-import { CheckCircle2, Clock3, XCircle, FileCheck2, CircleDashed, X, CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react';
+import { CheckCircle2, Clock3, XCircle, FileCheck2, CircleDashed, X, CalendarDays, ChevronLeft, ChevronRight, Eye, EyeOff } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { useSearchParams } from 'react-router-dom';
 
@@ -1004,5 +1004,19 @@ export function SearchNote({ q, count }) {
         Clear search
       </button>
     </p>
+  );
+}
+
+// A password box with a Show / Hide button (eye icon). Used everywhere a password is typed:
+// sign in, first-time admin setup, the parent's Change password, the gate phone account.
+export function PasswordInput({ value, onChange, autoComplete = 'current-password', ...rest }) {
+  const [show, setShow] = useState(false);
+  return (
+    <div className="pw">
+      <input className="input" type={show ? 'text' : 'password'} autoComplete={autoComplete} value={value} onChange={onChange} {...rest} />
+      <button type="button" className="icon-btn sm" onClick={() => setShow((v) => !v)} aria-label={show ? 'Hide password' : 'Show password'} title={show ? 'Hide password' : 'Show password'}>
+        {show ? <EyeOff size={16} /> : <Eye size={16} />}
+      </button>
+    </div>
   );
 }

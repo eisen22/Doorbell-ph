@@ -10,7 +10,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { AlertTriangle, X, CalendarClock, CalendarDays, CloudRain, Megaphone, ChevronLeft, ChevronRight, FileText, KeyRound, LogOut, Send } from 'lucide-react';
-import { Logo, Wordmark, useRepo } from '../ui';
+import { Logo, Wordmark, useRepo, PasswordInput } from '../ui';
 import { addDays, isoWeekday, manilaToday, manilaTime, to12h, ordinal, periodsLabel, excuseStatusLabel, EXCUSE_REASONS } from '../logic';
 import { changeParentPassword, dismissAnnouncement, portalAvailable, sendExcuse, signOutParent, watchParent } from './parentCloud';
 
@@ -776,15 +776,15 @@ function ChangePassword({ codeHash, onDone, onBack }) {
       <section className="pp-card pp-form">
         <label className="pp-field">
           <span>Current password</span>
-          <input className="input" type="password" autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} required />
+          <PasswordInput autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} required />
         </label>
         <label className="pp-field">
           <span>New password</span>
-          <input className="input" type="password" autoComplete="new-password" value={a} onChange={(e) => setA(e.target.value)} required />
+          <PasswordInput autoComplete="new-password" value={a} onChange={(e) => setA(e.target.value)} required />
         </label>
         <label className="pp-field">
           <span>Type the new password again</span>
-          <input className="input" type="password" autoComplete="new-password" value={b} onChange={(e) => setB(e.target.value)} required />
+          <PasswordInput autoComplete="new-password" value={b} onChange={(e) => setB(e.target.value)} required />
         </label>
         <p className="pp-muted pp-small">At least 8 characters. Don't use your child's name or birthday.</p>
       </section>

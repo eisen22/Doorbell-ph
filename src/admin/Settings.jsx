@@ -15,6 +15,7 @@ import {
   Toast,
   Modal,
   DatePicker,
+  PasswordInput,
 } from '../ui';
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
@@ -355,7 +356,7 @@ function GateAccountCard({ flash }) {
         </label>
         <label className="field">
           <span>Password (at least 8 characters)</span>
-          <input className="input" type="text" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" />
+          <PasswordInput value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" />
         </label>
         <button className="btn btn-ink align-end" disabled={busy || !email || !password}>
           <Plus size={17} /> Create gate account
