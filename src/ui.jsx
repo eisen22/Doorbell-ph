@@ -1087,18 +1087,23 @@ export function TodayNotice() {
   const some = entry.levels?.length > 0;
   if (some && !levels.some((l) => entry.levels.includes(l))) return null;
   const day = format(parseISO(today.actualDate), 'EEEE, MMMM d');
-  const who = some ? ` for ${levelsLabel(entry.levels)}` : '';
+  // The grades it covers, as a name: "Kindergarten", "Grades 1, 2 and 3" ('' = the whole school).
+  const grades = some ? levelsLabel(entry.levels).replace(/ only$/, '') : '';
+  const cap = (t) => t.charAt(0).toUpperCase() + t.slice(1);
+  const classes = (adj = '') => cap(`${grades ? `${grades} ` : ''}${adj}classes`);
+  const afternoon = entry.type === 'partial' && (entry.from ?? '') >= '12:00';
   const what =
     entry.type === 'suspension'
-      ? `Classes are suspended today${who}`
+      ? `${classes()} are suspended today`
       : entry.type === 'partial'
-        ? `Classes are suspended from ${to12h(entry.from)} today${who}`
+        ? afternoon
+          ? `${classes('afternoon ')} are suspended today (from ${to12h(entry.from)})`
+          : `${classes()} are suspended from ${to12h(entry.from)} today`
         : entry.type === 'halfday'
-          ? `Half day today${who}: classes end at ${to12h(entry.until)}`
-          : `No classes today${who}`;
+          ? `Half day today${grades ? ` for ${grades}` : ''}: classes end at ${to12h(entry.until)}`
+          : `No classes today${grades ? ` for ${grades}` : ''}`;
   const label = entry.label && entry.label !== DAY_KIND_META[entry.type]?.label ? ` (${entry.label})` : '';
-  const noClass = ['suspension', 'holiday', 'break'].includes(entry.type);
-  const att = noClass ? ` No class${some ? ' for those grades' : ''}, so no attendance is taken today and nobody is marked absent.` : entry.type === 'partial' ? ' Attendance before that time counts as usual.' : '';
+  const att = entry.type === 'partial' ? ' Attendance before that time counts as usual.' : '';
   const others = some && entry.type !== 'halfday' ? ' Other grades have class as usual.' : '';
   return (
     <div className={`today-notice today-${entry.type}`} role="status">
