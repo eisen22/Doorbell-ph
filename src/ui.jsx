@@ -901,7 +901,7 @@ export function useClassParam() {
 const PHASE_LABEL = { now: 'Now', next: 'Later', done: 'Done', off: 'No class' };
 /** Pill buttons to switch between a teacher's classes. Hidden when there is only one. */
 // Pill buttons to switch class (hidden when the teacher has only one). "Now" marks the class in session.
-export function ClassSwitch({ classes, value, onChange, time, date }) {
+export function ClassSwitch({ classes, value, onChange, time, date, calendar = null }) {
   if (classes.length < 2) return null;
   // Many classes (the admin, a subject teacher): grade level chips like the other list pages, then the
   // classes of that level. Picking a level opens its first class.
@@ -925,17 +925,17 @@ export function ClassSwitch({ classes, value, onChange, time, date }) {
             </button>
           ))}
         </div>
-        <ClassPills classes={classes.filter((c) => levelOf(c) === level)} value={value} onChange={onChange} time={time} date={date} />
+        <ClassPills classes={classes.filter((c) => levelOf(c) === level)} value={value} onChange={onChange} time={time} date={date} calendar={calendar} />
       </div>
     );
   }
-  return <ClassPills classes={classes} value={value} onChange={onChange} time={time} date={date} />;
+  return <ClassPills classes={classes} value={value} onChange={onChange} time={time} date={date} calendar={calendar} />;
 }
-function ClassPills({ classes, value, onChange, time, date }) {
+function ClassPills({ classes, value, onChange, time, date, calendar }) {
   return (
     <div className="class-switch" role="tablist" aria-label="Choose a class">
       {classes.map((c) => {
-        const phase = time ? classPhase(c, time, date) : null;
+        const phase = time ? classPhase(c, time, date, calendar) : null;
         return (
           <button
             key={c.id}
@@ -1097,7 +1097,8 @@ export function TodayNotice() {
           ? `Half day today${who}: classes end at ${to12h(entry.until)}`
           : `No classes today${who}`;
   const label = entry.label && entry.label !== DAY_KIND_META[entry.type]?.label ? ` (${entry.label})` : '';
-  const shown = today.date !== today.actualDate ? ` Pages show ${format(parseISO(today.date), 'EEE, MMM d')}, the last class day.` : '';
+  const noClass = ['suspension', 'holiday', 'break'].includes(entry.type);
+  const att = noClass ? ` No class${some ? ' for those grades' : ''}, so no attendance is taken today and nobody is marked absent.` : entry.type === 'partial' ? ' Attendance before that time counts as usual.' : '';
   const others = some && entry.type !== 'halfday' ? ' Other grades have class as usual.' : '';
   return (
     <div className={`today-notice today-${entry.type}`} role="status">
@@ -1107,8 +1108,8 @@ export function TodayNotice() {
           {day}: {what}
           {label}.
         </b>
+        {att}
         {others}
-        {shown}
       </span>
     </div>
   );

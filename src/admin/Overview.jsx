@@ -168,7 +168,7 @@ export function AdminDashboard() {
         </div>
         <p className="muted">
           {format(parseISO(today.actualDate ?? today.date), 'EEEE, MMMM d, yyyy')}
-          {today.actualDate && today.date !== today.actualDate && <span className="block small">Showing {format(parseISO(today.date), 'EEE, MMM d')}, the last class day</span>}
+          {!today.isSchoolDay && <span className="block small">No class today</span>}
         </p>
       </div>
       {/* URGENT: the gate saw these children, but their teacher marked them absent in class. */}

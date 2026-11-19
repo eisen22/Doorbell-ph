@@ -100,8 +100,8 @@ export function Dashboard() {
             const s = c.schedule;
             const arrived = roster.filter((r) => r.record?.scannedAt).length;
             const pct = Math.round((arrived / Math.max(1, roster.length)) * 100);
-            // Weekends and holidays: the dashboard shows the last class day, so say that (not "No class today").
-            const phase = today.date !== today.actualDate ? 'last' : classPhase(c, today.time, today.actualDate);
+            // No class today for this class (weekend, holiday, suspension): "No class today".
+            const phase = !isSchoolDay(today.actualDate, c.schedule, calendar) ? 'off' : classPhase(c, today.time, today.actualDate);
             const on = c.id === section.id;
             return (
               <div key={c.id} className={`tile class-tile ${on ? 'class-on' : ''}`} style={{ background: c.color, color: textOn(c.color) }}>
@@ -156,8 +156,8 @@ export function Dashboard() {
         <p className="muted">
           {format(parseISO(today.date), 'EEEE, MMMM d, yyyy')}
           {today.date !== today.actualDate && (
-            <span className="demo-tag" title="Today has no class">
-              Showing last class day
+            <span className="demo-tag" title="Today is outside the school year">
+              Outside the school year
             </span>
           )}
           {today.simulated && (

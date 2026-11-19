@@ -3,7 +3,6 @@ import {
   sortByStart,
   isSchoolDay,
   manilaTime,
-  addDays,
   bySectionGrade,
   classPeriods,
   streakInfo,
@@ -359,18 +358,15 @@ export class Engine {
       lateCutoffMins: 15,
       autoFinalizeMins: 45,
     };
-    const clamp = actual > this.year.end ? this.year.end : actual;
-    // A teacher: their own class's days. The admin (no class of their own): the whole school, so today
-    // counts if ANY class has class today (one grade suspended, or a section on a different schedule,
-    // does not move the admin's "today" to yesterday).
+    // Every page shows the real date. On a day with no class (weekend, holiday, suspension) the pages say
+    // so ("No class today") instead of showing the last class day. Outside the school year: its first or last day.
+    const shown = actual > this.year.end ? this.year.end : actual < this.year.start ? this.year.start : actual;
+    // A teacher: their own class's days. The admin (no class of their own): today counts if ANY class has class.
     const active = [...this.s.sections.values()].filter((x) => !x.archived);
     const anyClass = (d) =>
       this.session?.sectionId || !active.length
         ? isSchoolDay(d, schedule, this.s.calendar)
         : active.some((x) => isSchoolDay(d, { ...x.schedule, gradeLevel: x.gradeLevel ?? 'K' }, this.s.calendar));
-    let shown = clamp;
-    for (let i = 0; i < 120 && !anyClass(shown); i++) shown = addDays(shown, -1);
-    if (!anyClass(shown)) shown = clamp;
     return {
       date: shown,
       actualDate: actual,

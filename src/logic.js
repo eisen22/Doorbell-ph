@@ -530,8 +530,10 @@ export const sortByStart = (list) =>
  *   'done' - over for today
  *   'off'  - no class on this weekday (only when `date` is given)
  */
-export function classPhase(section, time, date) {
+// calendar (optional): also 'off' on a holiday, break or suspension for this class.
+export function classPhase(section, time, date, calendar = null) {
   if (date && !section.schedule.classDays.includes(isoWeekday(date))) return 'off';
+  if (date && calendar && !isSchoolDay(date, { ...section.schedule, gradeLevel: section.gradeLevel ?? 'K' }, calendar)) return 'off';
   const m = toMinutes(time);
   const open = toMinutes(section.schedule.startTime) - section.schedule.scanWindowMins;
   const end = toMinutes(section.schedule.endTime);

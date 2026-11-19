@@ -160,7 +160,7 @@ export function MyClasses() {
               <p className="muted">No adviser yet.</p>
             )}
             <h4 className="form-sub">
-              <Users size={16} /> {today.date === today.actualDate ? 'Today' : 'Last class day'}
+              <Users size={16} /> {today.date === today.actualDate ? 'Today' : 'Last day of the school year'}
             </h4>
             <p className="muted small">
               {tally.present} present · {tally.late} late · {tally.absent} absent{tally.excused ? ` · ${tally.excused} excused` : ''} ·{' '}

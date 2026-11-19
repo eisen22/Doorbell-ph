@@ -283,7 +283,7 @@ export function Attendance() {
         </div>
       </div>
 
-      <ClassSwitch classes={classes} value={section.id} onChange={setClass} time={today.time} date={today.actualDate} />
+      <ClassSwitch classes={classes} value={section.id} onChange={setClass} time={today.time} date={today.actualDate} calendar={calendar} />
 
       {away?.kind === 'substitute' && (
         <p className="cover-note">
@@ -377,7 +377,14 @@ export function Attendance() {
               hint={`The teacher is absent and the admin cancelled this class${away.note ? ` (${away.note})` : ''}. Nobody is marked absent.`}
             />
           ) : (
-            <Empty title="No class on this day" hint="Weekends, holidays and suspensions are skipped in streaks." />
+            <Empty
+              title={day === today.actualDate ? 'No class today, so no attendance' : 'No class on this day'}
+              hint={(() => {
+                const e = calendar.find((c) => c.date === day);
+                const why = e && ['suspension', 'holiday', 'break'].includes(e.type) ? `${e.label}. ` : '';
+                return `${why}Nobody is marked absent and no absence texts go out. Weekends, holidays and suspensions are skipped in streaks.`;
+              })()}
+            />
           )}
         </Card>
       ) : (
