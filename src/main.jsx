@@ -30,7 +30,7 @@ import {
   FileText,
   FileSpreadsheet,
 } from 'lucide-react';
-import { useRepo, Logo, Wordmark, Skeleton, useLive, RepoProvider, PasswordInput } from './ui';
+import { useRepo, Logo, Wordmark, Skeleton, useLive, RepoProvider, PasswordInput, TodayNotice } from './ui';
 import { parentKeyOf } from './logic';
 // Parents sign in on this same page with their mobile number (parent/parentCloud.js), then /parent opens.
 import { signInParent } from './parent/parentCloud';
@@ -465,6 +465,7 @@ export function Shell() {
             </div>
           </header>
           <main className="content">
+            <TodayNotice />
             {needsSection ? (
               <div className="page">
                 <div className="card">

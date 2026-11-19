@@ -1148,3 +1148,8 @@ textarea.input { height: auto; padding-top: 10px; padding-bottom: 10px; line-hei
 .sa-periods tr:last-child td { border-bottom: 0; }
 .sa-period-note { margin-left: 4px; }
 .chip-left { background: var(--surface-2); color: var(--ink-2); }
+/* Today's notice at the top of admin and teacher pages (suspension, holiday, half day). */
+.today-notice { display: flex; gap: 10px; align-items: flex-start; margin: 0 0 18px; max-width: 1240px; padding: 12px 14px; border-radius: var(--r-md, 12px); background: var(--absent-bg); color: var(--absent); font-size: 14.5px; line-height: 1.45; }
+.today-notice svg { flex: none; margin-top: 2px; }
+.today-notice.today-halfday { background: var(--late-bg); color: var(--late); }
+.today-notice.today-holiday, .today-notice.today-break { background: var(--surface-2); color: var(--ink); }

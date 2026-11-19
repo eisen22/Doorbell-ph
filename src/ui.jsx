@@ -1064,3 +1064,52 @@ export function PasswordInput({ value, onChange, autoComplete = 'current-passwor
     </div>
   );
 }
+
+// =====================================================================
+// TODAY'S NOTICE (top of every admin and teacher page): today is suspended, a holiday, a break, a half
+// day or a part-day suspension. On a day with no class the pages show the last class day, so this
+// says plainly what today is. Teachers see it only when it applies to the grades they teach.
+// =====================================================================
+export function TodayNotice() {
+  const { data } = useLive(async (r) => {
+    const session = await r.getSession();
+    if (!session) return null;
+    const today = await r.getToday();
+    const calendar = await r.getCalendar();
+    const sections = (await r.listSections()).filter((x) => !x.archived);
+    const mine = session.role === 'admin' ? sections : sections.filter((x) => (session.sectionIds ?? []).includes(x.id));
+    return { today, entry: calendar.find((c) => c.date === today.actualDate), levels: [...new Set(mine.map((x) => x.gradeLevel ?? 'K'))] };
+  });
+  if (!data?.entry) return null;
+  const { today, entry, levels } = data;
+  if (!['suspension', 'partial', 'holiday', 'break', 'halfday'].includes(entry.type)) return null;
+  // Only some grades: show it to teachers of those grades; the admin sees which grades.
+  const some = entry.levels?.length > 0;
+  if (some && !levels.some((l) => entry.levels.includes(l))) return null;
+  const day = format(parseISO(today.actualDate), 'EEEE, MMMM d');
+  const who = some ? ` for ${levelsLabel(entry.levels)}` : '';
+  const what =
+    entry.type === 'suspension'
+      ? `Classes are suspended today${who}`
+      : entry.type === 'partial'
+        ? `Classes are suspended from ${to12h(entry.from)} today${who}`
+        : entry.type === 'halfday'
+          ? `Half day today${who}: classes end at ${to12h(entry.until)}`
+          : `No classes today${who}`;
+  const label = entry.label && entry.label !== DAY_KIND_META[entry.type]?.label ? ` (${entry.label})` : '';
+  const shown = today.date !== today.actualDate ? ` Pages show ${format(parseISO(today.date), 'EEE, MMM d')}, the last class day.` : '';
+  const others = some && entry.type !== 'halfday' ? ' Other grades have class as usual.' : '';
+  return (
+    <div className={`today-notice today-${entry.type}`} role="status">
+      <CalendarDays size={18} aria-hidden="true" />
+      <span>
+        <b>
+          {day}: {what}
+          {label}.
+        </b>
+        {others}
+        {shown}
+      </span>
+    </div>
+  );
+}

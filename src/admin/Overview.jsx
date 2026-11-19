@@ -166,7 +166,10 @@ export function AdminDashboard() {
           <h1>School overview</h1>
           <p className="page-sub">Good day, {session?.name.split(' ')[0] ?? ''}</p>
         </div>
-        <p className="muted">{format(parseISO(today.date), 'EEEE, MMMM d, yyyy')}</p>
+        <p className="muted">
+          {format(parseISO(today.actualDate ?? today.date), 'EEEE, MMMM d, yyyy')}
+          {today.actualDate && today.date !== today.actualDate && <span className="block small">Showing {format(parseISO(today.date), 'EEE, MMM d')}, the last class day</span>}
+        </p>
       </div>
       {/* URGENT: the gate saw these children, but their teacher marked them absent in class. */}
       {data.missing.length > 0 && (
