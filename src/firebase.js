@@ -13,6 +13,7 @@
 import { getApps, initializeApp } from 'firebase/app';
 import {
   browserLocalPersistence,
+  browserPopupRedirectResolver,
   browserSessionPersistence,
   GoogleAuthProvider,
   setPersistence,
@@ -206,7 +207,9 @@ export function createCloudEngine() {
       const provider = new GoogleAuthProvider();
       provider.setCustomParameters({ prompt: 'select_account' }); // always let them pick which Google account
       try {
-        await signInWithPopup(auth, provider);
+        // The 3rd argument is required here: the app starts Firebase with initializeAuth (for the per-tab sign-in),
+        // which does not include the pop-up helper, and without it Firebase says "auth/argument-error".
+        await signInWithPopup(auth, provider, browserPopupRedirectResolver);
       } catch (e) {
         signInWaiter = null;
         signInFailer = null;
