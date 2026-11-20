@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, useMemo } from 'react';
-import { GRADE_LEVELS, gradeName, bySectionGrade, levelsLabel, manilaToday, addDays, isoWeekday, DAY_KIND_META, dayKind, classNow, classPhase, shortClassName, sortByStart, to12h, isSchoolDay, ordinal, periodsLabel, periodStatuses } from './logic';
+import { GRADE_LEVELS, gradeName, bySectionGrade, levelsLabel, manilaToday, addDays, isoWeekday, DAY_KIND_META, dayKind, classNow, classPhase, shortClassName, sortByStart, to12h, isSchoolDay, ordinal, periodsLabel, periodStatuses, studentName } from './logic';
 import { DemoClock, Engine, noopPersistence, buildDemoState, demoAuth } from './engine';
 import { cloudConfigured, createCloudEngine } from './firebase';
 import { CheckCircle2, Clock3, XCircle, FileCheck2, CircleDashed, X, CalendarDays, ChevronLeft, ChevronRight, Eye, EyeOff } from 'lucide-react';
@@ -728,10 +728,11 @@ function PeriodTable({ rows }) {
     </div>
   );
 }
-export function StudentAttendanceModal({ student, section, onClose }) {
+// middle: 'full' when opened from My Classes, otherwise the middle initial only.
+export function StudentAttendanceModal({ student, section, onClose, middle = 'initial' }) {
   const { data } = useLive((r) => r.getStudentAttendance(student.id, section.id), [student.id, section.id]);
   const [picked, setPicked] = useState(null); // the clicked day: its details show above the calendar
-  const name = `${student.firstName} ${student.lastName}`;
+  const name = studentName(student, { middle, order: 'first' });
   if (!data)
     return (
       <Modal title={name} onClose={onClose} wide>

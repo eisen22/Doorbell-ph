@@ -12,7 +12,11 @@
 
 import { getApps, initializeApp } from 'firebase/app';
 import {
+  browserLocalPersistence,
   browserSessionPersistence,
+  GoogleAuthProvider,
+  setPersistence,
+  signInWithPopup,
   createUserWithEmailAndPassword,
   EmailAuthProvider,
   reauthenticateWithCredential,
@@ -68,15 +72,35 @@ const blankState = () => emptyState({ settings: structuredClone(defaultSettings)
 // Password given to the 4 sample teachers created by "Load sample school".
 export const SAMPLE_TEACHER_PASSWORD = 'Teacher-2026!';
 
+// REMEMBER ME (sign-in page). Ticked: the sign-in is kept on this device until "Sign out" (every tab).
+// Not ticked: only this browser tab, until it is closed (one tab can be the admin and another a teacher).
+// The choice is remembered in localStorage so the next visit opens with the right kind of sign-in.
+const REMEMBER_KEY = 'doorbell-remember-staff';
+const remembered = () => {
+  try {
+    return localStorage.getItem(REMEMBER_KEY) === '1';
+  } catch {
+    return false;
+  }
+};
+const setRemembered = (on) => {
+  try {
+    if (on) localStorage.setItem(REMEMBER_KEY, '1');
+    else localStorage.removeItem(REMEMBER_KEY);
+  } catch {
+    /* storage blocked */
+  }
+};
+
 export function createCloudEngine() {
   // Start Firebase (only once, even if this runs twice during development).
   const app = getApps().find((a) => a.name === '[DEFAULT]') ?? initializeApp(firebaseConfig);
   // Sign-in is kept PER BROWSER TAB (session persistence), so one tab can be the admin and
   // another tab a teacher at the same time. Refreshing keeps you signed in; closing the tab
-  // signs you out. (Firebase's default would share ONE sign-in across every tab of the browser.)
+  // signs you out. With "Remember me" it is kept on the device instead (see REMEMBER_KEY above).
   let auth;
   try {
-    auth = initializeAuth(app, { persistence: browserSessionPersistence });
+    auth = initializeAuth(app, { persistence: remembered() ? browserLocalPersistence : browserSessionPersistence });
   } catch {
     auth = getAuth(app); // already started (happens when Vite reloads this file during development)
   }
@@ -140,8 +164,14 @@ export function createCloudEngine() {
   let signInFailer = null; // called with an error when it fails
   let setupInProgress = null; // a Promise while the first admin is being created
 
+  // Ticked "Remember me": keep the sign-in on this device; else only in this tab.
+  const usePersistence = async (remember) => {
+    await setPersistence(auth, remember ? browserLocalPersistence : browserSessionPersistence);
+    setRemembered(!!remember);
+  };
   const authAdapter = {
-    async signIn(email, password) {
+    async signIn(email, password, remember = false) {
+      await usePersistence(remember);
       const done = new Promise((res, rej) => {
         signInWaiter = res;
         signInFailer = rej;
@@ -161,7 +191,42 @@ export function createCloudEngine() {
       }
       return done;
     },
+    // SIGN IN WITH GOOGLE (teachers and admins). Google only proves who the person is: they get in only
+    // if the admin already added that email (Teachers page / Admins), i.e. there is a users/{uid} profile.
+    // A Gmail address added by the admin is the SAME Firebase account (same uid), so the profile is found.
+    // Firebase console must have Authentication -> Sign-in method -> Google turned on, and the website's
+    // address under Authentication -> Settings -> Authorized domains (e.g. eisen22.github.io).
+    async signInWithGoogle(remember = false) {
+      await usePersistence(remember);
+      const done = new Promise((res, rej) => {
+        signInWaiter = res;
+        signInFailer = rej;
+      });
+      done.catch(() => {}); // handled by the caller through the returned promise
+      const provider = new GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: 'select_account' }); // always let them pick which Google account
+      try {
+        await signInWithPopup(auth, provider);
+      } catch (e) {
+        signInWaiter = null;
+        signInFailer = null;
+        const code = e.code ?? '';
+        throw new Error(
+          code.includes('popup-closed') || code.includes('cancelled-popup')
+            ? 'Google sign-in was closed before it finished.'
+            : code.includes('popup-blocked')
+              ? 'The browser blocked the Google window. Allow pop-ups for this site and try again.'
+              : code.includes('account-exists-with-different-credential')
+                ? 'This email signs in with a password. Use the email and password instead.'
+                : code.includes('unauthorized-domain') || code.includes('operation-not-allowed')
+                  ? 'Sign in with Google is not turned on for this website yet. Ask the school admin.'
+                  : e.message,
+        );
+      }
+      return done;
+    },
     async signOut() {
+      setRemembered(false);
       await fbSignOut(auth);
     },
     async sendPasswordReset(email) {
@@ -355,8 +420,18 @@ export function createCloudEngine() {
       if (setupInProgress) await setupInProgress; // first admin: wait until their profile is saved
       const snap = await getDoc(doc(db, 'users', user.uid)); // the profile with the role
       if (!snap.exists()) {
+        // A Google account the school never added: Google just created it, so remove it again
+        // (keeps Firebase Authentication -> Users clean).
+        const brandNew = user.metadata.creationTime === user.metadata.lastSignInTime;
+        if (brandNew && user.providerData.length && user.providerData.every((p) => p.providerId === 'google.com')) await user.delete().catch(() => {});
         await fbSignOut(auth);
-        signInFailer?.(new Error('This account is not set up in Doorbell yet. Ask the school admin.'));
+        signInFailer?.(
+          new Error(
+            user.providerData.some((p) => p.providerId === 'google.com')
+              ? `${user.email ?? 'This Google account'} is not a Doorbell account. Ask the school admin to add your email first.`
+              : 'This account is not set up in Doorbell yet. Ask the school admin.',
+          ),
+        );
         return;
       }
       const account = { ...snap.data(), uid: user.uid };

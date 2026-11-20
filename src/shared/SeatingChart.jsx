@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Armchair, Pencil, Shuffle, Eraser, Save, X, UserX, CornerDownLeft } from 'lucide-react';
 import { Modal } from '../ui';
-import { to12h } from '../logic';
+import { to12h, studentName } from '../logic';
 
 // =====================================================================
 // SEATING CHART (Attendance -> Seating chart): the class drawn as the teacher sees it from the front
@@ -179,7 +179,7 @@ export function SeatingChart({ section, roster, layout, canEdit, onChoose, onSav
                     disabled={!draft && !row}
                     aria-label={
                       row
-                        ? `Row ${r}, seat ${c}: ${row.student.firstName} ${row.student.lastName}, ${st ? WORD[st] : 'not yet marked'}`
+                        ? `Row ${r}, seat ${c}: ${studentName(row.student, { order: 'first' })}, ${st ? WORD[st] : 'not yet marked'}`
                         : `Row ${r}, seat ${c}: empty`
                     }
                   >
@@ -220,10 +220,10 @@ export function SeatingChart({ section, roster, layout, canEdit, onChoose, onSav
             <span key={row.student.id}>
               {i > 0 && ', '}
               {draft ? (
-                `${row.student.firstName} ${row.student.lastName}`
+                studentName(row.student, { order: 'first' })
               ) : (
                 <button className="link-btn" onClick={() => setOpen(row)}>
-                  {row.student.firstName} {row.student.lastName}
+                  {studentName(row.student, { order: 'first' })}
                   {row.record?.status ? ` (${WORD[row.record.status]})` : ''}
                 </button>
               )}
@@ -234,7 +234,7 @@ export function SeatingChart({ section, roster, layout, canEdit, onChoose, onSav
 
       {/* Taking attendance: one child's status. */}
       {open && (
-        <Modal title={`${open.student.firstName} ${open.student.lastName}`} onClose={() => setOpen(null)}>
+        <Modal title={studentName(open.student, { order: 'first' })} onClose={() => setOpen(null)}>
           <p className="muted small">
             {open.record?.scannedAt ? `Scanned at the gate ${to12h(open.record.scannedAt)}` : 'Not scanned at the gate'}
             {open.record?.status ? ` · now ${WORD[open.record.status]}` : ''}
@@ -289,7 +289,7 @@ export function SeatingChart({ section, roster, layout, canEdit, onChoose, onSav
                 const where = Object.keys(draft.seats).find((k) => draft.seats[k] === row.student.id);
                 return (
                   <button key={row.student.id} className={`btn ${draft.seats[pick] === row.student.id ? 'btn-ink' : ''}`} onClick={() => seatChild(pick, row.student.id)}>
-                    {row.student.lastName}, {row.student.firstName}
+                    {studentName(row.student)}
                     <span className="muted small">{where ? ` · row ${where.split('-')[0]}, seat ${where.split('-')[1]}` : ' · no seat yet'}</span>
                   </button>
                 );

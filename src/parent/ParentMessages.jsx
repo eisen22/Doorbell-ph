@@ -160,7 +160,8 @@ function Thread({ st, api, thread, me, onBack }) {
   );
 }
 
-// NEW MESSAGE: which child, then who (a teacher of that child's class, the office, or a teacher + the office).
+// NEW MESSAGE: which child, which teacher (the adviser or a subject teacher), and whether the school office
+// is included too (3-way). A parent may also write to the school office only.
 function Compose({ st, api, onBack, onSent }) {
   const children = st.key?.children ?? [];
   const [childId, setChildId] = useState(children[0]?.id ?? null);
@@ -168,21 +169,21 @@ function Compose({ st, api, onBack, onSent }) {
   const latest = docs[docs.length - 1];
   const contacts = latest?.contacts ?? [];
   const child = children.find((c) => c.id === childId);
-  const [teacher, setTeacher] = useState(null); // a teacher's key, or null
+  const [teacher, setTeacher] = useState(null); // a teacher's key, or '' = no teacher (school office only)
   const [office, setOffice] = useState(false);
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   useEffect(() => {
-    // Default: the class adviser.
-    setTeacher(contacts[0]?.key ?? null);
+    // Start with the class adviser; with no teachers listed yet, the school office.
+    setTeacher(contacts[0]?.key ?? '');
     setOffice(!contacts.length);
   }, [childId, contacts.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  const officeOnly = !teacher;
   const submit = async (e) => {
     e.preventDefault();
     setError(null);
-    const to = [...(teacher ? [teacher] : []), ...(office ? [OFFICE] : [])];
-    if (!to.length) return setError('Choose who to send it to.');
+    const to = [...(teacher ? [teacher] : []), ...(office || officeOnly ? [OFFICE] : [])];
     const sectionId = child?.sectionId ?? latest?.sectionId;
     if (!sectionId) return setError(`${child?.firstName ?? 'Your child'} is not in a class yet. Please contact the school.`);
     setBusy(true);
@@ -194,6 +195,7 @@ function Compose({ st, api, onBack, onSent }) {
       setBusy(false);
     }
   };
+  const chosen = contacts.find((c) => c.key === teacher);
   return (
     <form onSubmit={submit} className="pp-stack">
       <button type="button" className="pp-back" onClick={onBack}>
@@ -214,22 +216,42 @@ function Compose({ st, api, onBack, onSent }) {
           </fieldset>
         )}
         <fieldset className="pp-fieldset">
-          <legend>To</legend>
-          <div className="pp-msg-to">
-            {contacts.map((c) => (
-              <button key={c.key} type="button" className={`pp-period ${teacher === c.key ? 'on' : ''}`} aria-pressed={teacher === c.key} onClick={() => setTeacher(teacher === c.key ? null : c.key)}>
-                <b>{c.name}</b>
-                <span>{c.role}</span>
+          <legend>Which teacher?</legend>
+          {contacts.length ? (
+            <div className="pp-msg-to" role="radiogroup" aria-label="Teacher">
+              {contacts.map((c) => (
+                <button key={c.key} type="button" role="radio" aria-checked={teacher === c.key} className={`pp-period ${teacher === c.key ? 'on' : ''}`} onClick={() => setTeacher(c.key)}>
+                  <b>{c.name}</b>
+                  <span>{c.role}</span>
+                </button>
+              ))}
+              <button type="button" role="radio" aria-checked={officeOnly} className={`pp-period ${officeOnly ? 'on' : ''}`} onClick={() => setTeacher('')}>
+                <b>No teacher</b>
+                <span>Send to the school office only</span>
               </button>
-            ))}
-            <button type="button" className={`pp-period ${office ? 'on' : ''}`} aria-pressed={office} onClick={() => setOffice(!office)}>
-              <b>
-                <Building2 size={15} aria-hidden="true" /> {OFFICE_NAME}
-              </b>
-              <span>{teacher ? 'Also include the school office' : 'The principal and the school staff'}</span>
-            </button>
-          </div>
-          <p className="pp-muted pp-small">Pick one teacher, the school office, or both: everyone you pick sees every message.</p>
+            </div>
+          ) : (
+            <p className="pp-muted pp-small">
+              {child?.firstName ?? 'Your child'}’s teachers will be listed here once the school updates the parent portal. For now you can write to the
+              school office.
+            </p>
+          )}
+        </fieldset>
+        <fieldset className="pp-fieldset">
+          <legend>School office</legend>
+          {officeOnly ? (
+            <p className="pp-muted pp-small">
+              <Building2 size={14} aria-hidden="true" /> Your message goes to the school office (the principal and the school staff).
+            </p>
+          ) : (
+            <label className="pp-msg-check">
+              <input type="checkbox" checked={office} onChange={(e) => setOffice(e.target.checked)} />
+              <span>
+                <b>Also include the school office</b>
+                <small>{chosen?.name ?? 'The teacher'} and the school office will both see every message.</small>
+              </span>
+            </label>
+          )}
         </fieldset>
         <label className="pp-field">
           <span>Message</span>
@@ -242,7 +264,7 @@ function Compose({ st, api, onBack, onSent }) {
         </p>
       )}
       <button className="btn btn-ink wide pp-big" type="submit" disabled={busy || !text.trim()}>
-        <Send size={18} aria-hidden="true" /> {busy ? 'Sending…' : 'Send'}
+        <Send size={18} aria-hidden="true" /> {busy ? 'Sending…' : `Send to ${officeOnly ? OFFICE_NAME : `${chosen?.name ?? 'the teacher'}${office ? ' and the office' : ''}`}`}
       </button>
     </form>
   );

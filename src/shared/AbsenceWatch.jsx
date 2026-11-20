@@ -16,7 +16,7 @@ import {
   SearchNote,
 } from '../ui';
 import { useState } from 'react';
-import { displayPhMobile, bySectionGrade, gradeName } from '../logic';
+import { displayPhMobile, bySectionGrade, gradeName, studentName } from '../logic';
 
 // =====================================================================
 // ABSENCE WATCH (/admin/absences for the admin, /absences for teachers): children absent or
@@ -111,7 +111,7 @@ export function AbsenceWatch() {
                   <Avatar first={r.student.firstName} last={r.student.lastName} tone={r.section.color} />
                   <span>
                     <strong>
-                      {r.student.lastName}, {r.student.firstName}
+                      {studentName(r.student)}
                     </strong>
                     <StreakChip s={r.streak} threshold={t} />
                   </span>
@@ -272,7 +272,7 @@ function TotalsTable({ rows, onOpen }) {
                     <Avatar first={r.student.firstName} last={r.student.lastName} tone={r.section.color} />
                     <span>
                       <strong>
-                        {r.student.lastName}, {r.student.firstName}
+                        {studentName(r.student)}
                       </strong>
                       {r.guardian && <span className="muted small">{r.guardian.name}</span>}
                     </span>

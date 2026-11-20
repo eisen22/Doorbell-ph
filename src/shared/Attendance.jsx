@@ -27,6 +27,7 @@ import {
   periodAt,
   ordinal,
   periodsLabel,
+  studentName,
 } from '../logic';
 import {
   useLive,
@@ -343,7 +344,7 @@ export function Attendance() {
               <li key={x.student.id}>
                 <div>
                   <b>
-                    {x.student.firstName} {x.student.lastName}
+                    {studentName(x.student, { order: 'first' })}
                   </b>
                   <span className="muted small">
                     In at {to12h(x.scannedAt)}
@@ -399,11 +400,11 @@ export function Attendance() {
           {confirmation && day === today.date && (
             <p className="absent-strip">
               <b>Not in class at first period:</b>{' '}
-              {roster.filter((r) => r.record?.status === 'absent').map((r) => `${r.student.firstName} ${r.student.lastName}`).join(', ') || 'nobody'}
+              {roster.filter((r) => r.record?.status === 'absent').map((r) => studentName(r.student, { order: 'first' })).join(', ') || 'nobody'}
               {roster.some((r) => r.record?.needsCheck) && (
                 <>
                   . <b>Scanned at the gate, waiting for a teacher:</b>{' '}
-                  {roster.filter((r) => r.record?.needsCheck).map((r) => `${r.student.firstName} ${r.student.lastName}`).join(', ')}
+                  {roster.filter((r) => r.record?.needsCheck).map((r) => studentName(r.student, { order: 'first' })).join(', ')}
                 </>
               )}
               . If one of them is in your class now, mark Present or Late: the parent is texted with the arrival time.
@@ -463,7 +464,7 @@ export function Attendance() {
                     <Avatar first={row.student.firstName} last={row.student.lastName} tone={section.color} />
                     <div className="roster-name">
                       <strong>
-                        {row.student.lastName}, {row.student.firstName}
+                        {studentName(row.student)}
                       </strong>
                       <span className="muted small">
                         {row.record?.scannedAt

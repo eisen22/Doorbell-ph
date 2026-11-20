@@ -34,7 +34,7 @@ import {
 import { useRepo, Logo, Wordmark, Skeleton, useLive, RepoProvider, PasswordInput, TodayNotice } from './ui';
 import { parentKeyOf } from './logic';
 // Parents sign in on this same page with their mobile number (parent/parentCloud.js), then /parent opens.
-import { signInParent } from './parent/parentCloud';
+import { signInParent, parentSignedIn } from './parent/parentCloud';
 import ReactDOM from 'react-dom/client';
 // One file per screen: teacher/ (teacher only), admin/ (admin only), shared/ (both portals).
 import { Dashboard } from './teacher/Dashboard';
@@ -59,6 +59,18 @@ import { Messages } from './shared/Messages';
 // The parent portal (/parent) has its own sign-in and does not use the staff frame (Shell).
 import { ParentPortal } from './parent/ParentPortal';
 
+// Google's "G" for the Sign in with Google button (Google's sign-in branding asks for this mark).
+function GoogleG() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true">
+      <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z" />
+      <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z" />
+      <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z" />
+      <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z" />
+    </svg>
+  );
+}
+
 /** One sign-in page for teachers and admins; the account's role decides which portal opens. */
 // ---------------------------------------------------------------------
 // SIGN-IN PAGE (/login). One page for teachers and the admin: the account's role
@@ -75,11 +87,40 @@ export function Login() {
   const [notice, setNotice] = useState(null);
   const [setup, setSetup] = useState(false); // true = the database has no admin yet: show "First-time setup"
   const [name, setName] = useState('School Admin');
+  // Who is signing in: 'parent' (mobile number) or 'staff' (teachers and admins: email or Google).
+  // The last choice is remembered on this device.
+  const [who, setWhoState] = useState(() => {
+    try {
+      return localStorage.getItem('doorbell-login-as') === 'staff' ? 'staff' : 'parent';
+    } catch {
+      return 'parent';
+    }
+  });
+  const setWho = (w) => {
+    setWhoState(w);
+    setError(null);
+    setNotice(null);
+    setEmail('');
+    setPassword('');
+    setRemember(w === 'parent');
+    try {
+      localStorage.setItem('doorbell-login-as', w);
+    } catch {
+      /* storage blocked */
+    }
+  };
+  // Remember me: on for parents (their own phone), off for staff (school computers are often shared).
+  const [remember, setRemember] = useState(who === 'parent');
   const demo = repo.demoAccounts();
   useEffect(() => {
     // Already signed in? Go straight to the right portal.
     repo.getSession().then((s) => {
       if (s) navigate(s.role === 'admin' ? '/admin' : '/', { replace: true });
+      // A parent who ticked "Remember me" goes straight back to the parent portal.
+      else
+        parentSignedIn()
+          .then((yes) => yes && navigate('/parent', { replace: true }))
+          .catch(() => {});
     });
     // Cloud mode only: is this a brand-new database? (needsSetup is added in firebase.js)
     repo
@@ -112,13 +153,14 @@ export function Login() {
     e?.preventDefault();
     setError(null);
     setNotice(null);
-    if (!email || !password) return setError('Enter your email or mobile number, and your password.');
-    // A mobile number (no @) = a parent: sign in to the parent portal.
-    if (!email.includes('@')) {
-      if (!parentKeyOf(email)) return setError('Enter an email address, or a mobile number like 0917 123 4567.');
+    const id = email.trim();
+    if (who === 'parent') {
+      if (!id || !password) return setError('Enter your mobile number and your password.');
+      if (id.includes('@')) return setError('Parents sign in with a mobile number. Teachers and staff: choose "School staff" above.');
+      if (!parentKeyOf(id)) return setError('Enter your mobile number, e.g. 0917 123 4567.');
       setBusy(true);
       try {
-        await signInParent(email, password);
+        await signInParent(id, password, remember);
         navigate('/parent', { replace: true });
       } catch (err) {
         setError(err.message);
@@ -126,9 +168,25 @@ export function Login() {
       }
       return;
     }
+    if (!id || !password) return setError('Enter your email and your password, or use Sign in with Google.');
+    if (!id.includes('@')) return setError(parentKeyOf(id) ? 'That looks like a mobile number. Parents: choose "Parent" above.' : 'Enter your email address.');
     setBusy(true);
     try {
-      const s = await repo.signIn(email, password);
+      const s = await repo.signIn(id, password, remember);
+      navigate(s.role === 'admin' ? '/admin' : '/', { replace: true });
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  // Teachers and admins: Google account (only emails the admin added; see firebase.js).
+  const google = async () => {
+    setError(null);
+    setNotice(null);
+    setBusy(true);
+    try {
+      const s = await repo.signInWithGoogle(remember);
       navigate(s.role === 'admin' ? '/admin' : '/', { replace: true });
     } catch (err) {
       setError(err.message);
@@ -139,12 +197,15 @@ export function Login() {
   const forgot = async () => {
     setError(null);
     setNotice(null);
-    if (!email) return setError('Type your email first, then press "Forgot password?".');
+    // Parents sign in with a mobile number: there is no email to send a reset link to.
+    if (who === 'parent') return setNotice("Ask the school office to reset your password. It goes back to the default password (see below).");
+    if (!email.includes('@')) return setError('Type your email first, then press "Forgot password?".');
     try {
       await repo.sendPasswordReset(email);
-      setNotice(`A reset link was sent to ${email}.`);
+      // Firebase answers "sent" even for an address that has no account or no real inbox, so don't promise it arrived.
+      setNotice(`If ${email.trim()} is a Doorbell account, a reset link was sent there (check Spam too). No email arrived? Ask the school admin.`);
     } catch (err) {
-      setError(err.message);
+      setError(err.code === 'auth/invalid-email' ? 'That email address is not valid. Check it and try again.' : err.message);
     }
   };
   return (
@@ -196,15 +257,70 @@ export function Login() {
         ) : (
           <section className="login-form">
             <h1>Sign in</h1>
-            <p className="muted">For teachers, school admins and parents. Parents: use your mobile number.</p>
+            {/* Who is signing in: it decides what the box asks for (mobile number or email). */}
+            <div className="login-who" role="radiogroup" aria-label="I am signing in as">
+              <button type="button" role="radio" aria-checked={who === 'parent'} className={who === 'parent' ? 'on' : ''} onClick={() => setWho('parent')}>
+                <Users size={18} aria-hidden="true" />
+                <span>
+                  <b>Parent</b>
+                  <small>Use your mobile number</small>
+                </span>
+              </button>
+              <button type="button" role="radio" aria-checked={who === 'staff'} className={who === 'staff' ? 'on' : ''} onClick={() => setWho('staff')}>
+                <GraduationCap size={18} aria-hidden="true" />
+                <span>
+                  <b>School staff</b>
+                  <small>Teachers and admins</small>
+                </span>
+              </button>
+            </div>
+            {who === 'staff' && !demo.length && (
+              <>
+                <button type="button" className="btn wide google-btn" onClick={google} disabled={busy}>
+                  <GoogleG /> Sign in with Google
+                </button>
+                <p className="login-or">
+                  <span>or use your email and password</span>
+                </p>
+              </>
+            )}
             <form onSubmit={submit}>
               <label className="field">
-                <span>Email or mobile number</span>
-                <input className="input" type="text" inputMode="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} autoFocus />
+                <span>{who === 'parent' ? 'Mobile number' : 'Email'}</span>
+                {who === 'parent' ? (
+                  <input
+                    className="input"
+                    type="tel"
+                    inputMode="tel"
+                    autoComplete="username"
+                    placeholder="0917 123 4567"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    autoFocus
+                  />
+                ) : (
+                  <input
+                    className="input"
+                    type="email"
+                    inputMode="email"
+                    autoComplete="username"
+                    placeholder="you@gmail.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    autoFocus
+                  />
+                )}
               </label>
               <label className="field">
                 <span>Password</span>
                 <PasswordInput value={password} onChange={(e) => setPassword(e.target.value)} />
+              </label>
+              <label className="remember">
+                <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
+                <span>
+                  Remember me on this device
+                  <small>{who === 'parent' ? 'Untick on a borrowed phone.' : "Don't tick on a shared computer."}</small>
+                </span>
               </label>
               {error && (
                 <p className="error" role="alert">
@@ -217,20 +333,27 @@ export function Login() {
                 </p>
               )}
               <button className="btn btn-ink wide" disabled={busy} type="submit">
-                <LogIn size={18} /> {busy ? 'Signing in…' : 'Sign in'}
+                <LogIn size={18} /> {busy ? 'Signing in…' : who === 'parent' ? 'Sign in to the parent portal' : 'Sign in'}
               </button>
               <button type="button" className="link-btn center" onClick={forgot}>
                 <KeyRound size={14} /> Forgot password?
               </button>
             </form>
-            <details className="parent-help">
-              <summary>Parent signing in for the first time?</summary>
-              <p>
-                Use the mobile number the school has on file. Your default password is your child's initials (first, middle, last name) and birthday
-                (MMDDYY), in small letters. Example: Alice Pati Garcia, born Aug 13, 2021 → <code>apg081321</code>. Two or more children? Use the eldest
-                child's. Forgot it? Ask the teacher or the school office.
+            {who === 'parent' && (
+              <details className="parent-help">
+                <summary>Signing in for the first time?</summary>
+                <p>
+                  Use the mobile number the school has on file. Your default password is your child's initials (first, middle, last name) and birthday
+                  (MMDDYY), in small letters. Example: Alice Pati Garcia, born Aug 13, 2021 → <code>apg081321</code>. Two or more children? Use the eldest
+                  child's. Forgot it? Ask the teacher or the school office.
+                </p>
+              </details>
+            )}
+            {who === 'staff' && (
+              <p className="muted small">
+                New teacher? The school admin adds your email first. Then sign in with Google (Gmail) or with the temporary password the admin gives you.
               </p>
-            </details>
+            )}
             {demo.length > 0 && (
               <div className="demo-box">
                 <p>
@@ -242,6 +365,8 @@ export function Login() {
                     key={a.email}
                     className="demo-acc"
                     onClick={() => {
+                      setWhoState('staff');
+                      setError(null);
                       setEmail(a.email);
                       setPassword(a.password);
                     }}

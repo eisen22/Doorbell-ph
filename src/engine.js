@@ -320,8 +320,16 @@ export class Engine {
     await this.ready;
     return this.session;
   }
-  async signIn(email, password) {
-    const account = await this.auth.signIn(email.trim(), password);
+  // remember: keep the sign-in on this device (sign-in page "Remember me").
+  async signIn(email, password, remember = false) {
+    const account = await this.auth.signIn(email.trim(), password, remember);
+    this.setSession(account);
+    return this.session;
+  }
+  // Teachers and admins: "Sign in with Google" (only emails the admin added; see firebase.js).
+  async signInWithGoogle(remember = false) {
+    if (!this.auth.signInWithGoogle) throw new Error('Sign in with Google works once the website is connected to the cloud.');
+    const account = await this.auth.signInWithGoogle(remember);
     this.setSession(account);
     return this.session;
   }

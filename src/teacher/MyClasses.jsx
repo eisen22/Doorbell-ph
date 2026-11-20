@@ -12,7 +12,7 @@ import {
   GraduationCap,
   Users,
 } from 'lucide-react';
-import { classRole, teacherPeriods, groupByClassRole, displayPhMobile, gradeName, ordinal, to12h } from '../logic';
+import { classRole, teacherPeriods, groupByClassRole, displayPhMobile, gradeName, ordinal, to12h, studentName } from '../logic';
 import {
   useLive,
   loadMyClasses,
@@ -60,7 +60,7 @@ export function MyClasses() {
         </div>
       </div>
     );
-  const rows = data.roster.filter((r) => !q || `${r.student.firstName} ${r.student.lastName} ${r.guardian?.name ?? ''}`.toLowerCase().includes(q));
+  const rows = data.roster.filter((r) => !q || `${r.student.firstName} ${r.student.middleName ?? ''} ${r.student.lastName} ${r.guardian?.name ?? ''}`.toLowerCase().includes(q));
   const { session, today, classes, section, teachers, counts } = data;
   const me = session.teacherId;
   const roleOf = (c) => classRole(c, me);
@@ -214,9 +214,7 @@ export function MyClasses() {
                       <div className="cell-person">
                         <Avatar first={student.firstName} last={student.lastName} tone={section.color} />
                         <span>
-                          <strong>
-                            {student.lastName}, {student.firstName}
-                          </strong>
+                          <strong>{studentName(student, { middle: 'full' })}</strong>
                           <span className="muted small">
                             {student.sex === 'M' ? 'Boy' : 'Girl'} · <span className="nowrap">born {student.birthdate}</span>
                           </span>
@@ -275,7 +273,7 @@ export function MyClasses() {
       <p className="muted small">
         Student records, guardians and ID cards are managed by the school admin. Contact them to fix a number or reissue a lost card.
       </p>
-      {history && <StudentAttendanceModal student={history} section={data.section} onClose={() => setHistory(null)} />}
+      {history && <StudentAttendanceModal student={history} section={data.section} middle="full" onClose={() => setHistory(null)} />}
     </div>
   );
 }

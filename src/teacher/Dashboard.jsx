@@ -23,6 +23,7 @@ import {
   classRole,
   teacherPeriods,
   groupByClassRole,
+  studentName,
 } from '../logic';
 import {
   useLive,
@@ -300,9 +301,7 @@ export function Dashboard() {
                 <Link to={`/absences?student=${r.student.id}`} className="attention-link" title="Open in Absence Watch">
                   <Avatar first={r.student.firstName} last={r.student.lastName} tone={r.section.color} />
                   <div>
-                    <strong>
-                      {r.student.firstName} {r.student.lastName}
-                    </strong>
+                    <strong>{studentName(r.student, { order: 'first' })}</strong>
                     <span className="muted small">
                       {describeStreak(r.streak)}
                       {multi ? ` · ${shortClassName(r.section.name)}` : ''}

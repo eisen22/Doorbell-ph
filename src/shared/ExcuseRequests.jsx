@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { format } from 'date-fns';
 import { Check, FileText, X } from 'lucide-react';
 import { useLive, useRepo, Card, Empty, Skeleton, Avatar, Toast, LevelChips, countByGrade, useSearchQuery, matchesQuery, SearchNote, SectionChips, countByKey } from '../ui';
-import { periodsLabel, excuseStatusLabel } from '../logic';
+import { periodsLabel, excuseStatusLabel, studentName } from '../logic';
 
 // =====================================================================
 // EXCUSE REQUESTS (/excuses for teachers, /admin/excuses for the admin)
@@ -88,7 +88,7 @@ export function ExcuseRequests() {
                 <div className="excuse-top">
                   {x.student ? <Avatar first={x.student.firstName} last={x.student.lastName} tone={x.section?.color} /> : <FileText size={20} aria-hidden="true" />}
                   <div className="excuse-who">
-                    <strong>{x.student ? `${x.student.firstName} ${x.student.lastName}` : x.studentName}</strong>
+                    <strong>{x.student ? studentName(x.student, { order: 'first' }) : x.studentName}</strong>
                     <span className="muted small">
                       {x.section?.name ?? ''} · from {x.guardianName || 'parent'} · {format(new Date(x.createdAt), 'EEE, MMM d · h:mm a')}
                     </span>

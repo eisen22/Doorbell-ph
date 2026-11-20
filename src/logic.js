@@ -691,6 +691,23 @@ export function defaultParentPassword(student) {
   return `${initials}${m}${d}${y.slice(2)}`;
 }
 
+/**
+ * A child's name for lists. middle: 'full' (My Classes), 'initial' (every other page), 'none'.
+ *   studentName(s)                          -> 'Dela Cruz, Janelle L.'
+ *   studentName(s, { middle: 'full' })      -> 'Dela Cruz, Janelle Lopez'
+ *   studentName(s, { order: 'first' })      -> 'Janelle L. Dela Cruz'
+ */
+export function middleInitial(middle) {
+  const m = (middle ?? '').trim();
+  return m ? `${m.charAt(0).toUpperCase()}.` : '';
+}
+export function studentName(s, { middle = 'initial', order = 'last' } = {}) {
+  if (!s) return '';
+  const mid = middle === 'full' ? (s.middleName ?? '').trim() : middle === 'initial' ? middleInitial(s.middleName) : '';
+  const given = [s.firstName, mid].filter(Boolean).join(' ');
+  return order === 'first' ? [given, s.lastName].filter(Boolean).join(' ') : `${s.lastName}, ${given}`;
+}
+
 /** The child whose initials and birthday make the default password: the eldest one with a birthday. */
 export function eldestChild(students) {
   return [...students].filter((s) => s?.birthdate).sort((a, b) => a.birthdate.localeCompare(b.birthdate))[0] ?? null;

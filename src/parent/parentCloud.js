@@ -20,6 +20,8 @@ import { getApps, initializeApp } from 'firebase/app';
 import {
   EmailAuthProvider,
   browserLocalPersistence,
+  browserSessionPersistence,
+  setPersistence,
   createUserWithEmailAndPassword,
   getAuth,
   initializeAuth,
@@ -36,13 +38,23 @@ import { OFFICE, OFFICE_NAME, parentMsgKey, cleanMessage, buildThread, buildMess
 
 export const portalAvailable = cloudConfigured;
 
+// REMEMBER ME for parents: ticked (the default, a parent's own phone) keeps them signed in until "Sign out";
+// not ticked (a shared or borrowed phone) signs them out when the tab is closed.
+const PARENT_REMEMBER_KEY = 'doorbell-remember-parent';
+const parentRemembered = () => {
+  try {
+    return localStorage.getItem(PARENT_REMEMBER_KEY) !== '0';
+  } catch {
+    return true;
+  }
+};
 let fb = null;
 function start() {
   if (fb) return fb;
   const app = getApps().find((a) => a.name === 'parent') ?? initializeApp(firebaseConfig, 'parent');
   let auth;
   try {
-    auth = initializeAuth(app, { persistence: browserLocalPersistence });
+    auth = initializeAuth(app, { persistence: parentRemembered() ? browserLocalPersistence : browserSessionPersistence });
   } catch {
     auth = getAuth(app);
   }
@@ -71,8 +83,14 @@ async function ensureProfile(uid, key, password) {
 }
 
 /** Signs a parent in with their mobile number and password (creates the account on the first sign-in). */
-export async function signInParent(mobileInput, passwordInput) {
+export async function signInParent(mobileInput, passwordInput, remember = true) {
   const { auth } = start();
+  await setPersistence(auth, remember ? browserLocalPersistence : browserSessionPersistence);
+  try {
+    localStorage.setItem(PARENT_REMEMBER_KEY, remember ? '1' : '0');
+  } catch {
+    /* storage blocked */
+  }
   const key = parentKeyOf(mobileInput);
   if (!key) throw new Error('Enter your mobile number, e.g. 0917 123 4567.');
   const password = passwordInput.trim();
@@ -109,6 +127,18 @@ export async function signInParent(mobileInput, passwordInput) {
     await cred.user.delete().catch(() => fbSignOut(auth));
     throw new Error(WRONG);
   }
+}
+
+/** Resolves to true when a parent is still signed in on this device ("Remember me"). */
+export function parentSignedIn() {
+  if (!portalAvailable()) return Promise.resolve(false);
+  const { auth } = start();
+  return new Promise((resolve) => {
+    const off = onAuthStateChanged(auth, (user) => {
+      off();
+      resolve(!!user);
+    });
+  });
 }
 
 export async function signOutParent() {
