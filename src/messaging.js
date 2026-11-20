@@ -12,28 +12,34 @@
 //                     office, names: { key: name }, createdBy, createdAt, lastAt, lastText, lastFrom,
 //                     lastName, readAt: { key: time } }
 //   messages/{id} = { threadId, members (copied from the thread, for the security rules), from, fromName,
-//                     text, at, system? }
+//                     text, at, system?, files?: [{ id, name, type, size }] }
+//   attachments/{id} = { id, threadId, from, name, type, size, data (base64), at }: one photo or PDF, read only
+//                     when someone opens it (src/shared/Attachments.jsx). Kept in Firestore, not Firebase Storage,
+//                     because Storage needs the paid Blaze plan; so a file must fit in one document (about 700 KB).
 // Used by the engine (staff and demo mode) and by parent/parentCloud.js (the parent portal).
 // =====================================================================
 
 export const OFFICE = 'office';
 export const MAX_MESSAGE = 1000; // characters in one message (firestore.rules checks it too)
+export const MAX_FILES = 3; // attachments in one message (firestore.rules checks it too)
 export const teacherKey = (teacherId) => `t:${teacherId}`;
 export const parentMsgKey = (mobileKey) => `p:${mobileKey}`;
 export const keyKind = (key) => (key === OFFICE ? 'office' : key?.startsWith('t:') ? 'teacher' : key?.startsWith('p:') ? 'parent' : 'other');
 export const OFFICE_NAME = 'School office';
 
 // The short line shown in the inbox under a conversation's name.
-export const previewOf = (text) => String(text ?? '').replace(/\s+/g, ' ').trim().slice(0, 120);
+export const previewOf = (text, files = []) =>
+  String(text ?? '').replace(/\s+/g, ' ').trim().slice(0, 120) || (files.length ? `Sent ${files.length === 1 ? files[0].name : `${files.length} files`}` : '');
 
 // A new id for a thread or a message, e.g. 'th-lq2x9k0a1b'.
 let n = 0;
 export const msgId = (prefix) => `${prefix}-${Date.now().toString(36)}${(n++).toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
 // Checks a message before it is sent. Returns the cleaned text or throws.
-export function cleanMessage(text) {
+// withFiles: a message with attachments may have no text.
+export function cleanMessage(text, withFiles = false) {
   const t = String(text ?? '').replace(/\r\n/g, '\n').trim();
-  if (!t) throw new Error('Type a message first.');
+  if (!t && !withFiles) throw new Error('Type a message first.');
   if (t.length > MAX_MESSAGE) throw new Error(`Keep a message under ${MAX_MESSAGE} characters (this one has ${t.length}).`);
   return t;
 }
@@ -51,7 +57,7 @@ export function orderMembers(keys) {
  * A new thread document.
  * from: { key, name }; others: [{ key, name }]; about: { mobile, parentName, studentId, studentName, sectionId } (a parent thread) or null.
  */
-export function buildThread({ from, others, about, text, at = new Date().toISOString(), id = msgId('th') }) {
+export function buildThread({ from, others, about, text, files = [], at = new Date().toISOString(), id = msgId('th') }) {
   const people = [from, ...others];
   const members = orderMembers(people.map((p) => p.key));
   const firstTeacher = members.find((k) => keyKind(k) === 'teacher');
@@ -69,7 +75,7 @@ export function buildThread({ from, others, about, text, at = new Date().toISOSt
     createdBy: from.key,
     createdAt: at,
     lastAt: at,
-    lastText: previewOf(text),
+    lastText: previewOf(text, files),
     lastFrom: from.key,
     lastName: from.name,
     readAt: { [from.key]: at },
@@ -77,15 +83,37 @@ export function buildThread({ from, others, about, text, at = new Date().toISOSt
 }
 
 /** A new message document for a thread. */
-export function buildMessage({ thread, from, text, at = new Date().toISOString(), system = false, id = msgId('msg') }) {
-  return { id, threadId: thread.id, members: [...thread.members], from: from.key, fromName: from.name, text, at, ...(system ? { system: true } : {}) };
+// files: the attachments' details ({ id, name, type, size }); the files themselves are buildAttachment documents.
+export function buildMessage({ thread, from, text, files = [], at = new Date().toISOString(), system = false, id = msgId('msg') }) {
+  return {
+    id,
+    threadId: thread.id,
+    members: [...thread.members],
+    from: from.key,
+    fromName: from.name,
+    text,
+    at,
+    ...(files.length ? { files: files.map(({ id: fid, name, type, size }) => ({ id: fid, name, type, size })) } : {}),
+    ...(system ? { system: true } : {}),
+  };
 }
+/** One prepared file ({ name, type, size, data }) as an attachments/{id} document. */
+export const buildAttachment = ({ thread, from, file, at = new Date().toISOString(), id = msgId('att') }) => ({
+  id,
+  threadId: thread.id,
+  from: from.key,
+  name: String(file.name).slice(0, 120),
+  type: file.type,
+  size: file.size,
+  data: file.data,
+  at,
+});
 
 /** The thread after a new message: newest text, who wrote it, and the writer has read it. */
 export const afterMessage = (thread, msg) => ({
   ...thread,
   lastAt: msg.at,
-  lastText: previewOf(msg.text),
+  lastText: previewOf(msg.text, msg.files),
   lastFrom: msg.from,
   lastName: msg.fromName,
   readAt: { ...(thread.readAt ?? {}), [msg.from]: msg.at },

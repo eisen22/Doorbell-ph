@@ -12,7 +12,7 @@ import { Navigate } from 'react-router-dom';
 import { AlertTriangle, X, CalendarClock, CalendarDays, CloudRain, Megaphone, ChevronLeft, ChevronRight, FileText, KeyRound, LogOut, Send, MessagesSquare } from 'lucide-react';
 import { Logo, Wordmark, useRepo, PasswordInput } from '../ui';
 import { addDays, isoWeekday, manilaToday, manilaTime, to12h, ordinal, periodsLabel, excuseStatusLabel, EXCUSE_REASONS } from '../logic';
-import { changeParentPassword, dismissAnnouncement, portalAvailable, sendExcuse, signOutParent, watchParent, sendParentMessage, markParentRead } from './parentCloud';
+import { changeParentPassword, dismissAnnouncement, portalAvailable, sendExcuse, signOutParent, watchParent, sendParentMessage, markParentRead, fetchParentAttachment } from './parentCloud';
 import { ParentMessages, parentUnread } from './ParentMessages';
 
 // "Coming up" tags: what kind of day it is for the child.
@@ -119,6 +119,7 @@ function Shell({ children, school, onSignOut }) {
 // ---------------------------------------------------------------------
 function Home({ st }) {
   const repo = useRepo();
+  const demoLoad = useMemo(() => (id) => repo.fetchAttachment(id), [repo]);
   const children = st.key?.children ?? [];
   const [childId, setChildId] = useState(children[0]?.id ?? null);
   const [screen, setScreen] = useState('home'); // 'home' | 'excuse' | 'password' | 'announcements' | 'messages'
@@ -154,16 +155,19 @@ function Home({ st }) {
     if (!st.demo) dismissAnnouncement(id).catch(() => {});
   };
   // Messages: the cloud (parentCloud.js) or, in demo mode, the engine acting as this parent.
+  // (a stable function, so attachments are not downloaded again on every redraw)
   const mobile = st.profile?.mobile;
   const parentName = st.key?.guardianName ?? st.guardianName ?? 'Parent';
   const msgApi = st.demo
     ? {
-        send: async ({ thread, to, about, text }) => repo.demoParentSend({ mobile, parentName, threadId: thread?.id, studentId: about?.studentId, to, text }),
+        send: async ({ thread, to, about, text, files }) => repo.demoParentSend({ mobile, parentName, threadId: thread?.id, studentId: about?.studentId, to, text, files }),
         markRead: async (thread) => repo.demoParentRead(mobile, thread.id),
+        load: demoLoad,
       }
     : {
-        send: ({ thread, to, about, contacts, text }) => sendParentMessage({ mobile, parentName, thread, threads: st.threads ?? [], to, about, contacts, text }),
+        send: ({ thread, to, about, contacts, text, files }) => sendParentMessage({ mobile, parentName, thread, threads: st.threads ?? [], to, about, contacts, text, files }),
         markRead: (thread) => markParentRead(mobile, thread),
+        load: fetchParentAttachment,
       };
   const unreadMsgs = parentUnread(st);
   if (screen === 'messages')

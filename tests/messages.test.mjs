@@ -89,3 +89,27 @@ const SEC = 'sec-k-sampaguita', SEC2 = 'sec-2-narra';
   err = ''; try { await w.eng.reviewThread(id, 'Other', 'teacher trying to review'); } catch (e) { err = e.message; }
   check('R4 a teacher cannot review', /Only the school admin/.test(err) && (await w.eng.listAllThreads()).length === 0);
 }
+// ---- attachments ----
+{
+  const w = world();
+  const sec = w.state.sections.get(SEC);
+  const adviser = [...w.state.users.values()].find((u) => u.teacherId === sec.teacherId);
+  const [a] = w.roster(SEC); const gA = w.eng.guardianOf(a.id); const mob = parentKeyOf(gA.mobile);
+  const photo = { name: 'medcert.jpg', type: 'image/jpeg', size: 1234, data: 'QUJD' };
+  // Parent sends only a photo (no text) to the adviser
+  const tid = w.eng.demoParentSend({ mobile: mob, parentName: gA.name, studentId: a.id, to: [teacherKey(sec.teacherId)], text: '', files: [photo] });
+  const msg = [...w.state.messages.values()].find((m) => m.threadId === tid);
+  check('A1 a message can be only a photo', msg.text === '' && msg.files?.length === 1 && msg.files[0].name === 'medcert.jpg');
+  check('A1 the message holds only the file details (not the file)', !('data' in msg.files[0]));
+  check('A1 the inbox line says a file was sent', w.state.threads.get(tid).lastText === 'Sent medcert.jpg');
+  const att = await w.eng.fetchAttachment(msg.files[0].id);
+  check('A1 the file itself is its own document', att?.data === 'QUJD' && att.threadId === tid && att.from === parentMsgKey(mob));
+  // Teacher replies with two files and text; saved to the cloud as attachments
+  w.as(adviser.uid); w.log.length = 0;
+  await w.eng.sendMessage(tid, 'Received, thank you.', [photo, { name: 'note.pdf', type: 'application/pdf', size: 99, data: 'JVBE' }]);
+  check('A2 teacher attachments saved to the cloud', w.log.filter((l) => l[1] === 'attachments').length === 2);
+  let err = ''; try { await w.eng.sendMessage(tid, 'x', [photo, photo, photo, photo]); } catch (e) { err = e.message; }
+  check('A2 at most 3 files', /Up to 3/.test(err));
+  err = ''; try { await w.eng.sendMessage(tid, '   ', []); } catch (e) { err = e.message; }
+  check('A2 no text and no file is refused', /Type a message/.test(err));
+}

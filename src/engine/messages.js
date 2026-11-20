@@ -18,7 +18,9 @@ import {
   cleanMessage,
   buildThread,
   buildMessage,
+  buildAttachment,
   afterMessage,
+  MAX_FILES,
   isUnread,
   titleFor,
   nameIn,
@@ -158,11 +160,13 @@ export const messagesMethods = {
   // Starts a conversation (or adds to the one that already has exactly these people about this child).
   //   to: keys of the others ('office', 't:..', 'p:..');  studentId: required when a parent is in it
   // Returns the thread id.
-  async startThread({ to, studentId, text }) {
+  // files: prepared attachments [{ name, type, size, data }] (src/shared/Attachments.jsx prepareFile).
+  async startThread({ to, studentId, text, files = [] }) {
     await this.ready;
     const me = this.myMsgKey();
     if (!me) throw new Error('Sign in again first.');
-    const body = cleanMessage(text);
+    if (files.length > MAX_FILES) throw new Error(`Up to ${MAX_FILES} files in one message.`);
+    const body = cleanMessage(text, files.length > 0);
     const others = [...new Set((to ?? []).filter((k) => k && k !== me))];
     if (!others.length) throw new Error('Choose who to send it to.');
     const parentKeys = others.filter((k) => keyKind(k) === 'parent');
@@ -180,7 +184,7 @@ export const messagesMethods = {
     // Same people, same child: continue that conversation instead of starting a second one.
     const same = [...this.s.threads.values()].find((t) => t.members.join() === members.join() && (t.studentId ?? '') === (about?.studentId ?? ''));
     if (same) {
-      await this.sendMessage(same.id, body);
+      await this.sendMessage(same.id, body, files);
       return same.id;
     }
     const from = { key: me, name: this.myMsgName() };
@@ -189,8 +193,9 @@ export const messagesMethods = {
       others: others.map((k) => ({ key: k, name: keyKind(k) === 'parent' ? about.parentName : this.msgPersonName(k, null) })),
       about,
       text: body,
+      files,
     });
-    const msg = buildMessage({ thread, from, text: body, at: thread.lastAt });
+    const msg = buildMessage({ thread, from, text: body, files: this.saveAttachments(thread, from, files), at: thread.lastAt });
     this.s.threads.set(thread.id, thread);
     this.s.messages.set(msg.id, msg);
     this.put('threads', thread.id, thread);
@@ -199,12 +204,14 @@ export const messagesMethods = {
     return thread.id;
   },
   // Sends a message in a conversation I am in.
-  async sendMessage(threadId, text) {
+  async sendMessage(threadId, text, files = []) {
     await this.ready;
     const me = this.myMsgKey();
     const t = this.s.threads.get(threadId);
     if (!t || !t.members.includes(me)) throw new Error('This conversation is not yours.');
-    const msg = buildMessage({ thread: t, from: { key: me, name: this.myMsgName() }, text: cleanMessage(text) });
+    if (files.length > MAX_FILES) throw new Error(`Up to ${MAX_FILES} files in one message.`);
+    const from = { key: me, name: this.myMsgName() };
+    const msg = buildMessage({ thread: t, from, text: cleanMessage(text, files.length > 0), files: this.saveAttachments(t, from, files) });
     const next = afterMessage(t, msg);
     this.s.threads.set(t.id, next);
     this.s.messages.set(msg.id, msg);
@@ -212,6 +219,20 @@ export const messagesMethods = {
     this.put('messages', msg.id, msg);
     this.emit();
     return msg;
+  },
+  // Saves each prepared file as an attachments/{id} document; returns their details for the message.
+  saveAttachments(thread, from, files = []) {
+    return files.map((file) => {
+      const a = buildAttachment({ thread, from, file });
+      this.s.attachments.set(a.id, a);
+      this.put('attachments', a.id, a);
+      return a;
+    });
+  },
+  // One attachment (to show or download). Demo: from memory. Cloud: firebase.js reads that one document
+  // (they are not loaded with the messages, so opening a conversation stays cheap).
+  async fetchAttachment(id) {
+    return this.s.attachments.get(id) ?? null;
   },
   // Opening a conversation marks it read for me (saved only when something was unread).
   async markThreadRead(threadId) {
@@ -314,14 +335,14 @@ export const messagesMethods = {
     return { threads, messages: [...this.s.messages.values()].filter((m) => ids.has(m.threadId)) };
   },
   // The parent sends a message (an existing thread) or starts one (to: 't:<id>' and/or 'office').
-  demoParentSend({ mobile, parentName, threadId, studentId, to, text }) {
+  demoParentSend({ mobile, parentName, threadId, studentId, to, text, files = [] }) {
     const me = parentMsgKey(mobile);
-    const body = cleanMessage(text);
+    const body = cleanMessage(text, files.length > 0);
     const from = { key: me, name: parentName };
     if (threadId) {
       const t = this.s.threads.get(threadId);
       if (!t?.members.includes(me)) throw new Error('This conversation is not yours.');
-      const msg = buildMessage({ thread: t, from, text: body });
+      const msg = buildMessage({ thread: t, from, text: body, files: this.saveAttachments(t, from, files) });
       this.s.threads.set(t.id, afterMessage(t, msg));
       this.s.messages.set(msg.id, msg);
       this.emit();
@@ -334,9 +355,9 @@ export const messagesMethods = {
     if (!others.length) throw new Error('Choose who to send it to.');
     const members = orderMembers([me, ...others.map((o) => o.key)]);
     const same = [...this.s.threads.values()].find((t) => t.members.join() === members.join() && t.studentId === studentId);
-    if (same) return this.demoParentSend({ mobile, parentName, threadId: same.id, text: body });
-    const thread = buildThread({ from, others, about: { mobile, parentName, studentId, studentName: `${stu.firstName} ${stu.lastName}`, sectionId: sec?.id ?? '' }, text: body });
-    const msg = buildMessage({ thread, from, text: body, at: thread.lastAt });
+    if (same) return this.demoParentSend({ mobile, parentName, threadId: same.id, text: body, files });
+    const thread = buildThread({ from, others, about: { mobile, parentName, studentId, studentName: `${stu.firstName} ${stu.lastName}`, sectionId: sec?.id ?? '' }, text: body, files });
+    const msg = buildMessage({ thread, from, text: body, files: this.saveAttachments(thread, from, files), at: thread.lastAt });
     this.s.threads.set(thread.id, thread);
     this.s.messages.set(msg.id, msg);
     this.emit();

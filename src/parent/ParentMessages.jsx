@@ -8,6 +8,7 @@
 // =====================================================================
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Building2, ChevronLeft, MessagesSquare, Plus, Send } from 'lucide-react';
+import { AttachButton, PendingFiles, MessageFiles } from '../shared/Attachments';
 import { OFFICE, OFFICE_NAME, MAX_MESSAGE, parentMsgKey, isUnread, titleFor, inboxTime, messageTime, keyKind } from '../messaging';
 
 /** How many conversations have a message the parent hasn't read (for the Home button). */
@@ -88,6 +89,7 @@ function Thread({ st, api, thread, me, onBack }) {
     [st.messages, thread.id],
   );
   const [text, setText] = useState('');
+  const [files, setFiles] = useState([]); // photos or PDFs (e.g. a medical certificate)
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const endRef = useRef(null);
@@ -102,8 +104,9 @@ function Thread({ st, api, thread, me, onBack }) {
     setBusy(true);
     setError(null);
     try {
-      await api.send({ thread, text });
+      await api.send({ thread, text, files });
       setText('');
+      setFiles([]);
     } catch (err) {
       setError(err.code === 'permission-denied' ? 'Could not send. Sign out and sign in again, then try again.' : err.message);
     } finally {
@@ -135,7 +138,8 @@ function Thread({ st, api, thread, me, onBack }) {
                 <div className={`msg-bubble-row ${mine ? 'mine' : ''}`}>
                   <div className={`msg-bubble msg-from-${keyKind(m.from)}`}>
                     {!mine && <b className="msg-sender">{m.fromName}</b>}
-                    <p>{m.text}</p>
+                    <MessageFiles files={m.files} load={api.load} />
+                    {m.text && <p>{m.text}</p>}
                     <time>{messageTime(m.at).split(', ').pop()}</time>
                   </div>
                 </div>
@@ -145,9 +149,11 @@ function Thread({ st, api, thread, me, onBack }) {
         })}
         <div ref={endRef} />
       </section>
+      <PendingFiles files={files} onChange={setFiles} />
       <form className="pp-msg-compose" onSubmit={send}>
+        <AttachButton files={files} onChange={setFiles} onError={setError} disabled={busy} className="btn att-btn" />
         <textarea className="input" rows={2} maxLength={MAX_MESSAGE} value={text} onChange={(e) => setText(e.target.value)} placeholder="Write a reply" aria-label="Reply" />
-        <button className="btn btn-ink" type="submit" disabled={busy || !text.trim()} aria-label="Send">
+        <button className="btn btn-ink" type="submit" disabled={busy || (!text.trim() && !files.length)} aria-label="Send">
           <Send size={18} aria-hidden="true" />
         </button>
       </form>
@@ -172,6 +178,7 @@ function Compose({ st, api, onBack, onSent }) {
   const [teacher, setTeacher] = useState(null); // a teacher's key, or '' = no teacher (school office only)
   const [office, setOffice] = useState(false);
   const [text, setText] = useState('');
+  const [files, setFiles] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   useEffect(() => {
@@ -188,7 +195,7 @@ function Compose({ st, api, onBack, onSent }) {
     if (!sectionId) return setError(`${child?.firstName ?? 'Your child'} is not in a class yet. Please contact the school.`);
     setBusy(true);
     try {
-      const id = await api.send({ thread: null, to, contacts, about: { studentId: child.id, studentName: `${child.firstName} ${child.lastName}`, sectionId }, text });
+      const id = await api.send({ thread: null, to, contacts, about: { studentId: child.id, studentName: `${child.firstName} ${child.lastName}`, sectionId }, text, files });
       onSent(id);
     } catch (err) {
       setError(err.code === 'permission-denied' ? 'Could not send. The school may need to update the parent portal first; please try again later.' : err.message);
@@ -257,13 +264,18 @@ function Compose({ st, api, onBack, onSent }) {
           <span>Message</span>
           <textarea className="input" rows={4} maxLength={MAX_MESSAGE} value={text} onChange={(e) => setText(e.target.value)} placeholder="e.g. Good morning, Teacher. May I ask about…" />
         </label>
+        <div className="att-row">
+          <AttachButton files={files} onChange={setFiles} onError={setError} disabled={busy} className="btn btn-sm" label />
+          <span className="pp-muted pp-small">e.g. a photo of a medical certificate. Up to 3 files.</span>
+        </div>
+        <PendingFiles files={files} onChange={setFiles} />
       </section>
       {error && (
         <p className="error" role="alert">
           {error}
         </p>
       )}
-      <button className="btn btn-ink wide pp-big" type="submit" disabled={busy || !text.trim()}>
+      <button className="btn btn-ink wide pp-big" type="submit" disabled={busy || (!text.trim() && !files.length)}>
         <Send size={18} aria-hidden="true" /> {busy ? 'Sending…' : `Send to ${officeOnly ? OFFICE_NAME : `${chosen?.name ?? 'the teacher'}${office ? ' and the office' : ''}`}`}
       </button>
     </form>

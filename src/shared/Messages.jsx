@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { AttachButton, PendingFiles, MessageFiles } from './Attachments';
 import { useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Building2, Eye, MessagesSquare, Plus, Search, Send, ShieldCheck, UserPlus, Users } from 'lucide-react';
 import { useLive, useRepo, Modal, Skeleton, Toast, Empty } from '../ui';
@@ -182,7 +183,9 @@ export function Messages() {
 function Conversation({ id, onBack }) {
   const repo = useRepo();
   const { data } = useLive((r) => r.getThread(id), [id]);
+  const loadFile = useMemo(() => (fid) => repo.fetchAttachment(fid), [repo]);
   const [text, setText] = useState('');
+  const [files, setFiles] = useState([]); // photos or PDFs to send with the next message
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [adding, setAdding] = useState(false);
@@ -198,6 +201,7 @@ function Conversation({ id, onBack }) {
   }, [repo, id, data?.thread?.lastAt]);
   useEffect(() => {
     setText('');
+    setFiles([]);
     setError(null);
     setAdding(false);
   }, [id]);
@@ -214,12 +218,13 @@ function Conversation({ id, onBack }) {
   const { thread, messages, people, canAdd, me, section } = data;
   const send = async (e) => {
     e?.preventDefault();
-    if (!text.trim()) return;
+    if (!text.trim() && !files.length) return;
     setBusy(true);
     setError(null);
     try {
-      await repo.sendMessage(id, text);
+      await repo.sendMessage(id, text, files);
       setText('');
+      setFiles([]);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -298,7 +303,8 @@ function Conversation({ id, onBack }) {
                 <div className={`msg-bubble-row ${mine ? 'mine' : ''}`}>
                   <div className={`msg-bubble msg-from-${keyKind(m.from)}`}>
                     {!mine && <b className="msg-sender">{m.fromName}</b>}
-                    <p>{m.text}</p>
+                    <MessageFiles files={m.files} load={loadFile} />
+                    {m.text && <p>{m.text}</p>}
                     <time title={messageTime(m.at)}>{messageTime(m.at).split(', ').pop()}</time>
                   </div>
                 </div>
@@ -308,7 +314,9 @@ function Conversation({ id, onBack }) {
         })}
         <div ref={endRef} />
       </div>
+      <PendingFiles files={files} onChange={setFiles} />
       <form className="msg-compose" onSubmit={send}>
+        <AttachButton files={files} onChange={setFiles} onError={setError} disabled={busy} className="btn att-btn" />
         <textarea
           className="input"
           rows={2}
@@ -324,7 +332,7 @@ function Conversation({ id, onBack }) {
           placeholder="Write a message… (Enter sends, Shift+Enter for a new line)"
           aria-label="Message"
         />
-        <button className="btn btn-ink" type="submit" disabled={busy || !text.trim()} aria-label="Send">
+        <button className="btn btn-ink" type="submit" disabled={busy || (!text.trim() && !files.length)} aria-label="Send">
           <Send size={18} />
         </button>
       </form>
@@ -350,6 +358,7 @@ function NewMessage({ preset, onClose, onStarted }) {
   const [teacherKeys, setTeacherKeys] = useState([]);
   const [extra, setExtra] = useState([]); // more people for a parent's conversation (office, other teachers)
   const [text, setText] = useState('');
+  const [files, setFiles] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   useEffect(() => {
@@ -376,7 +385,7 @@ function NewMessage({ preset, onClose, onStarted }) {
     if (!to.length) return setError(tab === 'parent' ? 'Choose a child (their parent gets the message).' : 'Choose at least one teacher.');
     setBusy(true);
     try {
-      const id = await repo.startThread({ to, studentId: tab === 'parent' ? child.studentId : undefined, text });
+      const id = await repo.startThread({ to, studentId: tab === 'parent' ? child.studentId : undefined, text, files });
       onStarted(id);
     } catch (e) {
       setError(e.message);
@@ -393,7 +402,7 @@ function NewMessage({ preset, onClose, onStarted }) {
           <button className="btn" onClick={onClose}>
             Cancel
           </button>
-          <button className="btn btn-ink" onClick={submit} disabled={busy || !text.trim()}>
+          <button className="btn btn-ink" onClick={submit} disabled={busy || (!text.trim() && !files.length)}>
             <Send size={16} /> {busy ? 'Sending…' : 'Send'}
           </button>
         </>
@@ -493,6 +502,11 @@ function NewMessage({ preset, onClose, onStarted }) {
           {text.length}/{MAX_MESSAGE}
         </span>
       </label>
+      <div className="att-row">
+        <AttachButton files={files} onChange={setFiles} onError={setError} disabled={busy} className="btn btn-sm" label />
+        <span className="muted small">Photos are made smaller automatically. PDFs up to 700 KB. Up to 3 files.</span>
+      </div>
+      <PendingFiles files={files} onChange={setFiles} />
       {tab === 'parent' && <p className="muted small">The parent reads and answers it in the Doorbell parent portal (no text message is sent).</p>}
       {error && (
         <p className="error" role="alert">
@@ -509,6 +523,7 @@ function NewMessage({ preset, onClose, onStarted }) {
 // them, which is recorded) and ParentSquare (administrators can see transcripts for oversight).
 function ReviewConversations() {
   const repo = useRepo();
+  const loadFile = useMemo(() => (fid) => repo.fetchAttachment(fid), [repo]);
   const { data: all } = useLive((r) => r.listAllThreads());
   const [q, setQ] = useState('');
   const [asking, setAsking] = useState(null); // the conversation the admin wants to review
@@ -662,7 +677,8 @@ function ReviewConversations() {
                 <div key={m.id} className="msg-bubble-row">
                   <div className={`msg-bubble msg-from-${keyKind(m.from)}`}>
                     <b className="msg-sender">{m.fromName}</b>
-                    <p>{m.text}</p>
+                    <MessageFiles files={m.files} load={loadFile} />
+                    {m.text && <p>{m.text}</p>}
                     <time>{messageTime(m.at)}</time>
                   </div>
                 </div>

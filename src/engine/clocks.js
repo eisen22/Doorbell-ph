@@ -58,6 +58,7 @@ export function emptyState(meta, calendar = []) {
     announcements: new Map(), // announcements to parents (admin: school / levels / a class; teacher: their classes)
     threads: new Map(), // conversations between parents, teachers and the school office (src/messaging.js)
     messages: new Map(), // the messages in those conversations
+    attachments: new Map(), // photos and PDFs sent in messages (cloud: only the ones opened on this device)
     seating: new Map(), // seating charts: section id -> { rows, cols, aisleEvery, spacing, seats: { 'row-col': studentId } }
   };
 }

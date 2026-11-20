@@ -578,6 +578,15 @@ export function createCloudEngine() {
     return snap.docs.map((d) => d.data());
   };
 
+  // Messages: one attachment, read when someone opens it (then kept in memory for this visit).
+  engine.fetchAttachment = async (id) => {
+    if (engine.s.attachments.has(id)) return engine.s.attachments.get(id);
+    const snap = await getDoc(doc(db, 'attachments', id));
+    const a = snap.exists() ? snap.data() : null;
+    if (a) engine.s.attachments.set(id, a);
+    return a;
+  };
+
   // Audit Log -> a date: that day's entries come straight from Firestore (only the newest 300 are kept loaded).
   engine.listAuditOn = async (date) => {
     const since = new Date(`${date}T00:00:00+08:00`).toISOString();
@@ -594,7 +603,7 @@ export function createCloudEngine() {
      (only their Doorbell profile is removed); sample teachers are reused when the sample is loaded again.
      ================================================================= */
   engine.clearSchoolData = async (onProgress = () => {}) => {
-    const cols = ['attendance', 'confirmations', 'sms', 'notifications', 'excuses', 'threads', 'messages', 'seating', 'announcements', 'parentDays', 'parentKeys', 'parents', 'enrollments', 'guardians', 'students', 'sections', 'teachers'];
+    const cols = ['attendance', 'confirmations', 'sms', 'notifications', 'excuses', 'threads', 'messages', 'attachments', 'seating', 'announcements', 'parentDays', 'parentKeys', 'parents', 'enrollments', 'guardians', 'students', 'sections', 'teachers'];
     let removed = 0;
     for (const col of [...cols, 'users']) {
       onProgress(`Removing ${col}…`);

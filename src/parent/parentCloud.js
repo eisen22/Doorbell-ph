@@ -34,7 +34,7 @@ import {
 import { arrayUnion, collection, deleteField, doc, getDoc, getFirestore, onSnapshot, query, setDoc, updateDoc, where, writeBatch, FieldPath } from 'firebase/firestore';
 import { firebaseConfig, cloudConfigured } from '../firebase';
 import { parentEmail, parentKeyOf, sha256Hex } from '../logic';
-import { OFFICE, OFFICE_NAME, parentMsgKey, cleanMessage, buildThread, buildMessage, afterMessage, isUnread, orderMembers } from '../messaging';
+import { OFFICE, OFFICE_NAME, MAX_FILES, parentMsgKey, cleanMessage, buildThread, buildMessage, buildAttachment, afterMessage, isUnread, orderMembers } from '../messaging';
 
 export const portalAvailable = cloudConfigured;
 
@@ -199,10 +199,13 @@ export async function sendExcuse({ studentId, sectionId, studentName, guardianNa
  * about = { studentId, studentName, sectionId }; contacts = that child's teachers [{ key, name }].
  * Returns the thread id.
  */
-export async function sendParentMessage({ mobile, parentName, thread, threads = [], to = [], about, contacts = [], text }) {
+// files: prepared attachments [{ name, type, size, data }] (src/shared/Attachments.jsx prepareFile), saved in
+// the same batch as the message (firestore.rules checks each one belongs to a conversation of this parent).
+export async function sendParentMessage({ mobile, parentName, thread, threads = [], to = [], about, contacts = [], text, files = [] }) {
   const { auth, db } = start();
   if (!auth.currentUser) throw new Error('Sign in again first.');
-  const body = cleanMessage(text);
+  if (files.length > MAX_FILES) throw new Error(`Up to ${MAX_FILES} files in one message.`);
+  const body = cleanMessage(text, files.length > 0);
   const me = parentMsgKey(mobile);
   const from = { key: me, name: parentName || 'Parent' };
   if (!thread && about) {
@@ -213,25 +216,40 @@ export async function sendParentMessage({ mobile, parentName, thread, threads = 
     const members = orderMembers([me, ...others.map((o) => o.key)]).join();
     thread = threads.find((t) => t.members.join() === members && t.studentId === about.studentId) ?? null;
     if (!thread) {
-      const t = buildThread({ from, others, about: { mobile, parentName: from.name, ...about }, text: body });
-      const m = buildMessage({ thread: t, from, text: body, at: t.lastAt });
+      const t = buildThread({ from, others, about: { mobile, parentName: from.name, ...about }, text: body, files });
+      const atts = files.map((file) => buildAttachment({ thread: t, from, file }));
+      const m = buildMessage({ thread: t, from, text: body, files: atts, at: t.lastAt });
       const b = writeBatch(db);
       b.set(doc(db, 'threads', t.id), t);
+      atts.forEach((a) => b.set(doc(db, 'attachments', a.id), a));
       b.set(doc(db, 'messages', m.id), m);
       await b.commit();
       return t.id;
     }
   }
   if (!thread) throw new Error('Choose who to send it to.');
-  const m = buildMessage({ thread, from, text: body });
+  const atts = files.map((file) => buildAttachment({ thread, from, file }));
+  const m = buildMessage({ thread, from, text: body, files: atts });
   const next = afterMessage(thread, m);
   const b = writeBatch(db);
+  atts.forEach((a) => b.set(doc(db, 'attachments', a.id), a));
   b.set(doc(db, 'messages', m.id), m);
   // Only these fields, and only the parent's own "read" time (firestore.rules allows nothing else).
   b.update(doc(db, 'threads', thread.id), 'lastAt', next.lastAt, 'lastText', next.lastText, 'lastFrom', next.lastFrom, 'lastName', next.lastName, new FieldPath('readAt', me), m.at);
   await b.commit();
   return thread.id;
 }
+// One attachment of a conversation the parent is in (read when they open it; kept for this visit).
+const attachmentCache = new Map();
+export async function fetchParentAttachment(id) {
+  if (attachmentCache.has(id)) return attachmentCache.get(id);
+  const { db } = start();
+  const snap = await getDoc(doc(db, 'attachments', id));
+  const a = snap.exists() ? snap.data() : null;
+  if (a) attachmentCache.set(id, a);
+  return a;
+}
+
 /** Opening a conversation marks it read for the parent. */
 export async function markParentRead(mobile, thread) {
   const me = parentMsgKey(mobile);

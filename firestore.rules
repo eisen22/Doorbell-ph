@@ -227,6 +227,24 @@ service cloud.firestore {
             && request.resource.data.lastFrom in [resource.data.lastFrom, myKey()]));
       allow delete: if isAdmin();
     }
+    // A photo or PDF sent in a message (base64, at most about 700 KB: one Firestore document; Firebase Storage
+    // would need the paid Blaze plan). Read one at a time by the people in its conversation (and the admin).
+    // Never changed afterwards; only the admin can delete it ("Remove all school data").
+    match /attachments/{id} {
+      allow get: if isAdmin()
+        || (signedIn() && isMember(get(/databases/$(database)/documents/threads/$(resource.data.threadId)).data.members));
+      allow list: if isAdmin();
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['id', 'threadId', 'from', 'name', 'type', 'size', 'data', 'at'])
+        && request.resource.data.from == myKey()
+        && request.resource.data.threadId is string
+        && isMember(getAfter(/databases/$(database)/documents/threads/$(request.resource.data.threadId)).data.members)
+        && request.resource.data.type in ['image/jpeg', 'image/png', 'image/webp', 'application/pdf']
+        && request.resource.data.data is string && request.resource.data.data.size() <= 960000
+        && request.resource.data.name is string && request.resource.data.name.size() <= 120;
+      allow update: if false;
+      allow delete: if isAdmin();
+    }
     match /messages/{id} {
       allow read: if isAdmin() || isMember(resource.data.members);
       // A message by the person signed in, into a conversation they are in (members copied from the thread,
@@ -235,8 +253,11 @@ service cloud.firestore {
         && request.resource.data.from == myKey()
         && request.resource.data.threadId is string
         && request.resource.data.members == getAfter(/databases/$(database)/documents/threads/$(request.resource.data.threadId)).data.members
-        && request.resource.data.text is string && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 1000
-        && (isStaff() || request.resource.data.keys().hasOnly(['id', 'threadId', 'members', 'from', 'fromName', 'text', 'at']));
+        && request.resource.data.text is string && request.resource.data.text.size() <= 1000
+        // Up to 3 attachments (their details; the files are attachments/{id}). No text is fine when there is a file.
+        && request.resource.data.get('files', []) is list && request.resource.data.get('files', []).size() <= 3
+        && (request.resource.data.text.size() > 0 || request.resource.data.get('files', []).size() > 0)
+        && (isStaff() || request.resource.data.keys().hasOnly(['id', 'threadId', 'members', 'from', 'fromName', 'text', 'at', 'files']));
       // Someone was added to the conversation: staff give the older messages the new members list.
       allow update: if isStaff() && isMember(request.resource.data.members)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['members'])
