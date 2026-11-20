@@ -20,8 +20,9 @@ const AISLE = { close: 18, normal: 28, wide: 40 }; // px of an aisle
 // A new chart: 6 rows of 6 seats, an aisle every 2 columns.
 const blank = { rows: 6, cols: 6, aisleEvery: 2, spacing: 'normal', seats: {} };
 
+// marking: false on a day with no class: the chart can be arranged, but nobody can be marked.
 // cutFor(row): 'cut' | 'back' | null (the "Not in class this period" / "Back in class" button); onCut(row) opens it.
-export function SeatingChart({ section, roster, layout, canEdit, onChoose, onSave, cutFor = () => null, onCut }) {
+export function SeatingChart({ section, roster, layout, canEdit, onChoose, onSave, cutFor = () => null, onCut, marking = true }) {
   const [draft, setDraft] = useState(null); // arranging: a copy of the layout being changed
   const [open, setOpen] = useState(null); // the child whose status window is open (a roster row)
   const [pick, setPick] = useState(null); // arranging: the seat being filled ('row-col')
@@ -37,8 +38,8 @@ export function SeatingChart({ section, roster, layout, canEdit, onChoose, onSav
       <div className="seat-empty">
         <Armchair size={28} aria-hidden="true" />
         <p>
-          <b>No seating chart for {section.name} yet.</b> Set how many rows and columns of chairs the room has and who sits where, then take
-          attendance by tapping each seat.
+          <b>No seating chart for {section.name} yet.</b> Set how many rows and columns of chairs the room has and who sits where
+          {marking ? ', then take attendance by tapping each seat.' : '. On class days you take attendance by tapping each seat.'}
         </p>
         {canEdit ? (
           <button className="btn btn-ink" onClick={() => setDraft(structuredClone(blank))}>
@@ -150,7 +151,11 @@ export function SeatingChart({ section, roster, layout, canEdit, onChoose, onSav
           </>
         ) : (
           <>
-            <p className="muted small seat-help-inline">Tap a seat to mark that child. Gate scans fill in Present and Late, like the list.</p>
+            <p className="muted small seat-help-inline">
+              {marking
+                ? 'Tap a seat to mark that child. Gate scans fill in Present and Late, like the list.'
+                : 'No class on this day, so nobody is marked. You can still arrange the seats.'}
+            </p>
             {canEdit && (
               <button className="btn" onClick={() => setDraft(structuredClone({ ...blank, ...layout }))}>
                 <Pencil size={15} /> Arrange seats
@@ -175,7 +180,7 @@ export function SeatingChart({ section, roster, layout, canEdit, onChoose, onSav
                     key={key}
                     type="button"
                     className={`seat ${row ? `st-${st ?? 'none'}` : 'seat-free'} ${row?.record?.needsCheck || row?.cuts?.some((c) => !c.backAt) ? 'seat-check' : ''} ${draft && pick === key ? 'seat-picking' : ''}`}
-                    onClick={() => (draft ? setPick(key) : row && setOpen(row))}
+                    onClick={() => (draft ? setPick(key) : marking && row && setOpen(row))}
                     disabled={!draft && !row}
                     aria-label={
                       row
@@ -222,7 +227,7 @@ export function SeatingChart({ section, roster, layout, canEdit, onChoose, onSav
               {draft ? (
                 studentName(row.student, { order: 'first' })
               ) : (
-                <button className="link-btn" onClick={() => setOpen(row)}>
+                <button className="link-btn" onClick={() => marking && setOpen(row)}>
                   {studentName(row.student, { order: 'first' })}
                   {row.record?.status ? ` (${WORD[row.record.status]})` : ''}
                 </button>

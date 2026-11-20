@@ -388,6 +388,25 @@ export function Attendance() {
             />
           )}
         </Card>
+      ) : null}
+      {/* A day with no class: the seating chart can still be arranged (nobody is marked). */}
+      {!schoolDay ? (
+        canArrange ? (
+        <Card title="Seating chart">
+          <SeatingChart
+            section={section}
+            roster={roster}
+            layout={seating}
+            canEdit={canArrange}
+            marking={false}
+            onChoose={() => {}}
+            onSave={async (layout) => {
+              await repo.saveSeating(section.id, layout);
+              flash('Seating chart saved. Every teacher of this class sees it.');
+            }}
+          />
+        </Card>
+        ) : null
       ) : (
         <Card>
           {!confirmation && day === today.date && (
