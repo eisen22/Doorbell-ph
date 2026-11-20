@@ -56,6 +56,8 @@ function looksRight(col, d) {
   if (col === 'attendance') return typeof d.sectionId === 'string' && !!d.records;
   if (col === 'sms' || col === 'notifications') return typeof d.createdAt === 'string';
   if (col === 'audit') return typeof d.at === 'string';
+  if (col === 'threads') return Array.isArray(d.members) && typeof d.lastAt === 'string';
+  if (col === 'messages') return Array.isArray(d.members) && typeof d.threadId === 'string' && typeof d.at === 'string';
   if (col === 'excuses') return typeof d.studentId === 'string' && Array.isArray(d.dates) && typeof d.createdAt === 'string';
   return true;
 }
@@ -258,6 +260,16 @@ export function createCloudEngine() {
     const all = (col) => listen(col, query(collection(db, col)));
     // Everyone needs the school setup data.
     await Promise.all(['meta', 'sections', 'teachers', 'students', 'guardians', 'enrollments'].map((c) => all(c)));
+    // Messages (src/messaging.js): only the conversations this person is in. The admin answers as the
+    // school office ('office'); a teacher as 't:<teacherId>'. Skipped if firestore.rules is older than Messages.
+    const myKey = account.role === 'admin' ? 'office' : account.teacherId ? `t:${account.teacherId}` : null;
+    if (myKey) {
+      const mineMsg = (col) => listen(col, query(collection(db, col), where('members', 'array-contains', myKey)));
+      // The admin also sees the list of EVERY conversation (who and when, for "Review conversations"),
+      // but loads the messages of one they are not in only through engine.reviewThread (logged).
+      const threads = account.role === 'admin' ? listen('threads', query(collection(db, 'threads'))) : mineMsg('threads');
+      await Promise.all([threads, mineMsg('messages')]).catch((e) => console.warn('Messages not loaded: publish the new firestore.rules', e));
+    }
     if (account.role === 'admin') {
       // The admin sees everything (the newest 300-400 texts, alerts and audit entries).
       await Promise.all([
@@ -482,6 +494,12 @@ export function createCloudEngine() {
     return { documents: writes.length, teachers: [...sample.teachers.values()].map((t) => t.email), problems };
   };
 
+  // Messages -> Review conversations: one conversation's messages, read once (engine.reviewThread logs it first).
+  engine.fetchThreadMessages = async (threadId) => {
+    const snap = await getDocs(query(collection(db, 'messages'), where('threadId', '==', threadId)));
+    return snap.docs.map((d) => d.data());
+  };
+
   // Audit Log -> a date: that day's entries come straight from Firestore (only the newest 300 are kept loaded).
   engine.listAuditOn = async (date) => {
     const since = new Date(`${date}T00:00:00+08:00`).toISOString();
@@ -498,7 +516,7 @@ export function createCloudEngine() {
      (only their Doorbell profile is removed); sample teachers are reused when the sample is loaded again.
      ================================================================= */
   engine.clearSchoolData = async (onProgress = () => {}) => {
-    const cols = ['attendance', 'confirmations', 'sms', 'notifications', 'excuses', 'seating', 'announcements', 'parentDays', 'parentKeys', 'parents', 'enrollments', 'guardians', 'students', 'sections', 'teachers'];
+    const cols = ['attendance', 'confirmations', 'sms', 'notifications', 'excuses', 'threads', 'messages', 'seating', 'announcements', 'parentDays', 'parentKeys', 'parents', 'enrollments', 'guardians', 'students', 'sections', 'teachers'];
     let removed = 0;
     for (const col of [...cols, 'users']) {
       onProgress(`Removing ${col}…`);

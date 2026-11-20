@@ -45,6 +45,8 @@ export const parentPortalMethods = {
       guardianName: g.name,
       studentIds: kids.map((k) => k.id),
       children: kids.map((k) => ({ id: k.id, firstName: k.firstName, lastName: k.lastName, sectionId: this.activeEnrollment(k.id)?.sectionId ?? null })),
+      // The children's classes: firestore.rules lets the parent message the teachers of these classes only.
+      sectionIds: [...new Set(kids.map((k) => this.activeEnrollment(k.id)?.sectionId).filter(Boolean))],
       codeHash: code ? await sha256Hex(code) : null,
       defaultFrom: eldest ? `${eldest.firstName} ${eldest.lastName}` : null,
       updatedAt: new Date().toISOString(),
@@ -116,6 +118,9 @@ export const parentPortalMethods = {
       yearStart: this.year.start, // first day of classes: the portal's calendar goes back to it
       // The class periods (for "excuse for certain periods" in the portal): number, subject, start time.
       periods: classPeriods(section?.program).map((p, i) => ({ n: i + 1, subject: p.subject, start: p.start })),
+      // Who the parent can message about this child (Messages page): the adviser and the subject teachers.
+      // (The school office is always there too.) key = 't:<teacherId>', see src/messaging.js.
+      contacts: section ? this.classTeachers(section).map(({ key, teacherId, name, role }) => ({ key, teacherId, name, role })) : [],
       days,
       noClass,
       totals,
@@ -222,7 +227,7 @@ export const parentPortalMethods = {
     return {
       status: 'ready',
       demo: true,
-      profile: { mobile: g.mobile, defaultPassword: true },
+      profile: { mobile: parentKeyOf(g.mobile), defaultPassword: true },
       key: {
         guardianName: g.name,
         studentIds: kids.map((k) => k.id),
@@ -230,6 +235,9 @@ export const parentPortalMethods = {
       },
       months: Object.fromEntries(kids.map((k) => [k.id, months.map((m) => this.parentMonthDoc(k.id, m)).filter(Boolean)])),
       excuses: [...this.s.excuses.values()].filter((x) => g.studentIds.includes(x.studentId)),
+      // Messages with the teachers and the school office (engine/messages.js demoParent* methods).
+      ...this.demoParentMessages(parentKeyOf(g.mobile)),
+      guardianName: g.name,
       parents: gs.map((x) => ({ id: x.id, label: `${x.name} (${x.studentIds.map((id) => this.s.students.get(id)?.firstName).join(', ')})` })),
     };
   },

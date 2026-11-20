@@ -11,11 +11,13 @@ import {
   toMinutes,
   fromMinutes,
   DEPED_SY_2026_2027,
+  parentKeyOf,
 } from '../logic';
 
 import { DEMO_PASSWORD, schedule, schoolYear, settings } from './defaults';
 import { emptyState, noopPersistence } from './clocks';
 import { Engine } from '../engine';
+import { OFFICE, OFFICE_NAME, teacherKey, parentMsgKey, buildThread, buildMessage, afterMessage } from '../messaging';
 // Demo data: fake but realistic Filipino names. Never put real children's data here.
 // Used by demo mode in the browser AND by the cloud seed script (cloud/seed.ts).
 // =====================================================================
@@ -424,8 +426,77 @@ export function buildDemoState(today, clock) {
     }
   }
   engine.backfill = false;
+  sampleMessages(state, engine, today);
   // Older alerts are already read.
   for (const n of state.notifications.values()) if (n.createdAt < addDays(today, -1)) n.read = true;
   return state;
 }
 
+
+// Sample conversations (Messages): a parent and the adviser; a parent, a teacher and the school office
+// together (3-way); and a teacher with the office. Times are yesterday and this morning.
+function sampleMessages(state, engine, today) {
+  const at = (date, time) => new Date(`${date}T${time}:00+08:00`).toISOString();
+  const yesterday = addDays(today, -1);
+  const sec = state.sections.get('sec-k-sampaguita');
+  const teacher = sec && state.teachers.get(sec.teacherId);
+  if (!sec || !teacher) return;
+  const office = { key: OFFICE, name: OFFICE_NAME };
+  const admin = { key: OFFICE, name: 'Rosario Dizon (School office)' };
+  const tch = { key: teacherKey(teacher.id), name: teacher.name };
+  const kids = engine.rosterOn(sec.id, today).filter((k) => engine.guardianOf(k.id)?.studentIds.length === 1);
+  const story = (kid, people, lines, read) => {
+    const g = engine.guardianOf(kid.id);
+    const mobile = parentKeyOf(g.mobile);
+    if (!mobile) return;
+    const parent = { key: parentMsgKey(mobile), name: g.name };
+    const who = (k) => (k === 'parent' ? parent : k === 'teacher' ? tch : admin);
+    const [first, ...rest] = lines;
+    const from = who(first[0]);
+    let thread = buildThread({
+      from,
+      others: people.map((k) => (k === 'office' ? office : who(k))).filter((p) => p.key !== from.key),
+      about: { mobile, parentName: g.name, studentId: kid.id, studentName: `${kid.firstName} ${kid.lastName}`, sectionId: sec.id },
+      text: first[2],
+      at: first[1],
+    });
+    const all = [buildMessage({ thread, from, text: first[2], at: first[1] })];
+    for (const [k, t, text] of rest) {
+      const m = buildMessage({ thread, from: who(k), text, at: t });
+      all.push(m);
+      thread = afterMessage(thread, m);
+    }
+    for (const k of read) thread.readAt[who(k).key] = thread.lastAt;
+    state.threads.set(thread.id, thread);
+    all.forEach((m) => state.messages.set(m.id, m));
+  };
+  if (kids[3])
+    story(
+      kids[3],
+      ['parent', 'teacher'],
+      [
+        ['parent', at(yesterday, '18:40'), `Good evening, Teacher ${teacher.name.split(' ')[0]}. ${kids[3].firstName} will be fetched at 10:00 AM tomorrow for a dental check-up. Thank you.`],
+        ['teacher', at(yesterday, '19:05'), `Noted, thank you for telling me. Please scan ${kids[3].firstName}'s ID at the gate on the way out so you get the text.`],
+        ['parent', at(today, '06:52'), 'Will do. Thank you, Teacher!'],
+      ],
+      ['parent'],
+    );
+  if (kids[6])
+    story(
+      kids[6],
+      ['parent', 'teacher', 'office'],
+      [
+        ['teacher', at(yesterday, '14:10'), `Good afternoon. ${kids[6].firstName} has been absent for some days. I added the school office so we can help together. Is everything all right?`],
+        ['parent', at(yesterday, '16:30'), `Good afternoon po. ${kids[6].firstName} had a fever. We will bring a medical certificate on Monday.`],
+        ['office', at(today, '07:15'), 'Thank you for letting us know. Please send an excuse request in the parent portal too, so the days are marked Excused.'],
+      ],
+      ['teacher', 'parent'],
+    );
+  // Teacher and office (no parent).
+  let staff = buildThread({ from: tch, others: [office], about: null, text: 'Ma’am, may I borrow the projector for our class on Friday?', at: at(yesterday, '11:20') });
+  const m1 = buildMessage({ thread: staff, from: tch, text: 'Ma’am, may I borrow the projector for our class on Friday?', at: staff.lastAt });
+  const m2 = buildMessage({ thread: staff, from: admin, text: 'Yes, it is free on Friday. Please get it from the office before 7:30 AM.', at: at(yesterday, '13:02') });
+  staff = afterMessage(staff, m2);
+  state.threads.set(staff.id, staff);
+  [m1, m2].forEach((m) => state.messages.set(m.id, m));
+}

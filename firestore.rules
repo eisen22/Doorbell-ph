@@ -7,6 +7,7 @@ rules_version = '2';
 // - Only signed-in staff (people with a users/{uid} profile) can read school data.
 // - Parents (parents/{uid}) read only their own children's months and their own excuse requests.
 // - The admin manages the school; a teacher writes attendance only for their own classes.
+// - Messages: only the people in a conversation read it (and the admin); see MESSAGES below.
 // - The audit log can be added to but never edited or deleted.
 // If the app shows "Missing or insufficient permissions", one of these rules said no.
 // =====================================================================
@@ -171,6 +172,75 @@ service cloud.firestore {
         && (!('periods' in request.resource.data) || (request.resource.data.periods is list && request.resource.data.periods.size() <= 12))
         && request.resource.data.keys().hasOnly(['id', 'studentId', 'sectionId', 'parentUid', 'studentName', 'guardianName', 'dates', 'reason', 'note', 'periods', 'status', 'createdAt']);
       allow update: if isAdmin() || teachesSection(resource.data.sectionId);
+      allow delete: if isAdmin();
+    }
+
+    // ----- MESSAGES (src/messaging.js) -----
+    // Conversations between parents, teachers and the school office; one can hold all three (3-way).
+    // Each person is a key: 'office' (any admin), 't:<teacherId>', 'p:<09XXXXXXXXX>' (a parent's number).
+    // Only the people in a conversation (members) read it. The admin can also read the others, for
+    // oversight and "Remove all school data" (like Canvas admins, who can open any inbox by acting as the user,
+    // and ParentSquare, where administrators see all transcripts). The website only opens one the office is not
+    // in through Messages -> Review conversations, which asks for a reason and writes it to the audit log first.
+    function myKey() {
+      return isStaff() ? (account().role == 'admin' ? 'office' : 't:' + account().get('teacherId', ''))
+        : (isParent() ? 'p:' + parentProfile().mobile : '');
+    }
+    function isMember(members) { return signedIn() && members is list && myKey() in members; }
+    // A teacher of that class: the adviser or one of its subject teachers.
+    function teacherOfSection(sectionId, teacherId) {
+      let sec = get(/databases/$(database)/documents/sections/$(sectionId)).data;
+      return sec.get('teacherId', '') == teacherId || teacherId in sec.get('subjectTeacherIds', []);
+    }
+    match /threads/{id} {
+      allow read: if isAdmin() || isMember(resource.data.members);
+      // Staff start a conversation they are in. With a parent in it, a teacher must teach that child's class
+      // (the class must be one of that parent's children's).
+      allow create: if isStaff() && isMember(request.resource.data.members)
+          && request.resource.data.createdBy == myKey()
+          && request.resource.data.members.size() <= 12
+          && (request.resource.data.get('parent', '') == '' || isAdmin()
+              || ((teachesSection(request.resource.data.sectionId) || subjectTeacher(request.resource.data.sectionId))
+                  && request.resource.data.sectionId in get(/databases/$(database)/documents/parentKeys/$(request.resource.data.parent)).data.get('sectionIds', [])))
+        // A parent starts one about their own child with ONE teacher of that child's class, the office, or both.
+        || (isParent()
+          && request.resource.data.keys().hasOnly(['id', 'members', 'parent', 'parentName', 'studentId', 'studentName', 'sectionId', 'teacherId', 'office', 'names', 'createdBy', 'createdAt', 'lastAt', 'lastText', 'lastFrom', 'lastName', 'readAt'])
+          && request.resource.data.parent == parentProfile().mobile
+          && request.resource.data.createdBy == myKey()
+          && parentOf(request.resource.data.studentId)
+          && request.resource.data.sectionId in parentKey().get('sectionIds', [])
+          && request.resource.data.office is bool && request.resource.data.teacherId is string
+          && (request.resource.data.teacherId == '' ? request.resource.data.office
+              : teacherOfSection(request.resource.data.sectionId, request.resource.data.teacherId))
+          && request.resource.data.members == [myKey()]
+               .concat(request.resource.data.teacherId == '' ? [] : ['t:' + request.resource.data.teacherId])
+               .concat(request.resource.data.office ? ['office'] : []));
+      // Staff in the conversation: send, mark read, add people (never remove anyone, never change the parent or child).
+      // The parent: only the newest-message fields and their own "read" time.
+      allow update: if isMember(resource.data.members) && (
+          (isStaff() && request.resource.data.members.hasAll(resource.data.members)
+            && request.resource.data.get('parent', '') == resource.data.get('parent', '')
+            && request.resource.data.get('studentId', '') == resource.data.get('studentId', ''))
+          || (isParent()
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastAt', 'lastText', 'lastFrom', 'lastName', 'readAt'])
+            && request.resource.data.get('readAt', {}).diff(resource.data.get('readAt', {})).affectedKeys().hasOnly([myKey()])
+            && request.resource.data.lastFrom in [resource.data.lastFrom, myKey()]));
+      allow delete: if isAdmin();
+    }
+    match /messages/{id} {
+      allow read: if isAdmin() || isMember(resource.data.members);
+      // A message by the person signed in, into a conversation they are in (members copied from the thread,
+      // also for a thread created in the same save). At most 1,000 characters.
+      allow create: if isMember(request.resource.data.members)
+        && request.resource.data.from == myKey()
+        && request.resource.data.threadId is string
+        && request.resource.data.members == getAfter(/databases/$(database)/documents/threads/$(request.resource.data.threadId)).data.members
+        && request.resource.data.text is string && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 1000
+        && (isStaff() || request.resource.data.keys().hasOnly(['id', 'threadId', 'members', 'from', 'fromName', 'text', 'at']));
+      // Someone was added to the conversation: staff give the older messages the new members list.
+      allow update: if isStaff() && isMember(request.resource.data.members)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['members'])
+        && request.resource.data.members.hasAll(resource.data.members);
       allow delete: if isAdmin();
     }
 

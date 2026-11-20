@@ -16,6 +16,7 @@ import { dailyMethods } from './engine/daily';
 import { attendanceMethods } from './engine/attendance';
 import { parentPortalMethods } from './engine/parentPortal';
 import { adminMethods } from './engine/admin';
+import { messagesMethods } from './engine/messages';
 
 // =====================================================================
 // engine.js — THE HEART OF DOORBELL
@@ -35,6 +36,7 @@ import { adminMethods } from './engine/admin';
 //   engine/attendance.js   rosters, gate scans, statuses, alerts, SMS list, Absence Watch
 //   engine/parentPortal.js parent portal data and excuse requests
 //   engine/admin.js        settings, calendar, teachers, accounts, sections, students
+//   engine/messages.js     the built-in messages (parents, teachers and the school office)
 //   engine/sample.js       the sample school;  engine/defaults.js  default settings and texts
 // =====================================================================
 // =====================================================================
@@ -401,7 +403,7 @@ export class Engine {
 }
 
 // Adds the methods from the engine/ files to the Engine class (getters such as `limits` included).
-for (const methods of [textsMethods, dailyMethods, attendanceMethods, parentPortalMethods, adminMethods]) {
+for (const methods of [textsMethods, dailyMethods, attendanceMethods, parentPortalMethods, adminMethods, messagesMethods]) {
   Object.defineProperties(Engine.prototype, Object.getOwnPropertyDescriptors(methods));
 }
 

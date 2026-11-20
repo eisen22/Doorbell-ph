@@ -4,15 +4,16 @@
 // A phone-first page for parents: sign in with the mobile number + password, then see each child's
 // CONFIRMED attendance (calendar, month and semester totals) and send an excuse request to the teacher.
 // Parents sign in on the shared sign-in page (/login, main.jsx) with their mobile number.
-// Screens: Home (one tab per child) -> ExcuseForm / ChangePassword. Signed out -> back to /login.
+// Screens: Home (one tab per child) -> ExcuseForm / ChangePassword / Messages. Signed out -> back to /login.
 // The data comes from parentCloud.js (not from the engine: parents never load the whole school).
 // =====================================================================
 import React, { useEffect, useMemo, useState } from 'react';
 import { Navigate } from 'react-router-dom';
-import { AlertTriangle, X, CalendarClock, CalendarDays, CloudRain, Megaphone, ChevronLeft, ChevronRight, FileText, KeyRound, LogOut, Send } from 'lucide-react';
+import { AlertTriangle, X, CalendarClock, CalendarDays, CloudRain, Megaphone, ChevronLeft, ChevronRight, FileText, KeyRound, LogOut, Send, MessagesSquare } from 'lucide-react';
 import { Logo, Wordmark, useRepo, PasswordInput } from '../ui';
 import { addDays, isoWeekday, manilaToday, manilaTime, to12h, ordinal, periodsLabel, excuseStatusLabel, EXCUSE_REASONS } from '../logic';
-import { changeParentPassword, dismissAnnouncement, portalAvailable, sendExcuse, signOutParent, watchParent } from './parentCloud';
+import { changeParentPassword, dismissAnnouncement, portalAvailable, sendExcuse, signOutParent, watchParent, sendParentMessage, markParentRead } from './parentCloud';
+import { ParentMessages, parentUnread } from './ParentMessages';
 
 // "Coming up" tags: what kind of day it is for the child.
 const UP_KIND = {
@@ -117,9 +118,10 @@ function Shell({ children, school, onSignOut }) {
 // HOME: one tab per child, the default-password warning, today, the calendar, totals, excuse requests.
 // ---------------------------------------------------------------------
 function Home({ st }) {
+  const repo = useRepo();
   const children = st.key?.children ?? [];
   const [childId, setChildId] = useState(children[0]?.id ?? null);
-  const [screen, setScreen] = useState('home'); // 'home' | 'excuse' | 'password' | 'announcements'
+  const [screen, setScreen] = useState('home'); // 'home' | 'excuse' | 'password' | 'announcements' | 'messages'
   const [closedHere, setClosedHere] = useState([]); // closed on this page (the demo, or before the cloud saves it)
   const [flash, setFlash] = useState(null);
   useEffect(() => {
@@ -151,6 +153,25 @@ function Home({ st }) {
     setClosedHere((x) => [...x, id]);
     if (!st.demo) dismissAnnouncement(id).catch(() => {});
   };
+  // Messages: the cloud (parentCloud.js) or, in demo mode, the engine acting as this parent.
+  const mobile = st.profile?.mobile;
+  const parentName = st.key?.guardianName ?? st.guardianName ?? 'Parent';
+  const msgApi = st.demo
+    ? {
+        send: async ({ thread, to, about, text }) => repo.demoParentSend({ mobile, parentName, threadId: thread?.id, studentId: about?.studentId, to, text }),
+        markRead: async (thread) => repo.demoParentRead(mobile, thread.id),
+      }
+    : {
+        send: ({ thread, to, about, contacts, text }) => sendParentMessage({ mobile, parentName, thread, threads: st.threads ?? [], to, about, contacts, text }),
+        markRead: (thread) => markParentRead(mobile, thread),
+      };
+  const unreadMsgs = parentUnread(st);
+  if (screen === 'messages')
+    return (
+      <Shell school={school}>
+        <ParentMessages st={st} api={msgApi} onBack={() => setScreen('home')} />
+      </Shell>
+    );
   if (screen === 'announcements')
     return (
       <Shell school={school}>
@@ -220,6 +241,16 @@ function Home({ st }) {
           </button>
         </section>
       ))}
+      {mobile && (
+        <button type="button" className={`pp-msg-entry ${unreadMsgs ? 'has-new' : ''}`} onClick={() => setScreen('messages')}>
+          <MessagesSquare size={20} aria-hidden="true" />
+          <span>
+            <b>Messages</b>
+            <small>{unreadMsgs ? `${unreadMsgs} new ${unreadMsgs === 1 ? 'message' : 'messages'}` : 'Write to the teacher or the school office'}</small>
+          </span>
+          {unreadMsgs > 0 && <span className="pp-msg-count">{unreadMsgs}</span>}
+        </button>
+      )}
       {announcements.length > 0 && (
         <button type="button" className="pp-link pp-ann-link" onClick={() => setScreen('announcements')}>
           <Megaphone size={15} aria-hidden="true" /> Announcements ({announcements.length})

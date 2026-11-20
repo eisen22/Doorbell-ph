@@ -33,8 +33,9 @@ export const adminMethods = {
     return [...this.s.audit.values()].filter((a) => a.at >= since && a.at < until).sort((a, b) => b.at.localeCompare(a.at));
   },
   // Adds a line to the audit log: who did what, to whom, and when.
-  async logAudit(action, target, detail) {
-    const e = { id: uid('aud'), at: new Date().toISOString(), actor: this.actor(), action, target, detail };
+  // extra: more fields for some entries (e.g. threadId on a 'messages.review').
+  async logAudit(action, target, detail, extra = {}) {
+    const e = { id: uid('aud'), at: new Date().toISOString(), actor: this.actor(), action, target, detail, ...extra };
     this.s.audit.set(e.id, e);
     this.put('audit', e.id, e);
   },

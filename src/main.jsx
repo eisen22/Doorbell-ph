@@ -29,6 +29,7 @@ import {
   UserX,
   FileText,
   FileSpreadsheet,
+  MessagesSquare,
 } from 'lucide-react';
 import { useRepo, Logo, Wordmark, Skeleton, useLive, RepoProvider, PasswordInput, TodayNotice } from './ui';
 import { parentKeyOf } from './logic';
@@ -54,6 +55,7 @@ import { AdminSettings } from './admin/Settings';
 import { AuditLog } from './admin/AuditLog';
 import { Reports } from './shared/Reports';
 import { ExcuseRequests } from './shared/ExcuseRequests';
+import { Messages } from './shared/Messages';
 // The parent portal (/parent) has its own sign-in and does not use the staff frame (Shell).
 import { ParentPortal } from './parent/ParentPortal';
 
@@ -267,7 +269,7 @@ export function Login() {
 // ---------------------------------------------------------------------
 // THE FRAME AROUND EVERY PAGE (Shell): left menu, search bar, alerts bell, account menu.
 // TEACHER_NAV and ADMIN_NAV are the menu items: to add a page, add a line here AND a <Route> below.
-// badge: 'alerts' = unread alerts count, 'watch' = children at the streak limit (red).
+// badge: 'alerts' = unread alerts count, 'watch' = children at the streak limit (red), 'messages' = unread conversations.
 // ---------------------------------------------------------------------
 const TEACHER_NAV = [
   { to: '/', label: 'Dashboard', Icon: LayoutGrid, end: true },
@@ -276,6 +278,7 @@ const TEACHER_NAV = [
   { to: '/absences', label: 'Absence Watch', Icon: UserX, badge: 'watch' },
   { to: '/calendar', label: 'Calendar', Icon: CalendarDays },
   { to: '/notifications', label: 'Alerts', Icon: Bell, badge: 'alerts' },
+  { to: '/messages', label: 'Messages', Icon: MessagesSquare, badge: 'messages' },
   { to: '/excuses', label: 'Excuse requests', Icon: FileText, badge: 'excuses' },
   { to: '/sms', label: 'SMS Messages', Icon: MessageSquareText },
   { to: '/reports', label: 'Reports', Icon: FileSpreadsheet },
@@ -292,6 +295,7 @@ const ADMIN_NAV = [
   { to: '/admin/absences', label: 'Absence Watch', Icon: UserX, badge: 'watch' },
   // The same Attendance page as teachers, with every class: for a day when a teacher is absent.
   { to: '/admin/attendance', label: 'Attendance', Icon: ClipboardCheck },
+  { to: '/admin/messages', label: 'Messages', Icon: MessagesSquare, badge: 'messages' },
   { to: '/admin/excuses', label: 'Excuse requests', Icon: FileText, badge: 'excuses' },
   { to: '/admin/calendar', label: 'School Calendar', Icon: CalendarDays },
   { to: '/admin/sections', label: 'Sections', Icon: Shapes },
@@ -317,13 +321,15 @@ export function Shell() {
   const { data: session, loading } = useLive((r) => r.getSession());
   const { data: counts } = useLive(async (r) => {
     const s = await r.getSession();
-    if (!s) return { alerts: 0, watch: 0, excuses: 0 };
+    if (!s) return { alerts: 0, watch: 0, excuses: 0, messages: 0 };
     const alerts = (await r.listNotifications()).filter((n) => !n.read).length;
     // Red badge on Absence Watch: children at the streak limit (the teacher sees only their own classes).
     const watch = (await r.listAttention((await r.getSettings()).streakDays)).length;
     // Excuse requests from parents that nobody has answered yet.
     const excuses = (await r.listExcuses()).filter((x) => x.status === 'pending').length;
-    return { alerts, watch, excuses };
+    // Conversations with a message not read yet.
+    const messages = await r.unreadMessageCount();
+    return { alerts, watch, excuses, messages };
   });
   const isAdmin = session?.role === 'admin';
   const nav = isAdmin ? ADMIN_NAV : TEACHER_NAV;
@@ -349,7 +355,7 @@ export function Shell() {
   if (!isAdmin && inAdmin) return <Navigate to="/" replace />;
   const searchHere = SEARCH_HERE[location.pathname.replace(/^\/admin/, '') || '/'];
   const searchGlobal = location.pathname === '/admin' || location.pathname === '/';
-  const needsSection = !isAdmin && !session.sectionIds.length && !['/calendar', '/settings', '/sms'].includes(location.pathname);
+  const needsSection = !isAdmin && !session.sectionIds.length && !['/calendar', '/settings', '/sms', '/messages'].includes(location.pathname);
   return (
     <div className="canvas">
       <div className="frame">
@@ -513,6 +519,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             <Route path="sms" element={<SmsMessages />} />
             <Route path="reports" element={<Reports />} />
             <Route path="excuses" element={<ExcuseRequests />} />
+            <Route path="messages" element={<Messages />} />
+            <Route path="admin/messages" element={<Messages />} />
             <Route path="admin/excuses" element={<ExcuseRequests />} />
             <Route path="admin/sms" element={<SmsMessages />} />
             <Route path="admin/reports" element={<Reports />} />

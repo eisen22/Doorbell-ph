@@ -13,7 +13,8 @@
 //     parentKeys/{number}; otherwise the new account is deleted again and the parent sees
 //     "Wrong mobile number or password".
 //   * Later sign-ins are normal Firebase email + password sign-ins.
-// What a parent can read: parentKeys/{their number}, parentDays of their children, their own excuses.
+// What a parent can read: parentKeys/{their number}, parentDays of their children, their own excuses,
+// and the message threads they are in (threads/messages with 'p:<their number>' in members).
 // =====================================================================
 import { getApps, initializeApp } from 'firebase/app';
 import {
@@ -28,9 +29,10 @@ import {
   signOut as fbSignOut,
   updatePassword,
 } from 'firebase/auth';
-import { arrayUnion, collection, deleteField, doc, getDoc, getFirestore, onSnapshot, query, setDoc, updateDoc, where } from 'firebase/firestore';
+import { arrayUnion, collection, deleteField, doc, getDoc, getFirestore, onSnapshot, query, setDoc, updateDoc, where, writeBatch, FieldPath } from 'firebase/firestore';
 import { firebaseConfig, cloudConfigured } from '../firebase';
 import { parentEmail, parentKeyOf, sha256Hex } from '../logic';
+import { OFFICE, OFFICE_NAME, parentMsgKey, cleanMessage, buildThread, buildMessage, afterMessage, isUnread, orderMembers } from '../messaging';
 
 export const portalAvailable = cloudConfigured;
 
@@ -157,6 +159,57 @@ export async function sendExcuse({ studentId, sectionId, studentName, guardianNa
   });
 }
 
+/* ---------------------------------------------------------------------
+   MESSAGES (src/messaging.js). The parent writes as 'p:<their number>'. A new conversation goes to one
+   teacher of the child's class, the school office, or both (3-way). firestore.rules checks that the
+   teacher teaches that class and that the class is one of the parent's children's.
+   --------------------------------------------------------------------- */
+/**
+ * Sends a message. thread = an existing thread (or null to start one); to = ['t:<id>'] and/or ['office'];
+ * about = { studentId, studentName, sectionId }; contacts = that child's teachers [{ key, name }].
+ * Returns the thread id.
+ */
+export async function sendParentMessage({ mobile, parentName, thread, threads = [], to = [], about, contacts = [], text }) {
+  const { auth, db } = start();
+  if (!auth.currentUser) throw new Error('Sign in again first.');
+  const body = cleanMessage(text);
+  const me = parentMsgKey(mobile);
+  const from = { key: me, name: parentName || 'Parent' };
+  if (!thread && about) {
+    const teacher = contacts.find((c) => to.includes(c.key));
+    const others = [...(teacher ? [{ key: teacher.key, name: teacher.name }] : []), ...(to.includes(OFFICE) ? [{ key: OFFICE, name: OFFICE_NAME }] : [])];
+    if (!others.length) throw new Error('Choose who to send it to.');
+    // Same people about the same child: continue that conversation.
+    const members = orderMembers([me, ...others.map((o) => o.key)]).join();
+    thread = threads.find((t) => t.members.join() === members && t.studentId === about.studentId) ?? null;
+    if (!thread) {
+      const t = buildThread({ from, others, about: { mobile, parentName: from.name, ...about }, text: body });
+      const m = buildMessage({ thread: t, from, text: body, at: t.lastAt });
+      const b = writeBatch(db);
+      b.set(doc(db, 'threads', t.id), t);
+      b.set(doc(db, 'messages', m.id), m);
+      await b.commit();
+      return t.id;
+    }
+  }
+  if (!thread) throw new Error('Choose who to send it to.');
+  const m = buildMessage({ thread, from, text: body });
+  const next = afterMessage(thread, m);
+  const b = writeBatch(db);
+  b.set(doc(db, 'messages', m.id), m);
+  // Only these fields, and only the parent's own "read" time (firestore.rules allows nothing else).
+  b.update(doc(db, 'threads', thread.id), 'lastAt', next.lastAt, 'lastText', next.lastText, 'lastFrom', next.lastFrom, 'lastName', next.lastName, new FieldPath('readAt', me), m.at);
+  await b.commit();
+  return thread.id;
+}
+/** Opening a conversation marks it read for the parent. */
+export async function markParentRead(mobile, thread) {
+  const me = parentMsgKey(mobile);
+  if (!thread || !isUnread(thread, me)) return;
+  const { db } = start();
+  await updateDoc(doc(db, 'threads', thread.id), new FieldPath('readAt', me), thread.lastAt);
+}
+
 /**
  * Watches everything the portal shows and calls onChange(state) whenever it changes:
  *   { status: 'loading' | 'signedOut' | 'ready' | 'error', profile, key, months: { studentId: [month docs] }, excuses, error }
@@ -172,7 +225,7 @@ export async function dismissAnnouncement(id) {
 
 export function watchParent(onChange) {
   const { auth, db } = start();
-  let state = { status: 'loading', months: {}, excuses: [] };
+  let state = { status: 'loading', months: {}, excuses: [], threads: [], messages: [] };
   const emit = (patch) => {
     state = { ...state, ...patch };
     onChange(state);
@@ -181,6 +234,7 @@ export function watchParent(onChange) {
   let profileUnsub = null;
   let keyUnsub = null;
   let childUnsubs = [];
+  let msgUnsubs = [];
   let watchedMobile = null;
   let watchedIds = null;
   const stopChildren = () => {
@@ -191,6 +245,8 @@ export function watchParent(onChange) {
   const stopKey = () => {
     keyUnsub?.();
     keyUnsub = null;
+    msgUnsubs.forEach((u) => u());
+    msgUnsubs = [];
     watchedMobile = null;
     stopChildren();
   };
@@ -225,6 +281,13 @@ export function watchParent(onChange) {
   const watchKey = (mobile, uid) => {
     stopKey();
     watchedMobile = mobile;
+    // The parent's conversations and their messages (skipped quietly if firestore.rules is older than Messages).
+    const mine = (col) => query(collection(db, col), where('members', 'array-contains', parentMsgKey(mobile)));
+    const quiet = (e) => console.warn('Messages not loaded: publish the new firestore.rules', e);
+    msgUnsubs.push(
+      onSnapshot(mine('threads'), (snap) => emit({ threads: snap.docs.map((d) => d.data()) }), quiet),
+      onSnapshot(mine('messages'), (snap) => emit({ messages: snap.docs.map((d) => d.data()) }), quiet),
+    );
     keyUnsub = onSnapshot(
       doc(db, 'parentKeys', mobile),
       (snap) => {
@@ -237,8 +300,8 @@ export function watchParent(onChange) {
   };
   const offAuth = onAuthStateChanged(auth, (user) => {
     stopAll();
-    if (!user) return emit({ status: 'signedOut', profile: null, key: null, months: {}, excuses: [] });
-    emit({ status: 'loading', profile: null, key: null, months: {}, excuses: [] });
+    if (!user) return emit({ status: 'signedOut', profile: null, key: null, months: {}, excuses: [], threads: [], messages: [] });
+    emit({ status: 'loading', profile: null, key: null, months: {}, excuses: [], threads: [], messages: [] });
     profileUnsub = onSnapshot(
       doc(db, 'parents', user.uid),
       (snap) => {

@@ -56,6 +56,8 @@ export function emptyState(meta, calendar = []) {
     audit: new Map(),
     excuses: new Map(), // excuse requests from the parent portal
     announcements: new Map(), // announcements to parents (admin: school / levels / a class; teacher: their classes)
+    threads: new Map(), // conversations between parents, teachers and the school office (src/messaging.js)
+    messages: new Map(), // the messages in those conversations
     seating: new Map(), // seating charts: section id -> { rows, cols, aisleEvery, spacing, seats: { 'row-col': studentId } }
   };
 }
