@@ -229,8 +229,8 @@ export async function sendParentMessage({ mobile, parentName, thread, threads = 
       b.set(doc(db, 'threads', t.id), t);
       atts.forEach((a) => b.set(doc(db, 'attachments', a.id), a));
       b.set(doc(db, 'messages', m.id), m);
-      mailQueueDocs(t, m).forEach((q) => b.set(doc(db, 'mailQueue', q.id), q)); // email alerts for the staff
       await b.commit();
+      await queueStaffEmails(db, mailQueueDocs(t, m));
       return t.id;
     }
   }
@@ -241,10 +241,10 @@ export async function sendParentMessage({ mobile, parentName, thread, threads = 
   const b = writeBatch(db);
   atts.forEach((a) => b.set(doc(db, 'attachments', a.id), a));
   b.set(doc(db, 'messages', m.id), m);
-  mailQueueDocs(next, m).forEach((q) => b.set(doc(db, 'mailQueue', q.id), q)); // email alerts for the staff
   // Only these fields, and only the parent's own "read" time (firestore.rules allows nothing else).
   b.update(doc(db, 'threads', thread.id), 'lastAt', next.lastAt, 'lastText', next.lastText, 'lastFrom', next.lastFrom, 'lastName', next.lastName, new FieldPath('readAt', me), m.at);
   await b.commit();
+  await queueStaffEmails(db, mailQueueDocs(next, m));
   return thread.id;
 }
 // One attachment of a conversation the parent is in (read when they open it; kept for this visit).
@@ -256,6 +256,15 @@ export async function fetchParentAttachment(id) {
   const a = snap.exists() ? snap.data() : null;
   if (a) attachmentCache.set(id, a);
   return a;
+}
+
+// Email alerts for the teachers / office in the conversation (worker/src/index.js). Saved after the message,
+// on their own: if this is refused (e.g. older firestore.rules), the message is still sent.
+async function queueStaffEmails(db, docs) {
+  if (!docs.length) return;
+  const b = writeBatch(db);
+  docs.forEach((q) => b.set(doc(db, 'mailQueue', q.id), q));
+  await b.commit().catch((e) => console.warn('Email alert queue not saved (publish the newest firestore.rules):', e.message));
 }
 
 /** Opening a conversation marks it read for the parent. */

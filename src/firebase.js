@@ -116,25 +116,54 @@ export function createCloudEngine() {
   const pending = new Map(); // 'collection/id' -> what to write (null = delete)
   let timer = null;
 
+  // Saves that may fail without bothering anyone: the email-alert queue (worker/src/index.js). They are sent in
+  // their own batch AFTER the real changes, so a refusal can never undo, say, marking a conversation read.
+  const BEST_EFFORT = new Set(['mailQueue']);
+  const writeOne = (batch, op) => {
+    const ref = doc(db, op.col, op.id);
+    if (op.data === null) batch.delete(ref);
+    // JSON round-trip removes anything Firestore cannot store (like Map objects).
+    else batch.set(ref, JSON.parse(JSON.stringify(op.data)));
+  };
   const flush = async () => {
     timer = null;
-    const ops = [...pending.values()];
+    const all = [...pending.values()];
     pending.clear();
+    const ops = all.filter((op) => !BEST_EFFORT.has(op.col));
+    const extra = all.filter((op) => BEST_EFFORT.has(op.col));
     // Firestore allows up to 500 writes per batch; we use 450 to be safe.
     for (let i = 0; i < ops.length; i += 450) {
+      const chunk = ops.slice(i, i + 450);
       const batch = writeBatch(db);
-      for (const op of ops.slice(i, i + 450)) {
-        const ref = doc(db, op.col, op.id);
-        if (op.data === null) batch.delete(ref);
-        // JSON round-trip removes anything Firestore cannot store (like Map objects).
-        else batch.set(ref, JSON.parse(JSON.stringify(op.data)));
-      }
+      chunk.forEach((op) => writeOne(batch, op));
       try {
         await batch.commit();
       } catch (e) {
-        // Most common cause: the security rules said no (see firestore.rules).
+        // Most common cause: the security rules said no (see firestore.rules). Save the changes one by one
+        // (in the same order) so the rest still saves, and say exactly which document was refused.
         console.error('Save failed', e);
-        alert(`Could not save to the cloud: ${e.message}`);
+        const refused = [];
+        for (const op of chunk) {
+          const one = writeBatch(db);
+          writeOne(one, op);
+          try {
+            await one.commit();
+          } catch (e1) {
+            refused.push(`${op.col}/${op.id}${op.data === null ? ' (delete)' : ''}`);
+            console.error(`Refused: ${op.col}/${op.id}`, e1);
+          }
+        }
+        if (refused.length)
+          alert(`Could not save to the cloud: ${e.message}\n\nRefused: ${refused.slice(0, 3).join(', ')}${refused.length > 3 ? ` and ${refused.length - 3} more` : ''}`);
+      }
+    }
+    if (extra.length) {
+      const batch = writeBatch(db);
+      extra.forEach((op) => writeOne(batch, op));
+      try {
+        await batch.commit();
+      } catch (e) {
+        console.warn('Email alert queue not saved (publish the newest firestore.rules):', e.message);
       }
     }
   };
