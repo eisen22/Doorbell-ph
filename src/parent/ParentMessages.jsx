@@ -11,6 +11,10 @@ import { Building2, ChevronLeft, MessagesSquare, Plus, Send } from 'lucide-react
 import { AttachButton, PendingFiles, MessageFiles } from '../shared/Attachments';
 import { OFFICE, OFFICE_NAME, MAX_MESSAGE, parentMsgKey, isUnread, titleFor, inboxTime, messageTime, keyKind } from '../messaging';
 
+// The newest COMPLETE month of a child. A month the gate phone started (only a scan-out time, before the
+// website or the Worker wrote the full month) has no class, teachers or announcements yet: skip it.
+export const latestMonth = (docs = []) => [...docs].reverse().find((d) => d.updatedAt) ?? docs[docs.length - 1];
+
 /** How many conversations have a message the parent hasn't read (for the Home button). */
 export const parentUnread = (st) => {
   const me = st.profile?.mobile ? parentMsgKey(st.profile.mobile) : null;
@@ -19,9 +23,12 @@ export const parentUnread = (st) => {
 
 export function ParentMessages({ st, api, onBack }) {
   const me = parentMsgKey(st.profile.mobile);
+  // Teachers' names as the school has them now (a conversation keeps the name from when it started).
+  const current = Object.fromEntries((st.key?.children ?? []).flatMap((c) => (latestMonth(st.months?.[c.id] ?? [])?.contacts ?? []).map((x) => [x.key, x.name])));
+  const named = (t) => ({ ...t, names: { ...t.names, ...Object.fromEntries(t.members.filter((k) => current[k]).map((k) => [k, current[k]])) } });
   const [openId, setOpenId] = useState(null);
   const [composing, setComposing] = useState(false);
-  const threads = [...(st.threads ?? [])].sort((a, b) => b.lastAt.localeCompare(a.lastAt));
+  const threads = [...(st.threads ?? [])].map(named).sort((a, b) => b.lastAt.localeCompare(a.lastAt));
   const open = threads.find((t) => t.id === openId);
   if (composing)
     return (
@@ -172,7 +179,7 @@ function Compose({ st, api, onBack, onSent }) {
   const children = st.key?.children ?? [];
   const [childId, setChildId] = useState(children[0]?.id ?? null);
   const docs = (childId && st.months?.[childId]) || [];
-  const latest = docs[docs.length - 1];
+  const latest = latestMonth(docs);
   const contacts = latest?.contacts ?? [];
   const child = children.find((c) => c.id === childId);
   const [teacher, setTeacher] = useState(null); // a teacher's key, or '' = no teacher (school office only)

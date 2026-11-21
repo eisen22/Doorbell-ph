@@ -13,7 +13,7 @@ import { AlertTriangle, X, CalendarClock, CalendarDays, CloudRain, Megaphone, Ch
 import { Logo, Wordmark, useRepo, PasswordInput } from '../ui';
 import { addDays, isoWeekday, manilaToday, manilaTime, to12h, ordinal, periodsLabel, excuseStatusLabel, EXCUSE_REASONS } from '../logic';
 import { changeParentPassword, dismissAnnouncement, portalAvailable, sendExcuse, signOutParent, watchParent, sendParentMessage, markParentRead, fetchParentAttachment } from './parentCloud';
-import { ParentMessages, parentUnread } from './ParentMessages';
+import { ParentMessages, parentUnread, latestMonth } from './ParentMessages';
 import { AttachButton, PendingFiles } from '../shared/Attachments';
 
 // "Coming up" tags: what kind of day it is for the child.
@@ -139,14 +139,14 @@ function Home({ st }) {
   }, [flash]);
   const child = children.find((c) => c.id === childId);
   const docs = (childId && st.months?.[childId]) || [];
-  const latest = docs[docs.length - 1];
+  const latest = latestMonth(docs);
   const school = latest?.schoolName;
   // Announcements for all the parent's children (each once), newest first.
   const announcements = [
     ...new Map(
       children.flatMap((c) => {
         const d = st.months?.[c.id] ?? [];
-        return (d[d.length - 1]?.announcements ?? []).map((a) => [a.id, { ...a, child: c.firstName }]);
+        return (latestMonth(d)?.announcements ?? []).map((a) => [a.id, { ...a, child: c.firstName }]);
       }),
     ).values(),
   ].sort((a, b) => b.at.localeCompare(a.at));
@@ -155,7 +155,7 @@ function Home({ st }) {
   for (const [id, n] of new Map(
     children.flatMap((c) => {
       const d = st.months?.[c.id] ?? [];
-      return (d[d.length - 1]?.notices ?? []).map((n) => [noticeId(n), n]);
+      return (latestMonth(d)?.notices ?? []).map((n) => [noticeId(n), n]);
     }),
   )) {
     if (!announcements.some((a) => a.id === id)) announcements.push({ id, at: n.at, from: 'school', title: n.title, body: n.body ?? '', calendar: true, type: n.type });
@@ -319,7 +319,7 @@ function ChildView({ child, docs, excuses, onExcuse, closed = new Set(), onClose
   const today = manilaToday();
   const thisMonth = today.slice(0, 7);
   const byMonth = useMemo(() => new Map(docs.map((d) => [d.month, d])), [docs]);
-  const latest = docs[docs.length - 1];
+  const latest = latestMonth(docs);
   // The calendar goes back to the first day of classes this school year (not only to the first month on record).
   // Months saved before Nov 16, 2026 don't carry yearStart: fall back to June of this school year
   // (Philippine classes start in June), so parents can always page back to the start of classes.
@@ -688,7 +688,7 @@ function MultiDayCalendar({ today, selected, onToggle, min, max }) {
 // ---------------------------------------------------------------------
 function ExcuseForm({ child, docs, excuses, guardianName, send, onDone, onBack }) {
   const today = manilaToday();
-  const latest = docs[docs.length - 1];
+  const latest = latestMonth(docs);
   const sectionId = child.sectionId ?? latest?.sectionId;
   // Absent days in the last 30 days that are not excused and not already asked about.
   const asked = new Set(excuses.filter((x) => x.studentId === child.id && x.status !== 'declined').flatMap((x) => x.dates));

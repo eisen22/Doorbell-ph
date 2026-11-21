@@ -102,8 +102,9 @@ export async function sendMessageEmails(db, env, fetchFn, now = new Date()) {
         name = t.name ?? '';
       }
     }
-    if (!/^\S+@\S+\.\S+$/.test(email)) {
-      skipped += 1; // no email on file, alerts turned off, or the teacher left
+    // No email on file, alerts turned off, the teacher left, or a made-up sample address (they would bounce).
+    if (!/^\S+@\S+\.\S+$/.test(email) || /@sunnyside\.edu\.ph$/i.test(email)) {
+      skipped += 1;
       continue;
     }
     const who = q.fromName || 'Someone';

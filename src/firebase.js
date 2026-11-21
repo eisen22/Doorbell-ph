@@ -603,7 +603,7 @@ export function createCloudEngine() {
      (only their Doorbell profile is removed); sample teachers are reused when the sample is loaded again.
      ================================================================= */
   engine.clearSchoolData = async (onProgress = () => {}) => {
-    const cols = ['attendance', 'confirmations', 'sms', 'notifications', 'excuses', 'threads', 'messages', 'attachments', 'seating', 'announcements', 'parentDays', 'parentKeys', 'parents', 'enrollments', 'guardians', 'students', 'sections', 'teachers'];
+    const cols = ['attendance', 'confirmations', 'sms', 'notifications', 'excuses', 'threads', 'messages', 'attachments', 'mailQueue', 'seating', 'announcements', 'parentDays', 'parentKeys', 'parents', 'enrollments', 'guardians', 'students', 'sections', 'teachers'];
     let removed = 0;
     for (const col of [...cols, 'users']) {
       onProgress(`Removing ${col}…`);

@@ -412,8 +412,10 @@ export const adminMethods = {
     if (dupe) throw new Error('Another teacher already uses this email.');
     const existing = input.id ? this.s.teachers.get(input.id) : undefined;
     if (existing) {
+      const renamed = existing.name !== input.name;
       Object.assign(existing, { name: input.name, mobile: input.mobile, subjects: input.subjects ?? existing.subjects ?? [], gradeLevel: input.gradeLevel ?? existing.gradeLevel ?? null });
       this.put('teachers', existing.id, existing);
+      if (renamed) this.syncClassesOf(existing.id); // the parent portal shows the teacher's name
       await this.logAudit('teacher.update', existing.name);
       this.emit();
       return { teacher: existing };
@@ -502,9 +504,22 @@ export const adminMethods = {
     this.emit();
   },
   // Deactivate (cannot sign in, removed from their classes) or reactivate a teacher.
+  // Rewrites this month's parent portal page for every child in the classes a teacher advises or teaches.
+  classIdsOf(teacherId) {
+    return [...this.s.sections.values()]
+      .filter((s) => !s.archived && (s.teacherId === teacherId || (s.subjectTeacherIds ?? []).includes(teacherId) || (s.program ?? []).some((p) => p.teacherId === teacherId)))
+      .map((s) => s.id);
+  },
+  // sectionIds: the classes to rewrite (default: the teacher's classes now).
+  syncClassesOf(teacherId, sectionIds = this.classIdsOf(teacherId)) {
+    const today = this.clock.today();
+    const ids = sectionIds.flatMap((id) => this.rosterOn(id, today).map((k) => k.id));
+    if (ids.length) this.syncParentDays([...new Set(ids)], [today.slice(0, 7)]);
+  },
   async setTeacherActive(id, active) {
     const t = this.s.teachers.get(id);
     if (!t) return;
+    const classIds = this.classIdsOf(id); // before deactivating removes them as adviser
     t.active = active;
     this.put('teachers', id, t);
     if (!active) {
@@ -526,6 +541,7 @@ export const adminMethods = {
           this.put('notifications', n.id, n);
         }
     }
+    this.syncClassesOf(id, classIds); // the parent portal's teacher list: an inactive teacher is not listed
     await this.logAudit(active ? 'teacher.activate' : 'teacher.deactivate', t.name);
     this.emit();
   },
@@ -570,6 +586,15 @@ export const adminMethods = {
     this.normalizeSection(section);
     this.s.sections.set(section.id, section);
     this.put('sections', section.id, section);
+    // The parent portal shows the class name, the adviser and the subject teachers (Messages -> "Which
+    // teacher?"): rewrite this month for the children in the class so a change shows right away.
+    if (existing) {
+      const today = this.clock.today();
+      this.syncParentDays(
+        this.rosterOn(section.id, today).map((k) => k.id),
+        [today.slice(0, 7)],
+      );
+    }
     await this.logAudit(existing ? 'section.update' : 'section.create', section.name);
     this.refreshSession();
     this.emit();
@@ -755,7 +780,10 @@ export const adminMethods = {
     }
   },
   // Rewrites the parent portal keys of these children's guardians (the key holds each child's class).
+  // After children change class: their parents' portal keys, and this month's portal page (class name,
+  // adviser and the teachers they can message).
   async syncKeysFor(studentIds) {
+    this.syncParentDays(studentIds, [this.clock.today().slice(0, 7)]);
     const seen = new Set();
     for (const id of studentIds) {
       const g = this.guardianOf(id);

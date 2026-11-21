@@ -127,7 +127,11 @@ export const messagesMethods = {
     const me = this.myMsgKey();
     if (!me) return { parents: [], teachers: [], office: false };
     const isAdmin = this.session.role === 'admin';
-    const sectionIds = isAdmin ? null : new Set(this.session.sectionIds);
+    // A teacher: the classes they advise or teach a subject in (not a class they only cover today as a
+    // substitute: firestore.rules would refuse it).
+    const sectionIds = isAdmin
+      ? null
+      : new Set([...this.classesOf(this.session.teacherId), ...this.subjectClassesOf(this.session.teacherId)].map((c) => c.id));
     const parents = [];
     for (const g of this.s.guardians.values()) {
       const mobile = parentKeyOf(g.mobile);

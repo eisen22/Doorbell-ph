@@ -116,8 +116,9 @@ export function Login() {
     // Already signed in? Go straight to the right portal.
     repo.getSession().then((s) => {
       if (s) navigate(s.role === 'admin' ? '/admin' : '/', { replace: true });
-      // A parent who ticked "Remember me" goes straight back to the parent portal.
-      else
+      // A parent who ticked "Remember me" goes straight back to the parent portal (only when "Parent" was
+      // the last choice here, so a teacher who is also a parent can still sign in as staff).
+      else if (who === 'parent')
         parentSignedIn()
           .then((yes) => yes && navigate('/parent', { replace: true }))
           .catch(() => {});
