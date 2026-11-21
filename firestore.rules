@@ -188,13 +188,17 @@ service cloud.firestore {
         : (isParent() ? 'p:' + parentProfile().mobile : '');
     }
     function isMember(members) { return signedIn() && members is list && myKey() in members; }
+    // For READING conversations and messages. The portal and the staff pages load them with a search
+    // ("members contains me"); Firestore allows a search only if it can prove the rule from the search itself,
+    // so this check must be just "my key is in members" (no other test on the document, e.g. `is list`).
+    function canRead(members) { return signedIn() && myKey() in members; }
     // A teacher of that class: the adviser or one of its subject teachers.
     function teacherOfSection(sectionId, teacherId) {
       let sec = get(/databases/$(database)/documents/sections/$(sectionId)).data;
       return sec.get('teacherId', '') == teacherId || teacherId in sec.get('subjectTeacherIds', []);
     }
     match /threads/{id} {
-      allow read: if isAdmin() || isMember(resource.data.members);
+      allow read: if isAdmin() || canRead(resource.data.members);
       // Staff start a conversation they are in. With a parent in it, a teacher must teach that child's class
       // (the class must be one of that parent's children's).
       allow create: if isStaff() && isMember(request.resource.data.members)
@@ -265,7 +269,7 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
     match /messages/{id} {
-      allow read: if isAdmin() || isMember(resource.data.members);
+      allow read: if isAdmin() || canRead(resource.data.members);
       // A message by the person signed in, into a conversation they are in (members copied from the thread,
       // also for a thread created in the same save). At most 1,000 characters.
       allow create: if isMember(request.resource.data.members)
