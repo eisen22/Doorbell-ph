@@ -145,6 +145,16 @@ export function AdminSettings() {
                 <input className="input" value={s.contactNumber} onChange={(e) => setS({ ...s, contactNumber: e.target.value })} />
               </label>
               <label className="field">
+                <span>School office email (gets an email when someone messages the office; leave empty for none)</span>
+                <input
+                  type="email"
+                  className="input"
+                  value={s.officeEmail ?? ''}
+                  onChange={(e) => setS({ ...s, officeEmail: e.target.value.trim() })}
+                  placeholder="e.g. uccpbec.office@gmail.com"
+                />
+              </label>
+              <label className="field">
                 <span>School gate opens (scanning starts)</span>
                 <input type="time" className="input" value={s.gateOpens ?? '06:00'} onChange={(e) => setS({ ...s, gateOpens: e.target.value || '06:00' })} />
               </label>

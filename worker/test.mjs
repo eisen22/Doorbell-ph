@@ -3,7 +3,7 @@
 // A fake Firestore (in memory, filled with the sample school) and a fake Semaphore answer
 // the Worker's web requests. Run:  npm test   (inside the worker folder)
 // =====================================================================
-import { run, toSemaphoreNumber } from './src/index.js';
+import { run, toSemaphoreNumber, sendMessageEmails } from './src/index.js';
 import { fromFields, toFields } from './src/firestore.js';
 import { Engine, buildDemoState, users } from '../src/engine.js';
 
@@ -43,13 +43,18 @@ put('sms/bad1', { id: 'bad1', studentId: someKid.id, guardianId: itsGuardian.id,
 
 const root = 'projects/demo/databases/(default)/documents';
 const doc = (path) => ({ name: `${root}/${path}`, fields: toFields(db.get(path).data), updateTime: db.get(path).updateTime });
-const cmp = { EQUAL: (a, b) => a === b, IN: (a, b) => b.includes(a), GREATER_THAN_OR_EQUAL: (a, b) => a >= b };
+const cmp = { EQUAL: (a, b) => a === b, IN: (a, b) => b.includes(a), GREATER_THAN_OR_EQUAL: (a, b) => a >= b, LESS_THAN_OR_EQUAL: (a, b) => a <= b };
 let semaphoreCalls = [];
 const json = (obj, status = 200) => new Response(JSON.stringify(obj), { status, headers: { 'content-type': 'application/json' } });
 
+const brevoCalls = [];
 async function fakeFetch(url, init = {}) {
   url = String(url);
   if (url.includes('accounts:signInWithPassword')) return json({ idToken: 'tok', expiresIn: '3600' });
+  if (url.startsWith('https://api.brevo.com')) {
+    brevoCalls.push(JSON.parse(init.body));
+    return json({ messageId: 'm1' });
+  }
   if (url.startsWith('https://api.semaphore.co')) {
     const form = new URLSearchParams(init.body.toString());
     semaphoreCalls.push(Object.fromEntries(form));
@@ -74,10 +79,15 @@ async function fakeFetch(url, init = {}) {
   if (path === ':commit') {
     const { writes } = JSON.parse(init.body);
     for (const w of writes) {
+      if (w.delete) continue;
       const p = w.update.name.split('/documents/')[1];
       if (w.currentDocument && db.get(p)?.updateTime !== w.currentDocument.updateTime) return json({ error: { status: 'FAILED_PRECONDITION', message: 'changed' } }, 400);
     }
     for (const w of writes) {
+      if (w.delete) {
+        db.delete(w.delete.split('/documents/')[1]);
+        continue;
+      }
       const p = w.update.name.split('/documents/')[1];
       const fields = fromFields(w.update.fields);
       put(p, w.updateMask ? { ...(db.get(p)?.data ?? {}), ...fields } : fields);
@@ -138,4 +148,31 @@ ok(pd?.days?.[today]?.s === 'excused' && pd.totals && pd.sectionName, 'parent po
 const size = db.size;
 await run(env, new Date(`${today}T03:40:00Z`), fakeFetch);
 ok(db.size === size, 'another run changes nothing');
+
+// ---- email alerts for new messages (Brevo) ----
+{
+  const now = new Date(`${today}T02:02:00Z`); // 10:02 AM in Manila
+  const old = new Date(now.getTime() - 10 * 60_000).toISOString();
+  const fresh = new Date(now.getTime() - 60_000).toISOString();
+  const school = db.get('meta/school').data;
+  put('meta/school', { ...school, settings: { ...school.settings, officeEmail: 'office@school.test' } });
+  put('teachers/t-maria', { ...state.teachers.get('t-maria'), email: 'maria@gmail.com' });
+  put('teachers/t-jose', { ...state.teachers.get('t-jose'), emailAlerts: false });
+  put('mailQueue/th1_t:t-maria', { id: 'th1_t:t-maria', threadId: 'th1', to: 't:t-maria', at: old, fromName: 'Althea <Dela Cruz>', studentName: 'Daniel' });
+  put('mailQueue/th1_office', { id: 'th1_office', threadId: 'th1', to: 'office', at: old, fromName: 'Althea', studentName: '' });
+  put('mailQueue/th2_t:t-jose', { id: 'th2_t:t-jose', threadId: 'th2', to: 't:t-jose', at: old, fromName: 'X', studentName: '' });
+  put('mailQueue/th3_t:t-maria', { id: 'th3_t:t-maria', threadId: 'th3', to: 't:t-maria', at: fresh, fromName: 'Y', studentName: '' });
+  const r1 = await sendMessageEmails(new (await import('./src/firestore.js')).Firestore(env, fakeFetch), { ...env }, fakeFetch, now);
+  ok(r1 === 'skipped (BREVO_API_KEY or EMAIL_FROM is not set)' || typeof r1 === 'string', 'no Brevo key: nothing is emailed');
+  const envMail = { ...env, BREVO_API_KEY: 'bk', EMAIL_FROM: 'doorbell@school.test', SITE_URL: 'https://x.test/Doorbell-ph/' };
+  const r = await sendMessageEmails(new (await import('./src/firestore.js')).Firestore(envMail, fakeFetch), envMail, fakeFetch, now);
+  console.log('email report:', JSON.stringify(r));
+  const to = brevoCalls.map((c) => c.to[0].email).sort();
+  ok(to.join() === 'maria@gmail.com,office@school.test', `emails go to the teacher and the office (${to.join()})`);
+  const m = brevoCalls.find((c) => c.to[0].email === 'maria@gmail.com');
+  ok(m && m.htmlContent.includes('Althea &lt;Dela Cruz&gt;') && !m.htmlContent.includes('<Dela'), 'names are escaped in the email');
+  ok(m && m.textContent.includes('https://x.test/Doorbell-ph/messages?t=th1'), 'the email links to the conversation');
+  ok(!db.has('mailQueue/th1_t:t-maria') && !db.has('mailQueue/th2_t:t-jose'), 'sent (or turned off) alerts are removed');
+  ok(db.has('mailQueue/th3_t:t-maria'), 'a message from 1 minute ago waits (the teacher may still open it)');
+}
 process.exit(failures ? 1 : 0);

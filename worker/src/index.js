@@ -4,6 +4,9 @@
 // Runs every minute on Cloudflare's free plan (no Firebase Blaze plan needed):
 //   1. sendQueuedSms():  when Settings -> How texts are sent = Semaphore, sends every text saved
 //                        as 'queued' through Semaphore and marks it 'sent' or 'failed'.
+//   3. sendMessageEmails(): every 5 minutes, 6 AM to 9 PM (Philippine time): emails a teacher or the school
+//                        office "X sent you a message in Doorbell" when a message is still unread a few minutes
+//                        later (Brevo, free plan; no message text in the email). Parents are not emailed.
 //   2. dailyWork():      every 5 minutes, 6 AM to 6 PM, Monday to Saturday (Philippine time), even
 //                        if nobody has Doorbell open, with the SAME rules as the website (src/engine.js):
 //                          - a class a TEACHER confirmed: at the absence text time (end of first
@@ -51,7 +54,90 @@ export async function run(env, now = new Date(), fetchFn = (...args) => fetch(..
       console.error('Class step failed:', e.message);
     }
   }
+  // Email alerts: 2 minutes after the class work's minutes (so they don't share a run), 6 AM to 9 PM.
+  if (now.getUTCMinutes() % 5 === 2 && hour >= 6 && hour <= 21) {
+    try {
+      report.email = await sendMessageEmails(db, env, fetchFn, now);
+    } catch (e) {
+      console.error('Email step failed:', e.message);
+    }
+  }
   return report;
+}
+
+/* =====================================================================
+   3. EMAIL ALERTS FOR NEW MESSAGES (teachers and the school office only)
+   The website saves mailQueue/{threadId}_{key} when someone writes in a conversation (src/messaging.js) and
+   deletes it when that person opens the conversation. One still there after WAIT_MINUTES -> one email
+   through Brevo (BREVO_API_KEY and EMAIL_FROM are Cloudflare secrets), then it is deleted. The email says who
+   wrote and about which child, never the message itself (the people in the conversation read it in Doorbell).
+   ===================================================================== */
+const WAIT_MINUTES = 5;
+const MAX_EMAILS_PER_RUN = 10; // Cloudflare allows 50 web requests per run (Brevo's free plan: 300 emails a day)
+const escapeHtml = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+
+export async function sendMessageEmails(db, env, fetchFn, now = new Date()) {
+  if (!env.BREVO_API_KEY || !env.EMAIL_FROM) return 'skipped (BREVO_API_KEY or EMAIL_FROM is not set)';
+  const cutoff = new Date(now.getTime() - WAIT_MINUTES * 60_000).toISOString();
+  const due = await db.query('mailQueue', [['at', 'LESS_THAN_OR_EQUAL', cutoff]], MAX_EMAILS_PER_RUN);
+  if (!due.length) return { sent: 0 };
+  const school = (await db.get('meta/school'))?.data?.settings ?? {};
+  const teacherIds = [...new Set(due.map((q) => q.data.to).filter((k) => k?.startsWith('t:')).map((k) => k.slice(2)))];
+  const teachers = await db.getMany(teacherIds.map((id) => `teachers/${id}`));
+  const site = (env.SITE_URL ?? '').replace(/\/$/, '');
+  let sent = 0;
+  let skipped = 0;
+  const done = [];
+  for (const { id, data: q } of due) {
+    done.push({ path: `mailQueue/${id}`, remove: true });
+    let email = '';
+    let name = '';
+    if (q.to === 'office') {
+      email = school.officeEmail ?? '';
+      name = 'School office';
+    } else {
+      const t = teachers.get(`teachers/${q.to.slice(2)}`);
+      if (t && t.active !== false && t.emailAlerts !== false) {
+        email = t.email ?? '';
+        name = t.name ?? '';
+      }
+    }
+    if (!/^\S+@\S+\.\S+$/.test(email)) {
+      skipped += 1; // no email on file, alerts turned off, or the teacher left
+      continue;
+    }
+    const who = q.fromName || 'Someone';
+    const about = q.studentName ? ` about ${q.studentName}` : '';
+    const link = site ? `${site}/${q.to === 'office' ? 'admin/messages' : 'messages'}?t=${encodeURIComponent(q.threadId)}` : '';
+    const subject = `New message from ${who} in Doorbell`;
+    const text = `${who} sent you a message in Doorbell${about}.\n\nOpen Doorbell to read and reply${link ? `: ${link}` : '.'}\n\n${school.schoolName ?? ''}\nThis is an automatic alert. ${q.to === 'office' ? 'The admin can turn it off in Settings.' : 'You can turn these emails off in Doorbell -> Settings.'}`;
+    const html = `<p><b>${escapeHtml(who)}</b> sent you a message in Doorbell${escapeHtml(about)}.</p>
+<p>${link ? `<a href="${escapeHtml(link)}">Open Doorbell to read and reply</a>` : 'Open Doorbell to read and reply.'}</p>
+<p style="color:#666;font-size:12px">${escapeHtml(school.schoolName ?? '')}<br>This is an automatic alert. The message itself is only in Doorbell. ${
+      q.to === 'office' ? 'The admin can turn it off in Settings.' : 'You can turn these emails off in Doorbell &rarr; Settings.'
+    }</p>`;
+    const res = await fetchFn('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json', 'api-key': env.BREVO_API_KEY },
+      body: JSON.stringify({
+        sender: { name: `Doorbell${school.schoolName ? ` · ${school.schoolName}` : ''}`.slice(0, 70), email: env.EMAIL_FROM },
+        to: [{ email, name }],
+        subject,
+        textContent: text,
+        htmlContent: html,
+      }),
+    });
+    if (res.ok) sent += 1;
+    else {
+      // Not sent (e.g. the daily limit): keep it for the next run, unless Brevo refused the address itself.
+      const why = await res.text().catch(() => '');
+      console.error('Brevo refused an email:', res.status, why.slice(0, 200));
+      if (res.status === 429 || res.status >= 500) done.pop();
+      else skipped += 1;
+    }
+  }
+  if (done.length) await db.commit(done);
+  return { due: due.length, sent, skipped };
 }
 
 /* =====================================================================

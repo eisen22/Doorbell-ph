@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import { MessageFiles } from './Attachments';
 import { format } from 'date-fns';
 import { Check, FileText, X } from 'lucide-react';
 import { useLive, useRepo, Card, Empty, Skeleton, Avatar, Toast, LevelChips, countByGrade, useSearchQuery, matchesQuery, SearchNote, SectionChips, countByKey } from '../ui';
@@ -23,6 +24,7 @@ export function ExcuseRequests() {
   const [notes, setNotes] = useState({});
   const [busy, setBusy] = useState(null);
   const { data } = useLive((r) => r.listExcuses());
+  const loadFile = useMemo(() => (fid) => repo.fetchAttachment(fid), [repo]);
   if (!data)
     return (
       <div className="page">
@@ -106,6 +108,14 @@ export function ExcuseRequests() {
                     <>
                       <dt>Message</dt>
                       <dd>{x.note}</dd>
+                    </>
+                  )}
+                  {x.files?.length > 0 && (
+                    <>
+                      <dt>Attached</dt>
+                      <dd>
+                        <MessageFiles files={x.files} load={loadFile} />
+                      </dd>
                     </>
                   )}
                   {x.status !== 'pending' && (

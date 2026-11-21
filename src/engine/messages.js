@@ -25,6 +25,8 @@ import {
   titleFor,
   nameIn,
   orderMembers,
+  mailQueueDocs,
+  mailQueueId,
 } from '../messaging';
 
 export const messagesMethods = {
@@ -52,7 +54,8 @@ export const messagesMethods = {
     if (!section) return [];
     const subjects = new Map();
     for (const p of classPeriods(section.program)) if (p.teacherId) subjects.set(p.teacherId, [...new Set([...(subjects.get(p.teacherId) ?? []), p.subject])]);
-    const ids = [...new Set([section.teacherId, ...(section.subjectTeacherIds ?? [])].filter(Boolean))];
+    // Adviser first, then the subject teachers in class-program order (1st period's teacher first).
+    const ids = [...new Set([section.teacherId, ...subjects.keys(), ...(section.subjectTeacherIds ?? [])].filter(Boolean))];
     return ids
       .map((id) => this.s.teachers.get(id))
       .filter((t) => t && t.active !== false)
@@ -61,6 +64,7 @@ export const messagesMethods = {
         teacherId: t.id,
         name: t.name,
         role: t.id === section.teacherId ? 'Class adviser' : `Subject teacher${subjects.get(t.id)?.length ? `: ${subjects.get(t.id).join(', ')}` : ''}`,
+        subjects: subjects.get(t.id) ?? [],
       }));
   },
   // The child's class a thread is about (for "who can be added").
@@ -200,8 +204,18 @@ export const messagesMethods = {
     this.s.messages.set(msg.id, msg);
     this.put('threads', thread.id, thread);
     this.put('messages', msg.id, msg);
+    this.queueEmails(thread, msg);
     this.emit();
     return thread.id;
+  },
+  // Email alerts: a mailQueue document for each teacher / the office in the conversation (src/messaging.js).
+  queueEmails(thread, msg) {
+    for (const q of mailQueueDocs(thread, msg)) this.put('mailQueue', q.id, q);
+  },
+  // I opened or answered a conversation: no email alert about it for me.
+  cancelMyEmail(threadId) {
+    const me = this.myMsgKey();
+    if (me) this.persistence.remove('mailQueue', mailQueueId(threadId, me));
   },
   // Sends a message in a conversation I am in.
   async sendMessage(threadId, text, files = []) {
@@ -217,6 +231,8 @@ export const messagesMethods = {
     this.s.messages.set(msg.id, msg);
     this.put('threads', t.id, next);
     this.put('messages', msg.id, msg);
+    this.queueEmails(next, msg);
+    this.cancelMyEmail(t.id);
     this.emit();
     return msg;
   },
@@ -243,6 +259,7 @@ export const messagesMethods = {
     const next = { ...t, readAt: { ...(t.readAt ?? {}), [me]: t.lastAt } };
     this.s.threads.set(t.id, next);
     this.put('threads', t.id, next);
+    this.cancelMyEmail(t.id);
     this.emit();
   },
   // Adds someone to a conversation (e.g. a teacher brings in the school office: 3-way). They see the
@@ -269,6 +286,23 @@ export const messagesMethods = {
     this.s.messages.set(note.id, note);
     this.put('threads', t.id, next);
     this.put('messages', note.id, note);
+    this.emit();
+  },
+
+  // Teacher Settings: "Email me when I get a new message" (teachers/{id}.emailAlerts; on unless turned off).
+  async myEmailAlerts() {
+    await this.ready;
+    const t = this.session?.teacherId ? this.s.teachers.get(this.session.teacherId) : null;
+    return t ? { email: t.email, on: t.emailAlerts !== false } : null;
+  },
+  async setMyEmailAlerts(on) {
+    await this.ready;
+    const id = this.session?.teacherId;
+    const t = id ? this.s.teachers.get(id) : null;
+    if (!t) throw new Error('Only teachers have this setting.');
+    const next = { ...t, emailAlerts: !!on };
+    this.s.teachers.set(id, next);
+    this.put('teachers', id, next); // firestore.rules: a teacher may change only this field of their own record
     this.emit();
   },
 

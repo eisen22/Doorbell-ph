@@ -176,15 +176,26 @@ function Compose({ st, api, onBack, onSent }) {
   const contacts = latest?.contacts ?? [];
   const child = children.find((c) => c.id === childId);
   const [teacher, setTeacher] = useState(null); // a teacher's key, or '' = no teacher (school office only)
+  // 'adviser' | 'subject' | 'office': the three choices; a subject teacher is then picked from a list.
+  const [mode, setMode] = useState(null);
   const [office, setOffice] = useState(false);
   const [text, setText] = useState('');
   const [files, setFiles] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+  // The adviser and the subject teachers (in class-program order, each with their subjects).
+  const adviser = contacts.find((c) => c.role === 'Class adviser') ?? null;
+  const subjectTeachers = contacts
+    .filter((c) => c !== adviser)
+    .map((c) => ({ ...c, subjects: c.subjects ?? (c.role.split(': ')[1] ?? '').split(', ').filter(Boolean) }));
+  const pickMode = (m) => {
+    setMode(m);
+    setTeacher(m === 'adviser' ? (adviser?.key ?? '') : m === 'subject' ? (subjectTeachers[0]?.key ?? '') : '');
+  };
   useEffect(() => {
     // Start with the class adviser; with no teachers listed yet, the school office.
-    setTeacher(contacts[0]?.key ?? '');
-    setOffice(!contacts.length);
+    pickMode(adviser ? 'adviser' : subjectTeachers.length ? 'subject' : 'office');
+    setOffice(false);
   }, [childId, contacts.length]); // eslint-disable-line react-hooks/exhaustive-deps
   const officeOnly = !teacher;
   const submit = async (e) => {
@@ -226,15 +237,34 @@ function Compose({ st, api, onBack, onSent }) {
           <legend>Which teacher?</legend>
           {contacts.length ? (
             <div className="pp-msg-to" role="radiogroup" aria-label="Teacher">
-              {contacts.map((c) => (
-                <button key={c.key} type="button" role="radio" aria-checked={teacher === c.key} className={`pp-period ${teacher === c.key ? 'on' : ''}`} onClick={() => setTeacher(c.key)}>
-                  <b>{c.name}</b>
-                  <span>{c.role}</span>
+              {adviser && (
+                <button type="button" role="radio" aria-checked={mode === 'adviser'} className={`pp-period ${mode === 'adviser' ? 'on' : ''}`} onClick={() => pickMode('adviser')}>
+                  <b>{adviser.name}</b>
+                  <span>Class adviser</span>
                 </button>
-              ))}
-              <button type="button" role="radio" aria-checked={officeOnly} className={`pp-period ${officeOnly ? 'on' : ''}`} onClick={() => setTeacher('')}>
-                <b>No teacher</b>
-                <span>Send to the school office only</span>
+              )}
+              {subjectTeachers.length > 0 && (
+                <div className={`pp-period pp-msg-subject ${mode === 'subject' ? 'on' : ''}`}>
+                  <button type="button" role="radio" aria-checked={mode === 'subject'} onClick={() => pickMode('subject')}>
+                    <b>A subject teacher</b>
+                    <span>{subjectTeachers.length} teachers: pick the subject</span>
+                  </button>
+                  {mode === 'subject' && (
+                    <select className="input" value={teacher ?? ''} onChange={(e) => setTeacher(e.target.value)} aria-label="Subject teacher">
+                      {subjectTeachers.map((c) => (
+                        <option key={c.key} value={c.key}>
+                          {c.subjects.length ? `${c.subjects.join(', ')} – ${c.name}` : c.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+              )}
+              <button type="button" role="radio" aria-checked={mode === 'office'} className={`pp-period ${mode === 'office' ? 'on' : ''}`} onClick={() => pickMode('office')}>
+                <b>
+                  <Building2 size={15} aria-hidden="true" /> {OFFICE_NAME}
+                </b>
+                <span>The principal and the school staff</span>
               </button>
             </div>
           ) : (

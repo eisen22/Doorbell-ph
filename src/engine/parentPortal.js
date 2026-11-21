@@ -120,7 +120,7 @@ export const parentPortalMethods = {
       periods: classPeriods(section?.program).map((p, i) => ({ n: i + 1, subject: p.subject, start: p.start })),
       // Who the parent can message about this child (Messages page): the adviser and the subject teachers.
       // (The school office is always there too.) key = 't:<teacherId>', see src/messaging.js.
-      contacts: section ? this.classTeachers(section).map(({ key, teacherId, name, role }) => ({ key, teacherId, name, role })) : [],
+      contacts: section ? this.classTeachers(section).map(({ key, teacherId, name, role, subjects }) => ({ key, teacherId, name, role, subjects })) : [],
       days,
       noClass,
       totals,
@@ -240,6 +240,31 @@ export const parentPortalMethods = {
       guardianName: g.name,
       parents: gs.map((x) => ({ id: x.id, label: `${x.name} (${x.studentIds.map((id) => this.s.students.get(id)?.firstName).join(', ')})` })),
     };
+  },
+  // DEMO MODE ONLY: the parent portal sends an excuse request (the cloud uses parentCloud.sendExcuse).
+  async demoSendExcuse({ studentId, sectionId, studentName, guardianName, dates, reason, note, periods, files = [], mobile }) {
+    const id = `ex-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+    const atts = files.map((file) => {
+      const a = { id: `att-${Math.random().toString(36).slice(2, 10)}`, excuseId: id, from: `p:${mobile}`, name: file.name, type: file.type, size: file.size, data: file.data, at: new Date().toISOString() };
+      this.s.attachments.set(a.id, a);
+      return a;
+    });
+    this.s.excuses.set(id, {
+      id,
+      studentId,
+      sectionId,
+      parentUid: 'demo-parent',
+      studentName,
+      guardianName: guardianName ?? '',
+      dates: [...dates].sort(),
+      reason,
+      note: note.trim(),
+      ...(periods?.length ? { periods: [...periods].sort((a, b) => a - b) } : {}),
+      ...(atts.length ? { files: atts.map(({ id: fid, name, type, size }) => ({ id: fid, name, type, size })) } : {}),
+      status: 'pending',
+      createdAt: new Date().toISOString(),
+    });
+    this.emit();
   },
   // Parents who cannot sign in yet because no child of theirs has a birthday (no default password).
   parentsWithoutPassword() {

@@ -14,6 +14,7 @@ import { Logo, Wordmark, useRepo, PasswordInput } from '../ui';
 import { addDays, isoWeekday, manilaToday, manilaTime, to12h, ordinal, periodsLabel, excuseStatusLabel, EXCUSE_REASONS } from '../logic';
 import { changeParentPassword, dismissAnnouncement, portalAvailable, sendExcuse, signOutParent, watchParent, sendParentMessage, markParentRead, fetchParentAttachment } from './parentCloud';
 import { ParentMessages, parentUnread } from './ParentMessages';
+import { AttachButton, PendingFiles } from '../shared/Attachments';
 
 // "Coming up" tags: what kind of day it is for the child.
 const UP_KIND = {
@@ -33,6 +34,8 @@ const shortDay = (d) => new Date(`${d}T00:00:00`).toLocaleDateString('en-US', { 
 // When a notice was posted, in Philippine time: "Tue, Nov 17, 6:10 AM".
 const postedAt = (iso) =>
   new Date(iso).toLocaleString('en-US', { timeZone: 'Asia/Manila', weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+// A calendar notice has no id of its own: its time and title make one (used to remember "closed").
+const noticeId = (n) => `cal:${n.at}:${n.title}`;
 const prevMonth = (m) => addDays(`${m}-01`, -1).slice(0, 7);
 const nextMonth = (m) => addDays(`${m}-28`, 7).slice(0, 7);
 
@@ -94,9 +97,10 @@ export function ParentPortal() {
   );
 }
 
-function Shell({ children, school, onSignOut }) {
+// wide: the home page on a computer uses the whole screen (dashboard); other screens stay phone-width.
+function Shell({ children, school, onSignOut, wide = false }) {
   return (
-    <div className="pp-wrap">
+    <div className={`pp-wrap ${wide ? 'pp-wrap-wide' : ''}`}>
       <header className="pp-head">
         <Logo size={36} />
         <div className="pp-head-text">
@@ -146,10 +150,21 @@ function Home({ st }) {
       }),
     ).values(),
   ].sort((a, b) => b.at.localeCompare(a.at));
+  // Calendar changes from the school (no class, suspension, make-up class...) are listed with the
+  // announcements too; they show above the child's attendance until the parent closes them.
+  for (const [id, n] of new Map(
+    children.flatMap((c) => {
+      const d = st.months?.[c.id] ?? [];
+      return (d[d.length - 1]?.notices ?? []).map((n) => [noticeId(n), n]);
+    }),
+  )) {
+    if (!announcements.some((a) => a.id === id)) announcements.push({ id, at: n.at, from: 'school', title: n.title, body: n.body ?? '', calendar: true, type: n.type });
+  }
+  announcements.sort((a, b) => b.at.localeCompare(a.at));
   const closed = new Set([...(st.profile?.dismissed ?? []), ...closedHere]);
   // Shown at the top until the parent closes it (only the last 30 days, at most 3).
   const since = new Date(Date.now() - 30 * 864e5).toISOString();
-  const open = announcements.filter((a) => !closed.has(a.id) && a.at >= since).slice(0, 3);
+  const open = announcements.filter((a) => !a.calendar && !closed.has(a.id) && a.at >= since).slice(0, 3);
   const close = (id) => {
     setClosedHere((x) => [...x, id]);
     if (!st.demo) dismissAnnouncement(id).catch(() => {});
@@ -204,6 +219,7 @@ function Home({ st }) {
           docs={docs}
           excuses={st.excuses ?? []}
           guardianName={st.key?.guardianName}
+          send={(x) => (st.demo ? repo.demoSendExcuse({ ...x, mobile }) : sendExcuse({ ...x, mobile }))}
           onDone={() => {
             setScreen('home');
             setFlash(`Excuse request sent to ${latest?.teacherName ?? 'the teacher'}.`);
@@ -214,7 +230,8 @@ function Home({ st }) {
     );
 
   return (
-    <Shell school={school} onSignOut={signOutParent}>
+    <Shell school={school} onSignOut={signOutParent} wide>
+      <div className="pp-alerts">
       {st.profile?.defaultPassword && (
         <section className="pp-warn" role="alert">
           <AlertTriangle size={20} aria-hidden="true" />
@@ -245,6 +262,9 @@ function Home({ st }) {
           </button>
         </section>
       ))}
+      </div>
+      {/* Messages, Announcements and the child tabs: one row on a computer. */}
+      <div className="pp-toolbar">
       {mobile && (
         <button type="button" className={`pp-msg-entry ${unreadMsgs ? 'has-new' : ''}`} onClick={() => setScreen('messages')}>
           <MessagesSquare size={20} aria-hidden="true" />
@@ -272,7 +292,17 @@ function Home({ st }) {
           ))}
         </div>
       )}
-      {child && <ChildView child={child} docs={docs} excuses={(st.excuses ?? []).filter((x) => x.studentId === child.id)} onExcuse={() => setScreen('excuse')} />}
+      </div>
+      {child && (
+        <ChildView
+          child={child}
+          docs={docs}
+          excuses={(st.excuses ?? []).filter((x) => x.studentId === child.id)}
+          onExcuse={() => setScreen('excuse')}
+          closed={closed}
+          onClose={close}
+        />
+      )}
       <div className="pp-foot">
         {!st.profile?.defaultPassword && (
           <button type="button" className="pp-link" onClick={() => setScreen('password')}>
@@ -284,7 +314,8 @@ function Home({ st }) {
   );
 }
 
-function ChildView({ child, docs, excuses, onExcuse }) {
+// closed / onClose: calendar notices the parent closed ("Got it"); they stay on the Announcements page.
+function ChildView({ child, docs, excuses, onExcuse, closed = new Set(), onClose = () => {} }) {
   const today = manilaToday();
   const thisMonth = today.slice(0, 7);
   const byMonth = useMemo(() => new Map(docs.map((d) => [d.month, d])), [docs]);
@@ -310,22 +341,33 @@ function ChildView({ child, docs, excuses, onExcuse }) {
   const name = `${child.firstName} ${child.lastName}`;
   // School notices (suspension, no class, classes as usual...) and the days coming up, from the newest month.
   const src = cur?.upcoming ? cur : latest;
-  const notices = (src?.notices ?? []).filter((n) => n.dates?.some((d) => d >= today) || n.at.slice(0, 10) >= addDays(today, -2));
+  const notices = (src?.notices ?? [])
+    .filter((n) => n.dates?.some((d) => d >= today) || n.at.slice(0, 10) >= addDays(today, -2))
+    .filter((n) => !closed.has(noticeId(n)));
   const upcoming = (src?.upcoming ?? []).filter((u) => u.date > today);
 
   return (
     <>
-      {notices.map((n) => (
-        <section key={n.at} className={`pp-notice pp-notice-${n.type}`} role="status">
-          {n.type === 'suspension' || n.type === 'partial' ? <CloudRain size={20} aria-hidden="true" /> : <Megaphone size={20} aria-hidden="true" />}
-          <div>
-            <strong>{n.title}</strong>
-            {n.body && <p>{n.body}</p>}
-            <span className="pp-small">Posted by the school {postedAt(n.at)}</span>
-          </div>
-        </section>
-      ))}
-      <section className="pp-card pp-child">
+      {notices.length > 0 && (
+        <div className="pp-alerts">
+          {notices.map((n) => (
+            <section key={noticeId(n)} className={`pp-notice pp-notice-${n.type}`} role="status">
+              {n.type === 'suspension' || n.type === 'partial' ? <CloudRain size={20} aria-hidden="true" /> : <Megaphone size={20} aria-hidden="true" />}
+              <div>
+                <strong>{n.title}</strong>
+                {n.body && <p>{n.body}</p>}
+                <span className="pp-small">Posted by the school {postedAt(n.at)}</span>
+              </div>
+              <button type="button" className="pp-ann-close" onClick={() => onClose(noticeId(n))} aria-label="Got it, close this notice">
+                <X size={18} aria-hidden="true" />
+              </button>
+            </section>
+          ))}
+        </div>
+      )}
+      {/* Phone: one column in this order. Computer: a dashboard (see .pp-dash in style.css). */}
+      <div className="pp-dash">
+      <section className="pp-card pp-child pp-a-child">
         <div className="pp-child-row">
           <span className="avatar" aria-hidden="true">
             {(child.firstName[0] ?? '') + (child.lastName[0] ?? '')}
@@ -357,7 +399,7 @@ function ChildView({ child, docs, excuses, onExcuse }) {
         </button>
       </section>
 
-      <section className="pp-card">
+      <section className="pp-card pp-a-up">
         <h2 className="pp-h2">
           <CalendarClock size={17} aria-hidden="true" /> Coming up
         </h2>
@@ -376,7 +418,7 @@ function ChildView({ child, docs, excuses, onExcuse }) {
         )}
       </section>
 
-      <section className="pp-card">
+      <section className="pp-card pp-a-cal">
         <div className="pp-cal-head">
           <button type="button" className="icon-btn" onClick={() => setMonth(prevMonth(month))} disabled={month <= first} aria-label="Previous month">
             <ChevronLeft size={18} />
@@ -398,7 +440,7 @@ function ChildView({ child, docs, excuses, onExcuse }) {
         </div>
       </section>
 
-      <section className="pp-totals">
+      <section className="pp-totals pp-a-totals">
         <div className="pp-card">
           <span className="pp-muted pp-small">This month</span>
           <strong className="t-absent">{monthTotals.absent} absent</strong>
@@ -414,7 +456,7 @@ function ChildView({ child, docs, excuses, onExcuse }) {
       </section>
 
       {excuses.length > 0 && (
-        <section className="pp-card">
+        <section className="pp-card pp-a-excuses">
           <h2 className="pp-h2">Excuse requests</h2>
           <ul className="pp-excuses">
             {excuses.slice(0, 6).map((x) => (
@@ -426,6 +468,7 @@ function ChildView({ child, docs, excuses, onExcuse }) {
                   </strong>
                   <span className="pp-muted pp-small">
                     {x.reason}
+                    {x.files?.length ? ` · ${x.files.length} ${x.files.length === 1 ? 'file' : 'files'} attached` : ''}
                     {x.teacherNote ? ` · Teacher: ${x.teacherNote}` : ''}
                   </span>
                 </div>
@@ -435,6 +478,7 @@ function ChildView({ child, docs, excuses, onExcuse }) {
           </ul>
         </section>
       )}
+      </div>
     </>
   );
 }
@@ -642,7 +686,7 @@ function MultiDayCalendar({ today, selected, onToggle, min, max }) {
 // ---------------------------------------------------------------------
 // EXCUSE FORM: which day(s), the reason, an optional message. The teacher approves or declines.
 // ---------------------------------------------------------------------
-function ExcuseForm({ child, docs, excuses, guardianName, onDone, onBack }) {
+function ExcuseForm({ child, docs, excuses, guardianName, send, onDone, onBack }) {
   const today = manilaToday();
   const latest = docs[docs.length - 1];
   const sectionId = child.sectionId ?? latest?.sectionId;
@@ -661,6 +705,7 @@ function ExcuseForm({ child, docs, excuses, guardianName, onDone, onBack }) {
   const [dates, setDates] = useState(recentAbsent.length ? [recentAbsent[0]] : [today]);
   const [reason, setReason] = useState(null);
   const [note, setNote] = useState('');
+  const [files, setFiles] = useState([]); // photo of the excuse letter or medical certificate (optional)
   const [whole, setWhole] = useState(true); // the whole day, or certain class periods only
   const [periods, setPeriods] = useState([]);
   const [busy, setBusy] = useState(false);
@@ -682,7 +727,7 @@ function ExcuseForm({ child, docs, excuses, guardianName, onDone, onBack }) {
     if (!whole && !periods.length) return setError('Pick the class periods, or choose The whole day.');
     setBusy(true);
     try {
-      await sendExcuse({ studentId: child.id, sectionId, studentName: `${child.firstName} ${child.lastName}`, guardianName, dates, reason, note, periods: whole ? [] : periods });
+      await send({ studentId: child.id, sectionId, studentName: `${child.firstName} ${child.lastName}`, guardianName, dates, reason, note, periods: whole ? [] : periods, files });
       onDone();
     } catch (err) {
       setError(err.code === 'permission-denied' ? 'Could not send. Sign out and sign in again, then try again.' : err.message);
@@ -773,9 +818,15 @@ function ExcuseForm({ child, docs, excuses, guardianName, onDone, onBack }) {
           <span>Message to the teacher (optional)</span>
           <textarea className="input" rows={3} maxLength={500} value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. He has a fever. We will see the doctor today." />
         </label>
-        <p className="pp-muted pp-small">
-          Have an excuse letter or a medical certificate? Send it to school with {child.firstName} when they return, and give it to the teacher.
-        </p>
+        <fieldset className="pp-fieldset">
+          <legend>Excuse letter or medical certificate (optional)</legend>
+          <div className="att-row">
+            <AttachButton files={files} onChange={setFiles} onError={setError} disabled={busy} className="btn btn-sm" label />
+            <span className="pp-muted pp-small">Take a photo of it. Up to 3 files.</span>
+          </div>
+          <PendingFiles files={files} onChange={setFiles} />
+          <p className="pp-muted pp-small">The teacher may still ask for the paper copy when {child.firstName} returns.</p>
+        </fieldset>
       </section>
       {error && (
         <p className="error" role="alert">
@@ -876,8 +927,9 @@ function AnnouncementsPage({ items, closed, onBack }) {
           {list.map((a) => (
             <li key={a.id} className={closed.has(a.id) ? '' : 'pp-ann-new'}>
               <strong>{a.title}</strong>
-              <p>{a.body}</p>
+              {a.body && <p>{a.body}</p>}
               {a.bodyFil && <p className="pp-muted">{a.bodyFil}</p>}
+              {a.calendar && <span className="pp-ann-tag">School calendar</span>}
               <span className="pp-small">
                 {postedAt(a.at)}
                 {!closed.has(a.id) && ' · New'}

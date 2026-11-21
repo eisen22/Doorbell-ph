@@ -1304,3 +1304,49 @@ textarea.input { height: auto; padding-top: 10px; padding-bottom: 10px; line-hei
 .pp-msg-compose .att-btn { min-height: 52px; }
 .pp-stack .att-pending, .modal-body .att-pending { padding: 0; }
 .att-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+/* Parent New message: "A subject teacher" choice with its dropdown */
+.pp-msg-subject { padding: 0; cursor: default; }
+.pp-msg-subject > button { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; padding: 10px 12px; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.pp-msg-subject > button b { font-size: 14px; }
+.pp-msg-subject > button span { color: var(--muted); font-size: 13px; }
+.pp-msg-subject.on > button span { color: #e6e8e0; }
+.pp-msg-subject select { margin: 0 10px 10px; width: calc(100% - 20px); font-size: 16px; min-height: 44px; background: var(--frame); color: var(--ink); }
+
+/* =====================================================================
+   PARENT PORTAL ON A COMPUTER (1000 px and wider). Phones keep the one-column layout above.
+   The home page becomes a dashboard: notices in a row, then the child's card, totals, the calendar,
+   "Coming up" and excuse requests side by side, so everything fits without long scrolling.
+   ===================================================================== */
+.pp-alerts, .pp-toolbar, .pp-dash { display: flex; flex-direction: column; gap: 14px; }
+.pp-alerts:empty { display: none; }
+.pp-ann-tag { display: inline-block; margin: 2px 0 4px; font-size: 11.5px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--sky); color: #1d3b63; }
+@media (min-width: 1000px) {
+  .pp-wrap-wide { max-width: 1240px; padding: 24px 32px 48px; gap: 16px; }
+  .pp-wrap-wide .pp-alerts { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 12px; align-items: start; }
+  .pp-wrap-wide .pp-toolbar { flex-direction: row; align-items: center; flex-wrap: wrap; gap: 12px; }
+  .pp-wrap-wide .pp-toolbar .pp-msg-entry { width: auto; min-width: 340px; }
+  .pp-wrap-wide .pp-toolbar .pp-ann-link { align-self: center; }
+  .pp-wrap-wide .pp-toolbar .pp-tabs { margin-left: auto; }
+  .pp-wrap-wide .pp-dash {
+    display: grid;
+    grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
+    grid-template-areas: 'child cal' 'totals cal' 'up cal' 'excuses cal';
+    grid-auto-rows: min-content;
+    gap: 16px;
+    align-items: start;
+  }
+  .pp-wrap-wide .pp-a-child { grid-area: child; }
+  .pp-wrap-wide .pp-a-totals { grid-area: totals; }
+  .pp-wrap-wide .pp-a-up { grid-area: up; }
+  .pp-wrap-wide .pp-a-cal { grid-area: cal; }
+  .pp-wrap-wide .pp-a-excuses { grid-area: excuses; }
+}
+/* Wide screens: three columns (Coming up and excuse requests on the right). */
+@media (min-width: 1280px) {
+  .pp-wrap-wide .pp-dash {
+    grid-template-columns: minmax(300px, 340px) minmax(0, 1fr) minmax(280px, 320px);
+    /* "Coming up" spans the first two rows so the child card and the totals sit right under each other. */
+    grid-template-areas: 'child cal up' 'totals cal up' '. cal excuses';
+    grid-template-rows: auto auto 1fr;
+  }
+}

@@ -13,7 +13,7 @@
 //                     lastName, readAt: { key: time } }
 //   messages/{id} = { threadId, members (copied from the thread, for the security rules), from, fromName,
 //                     text, at, system?, files?: [{ id, name, type, size }] }
-//   attachments/{id} = { id, threadId, from, name, type, size, data (base64), at }: one photo or PDF, read only
+//   attachments/{id} = { id, threadId | excuseId, from, name, type, size, data (base64), at }: one photo or PDF, read only
 //                     when someone opens it (src/shared/Attachments.jsx). Kept in Firestore, not Firebase Storage,
 //                     because Storage needs the paid Blaze plan; so a file must fit in one document (about 700 KB).
 // Used by the engine (staff and demo mode) and by parent/parentCloud.js (the parent portal).
@@ -97,10 +97,11 @@ export function buildMessage({ thread, from, text, files = [], at = new Date().t
     ...(system ? { system: true } : {}),
   };
 }
-/** One prepared file ({ name, type, size, data }) as an attachments/{id} document. */
-export const buildAttachment = ({ thread, from, file, at = new Date().toISOString(), id = msgId('att') }) => ({
+/** One prepared file ({ name, type, size, data }) as an attachments/{id} document: of a message (thread) or of a
+ *  parent's excuse request (excuseId, e.g. a photo of the medical certificate). */
+export const buildAttachment = ({ thread, excuseId, from, file, at = new Date().toISOString(), id = msgId('att') }) => ({
   id,
-  threadId: thread.id,
+  ...(excuseId ? { excuseId } : { threadId: thread.id }),
   from: from.key,
   name: String(file.name).slice(0, 120),
   type: file.type,
@@ -140,3 +141,26 @@ export function inboxTime(iso, now = new Date()) {
 // Above a message: 'Fri, Nov 20, 7:42 AM'.
 export const messageTime = (iso) =>
   new Date(iso).toLocaleString('en-US', { timeZone: 'Asia/Manila', weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+
+// ---------------------------------------------------------------------
+// EMAIL ALERTS FOR STAFF (the Cloudflare Worker sends them, worker/src/index.js sendMessageEmails)
+// When someone writes in a conversation, every teacher and the school office in it (not the writer, never a
+// parent) gets a mailQueue/{threadId}_{key} document. If it is still there a few minutes later (they have not
+// opened the conversation), the Worker emails them "X sent you a message in Doorbell" (no message text) and
+// deletes it. Opening or answering the conversation deletes it first, so no email is sent.
+// ---------------------------------------------------------------------
+export const mailQueueId = (threadId, key) => `${threadId}_${key}`;
+/** The mailQueue documents for a new message: one per staff member in the thread, except the writer. */
+export function mailQueueDocs(thread, msg) {
+  if (msg.system) return [];
+  return thread.members
+    .filter((k) => k !== msg.from && (k === OFFICE || keyKind(k) === 'teacher'))
+    .map((to) => ({
+      id: mailQueueId(thread.id, to),
+      threadId: thread.id,
+      to,
+      at: msg.at,
+      fromName: String(msg.fromName ?? '').slice(0, 80),
+      studentName: String(thread.studentName ?? '').slice(0, 80),
+    }));
+}

@@ -8,7 +8,8 @@ import {
   smsSegments,
   renderTemplate,
 } from '../logic';
-import { useLive, Card, Skeleton } from '../ui';
+import { useState } from 'react';
+import { useLive, useRepo, Card, Skeleton } from '../ui';
 import { TEMPLATE_KINDS } from '../engine';
 import { ChangePassword } from '../shared/ChangePassword';
 
@@ -72,6 +73,7 @@ export function SettingsPage() {
         <Card title="Change password">
           <ChangePassword email={session.email} />
         </Card>
+        <EmailAlertsCard />
         {classes.map(({ id, name, schedule: s }) => (
           <Card key={id} title={classes.length > 1 ? `${name} schedule (set by admin)` : 'Class schedule (set by admin)'}>
             <dl className="dl">
@@ -128,5 +130,40 @@ export function SettingsPage() {
         </p>
       </Card>
     </div>
+  );
+}
+
+// "Email me when I get a new message": the Worker emails the teacher's sign-in email a few minutes after a
+// message they have not opened yet (one email per conversation, no message text). On unless turned off.
+function EmailAlertsCard() {
+  const repo = useRepo();
+  const { data } = useLive((r) => r.myEmailAlerts());
+  const [busy, setBusy] = useState(false);
+  if (!data) return null;
+  return (
+    <Card title="Email alerts">
+      <label className="remember">
+        <input
+          type="checkbox"
+          checked={data.on}
+          disabled={busy}
+          onChange={async (e) => {
+            setBusy(true);
+            try {
+              await repo.setMyEmailAlerts(e.target.checked);
+            } finally {
+              setBusy(false);
+            }
+          }}
+        />
+        <span>
+          Email me when I get a new message
+          <small>
+            Sent to {data.email} a few minutes after a message you haven't opened, once per conversation. The email doesn't contain the message:
+            open Doorbell to read it.
+          </small>
+        </span>
+      </label>
+    </Card>
   );
 }

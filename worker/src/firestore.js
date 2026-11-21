@@ -119,12 +119,14 @@ export class Firestore {
    *   { path, data }                      -> replace the document
    *   { path, patch, ifUpdateTime }       -> change only these fields; with ifUpdateTime it fails if
    *                                          someone changed the document in between (used to claim a text)
+   *   { path, remove: true }              -> delete the document
    */
   async commit(writes) {
     for (let i = 0; i < writes.length; i += 450) {
       const body = {
         writes: writes.slice(i, i + 450).map((w) => {
           const name = `${this.root}/${w.path}`;
+          if (w.remove) return { delete: name };
           if (w.patch) {
             const out = { update: { name, fields: toFields(w.patch) }, updateMask: { fieldPaths: Object.keys(w.patch) } };
             if (w.ifUpdateTime) out.currentDocument = { updateTime: w.ifUpdateTime };

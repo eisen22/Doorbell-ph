@@ -34,7 +34,7 @@ import {
 import { arrayUnion, collection, deleteField, doc, getDoc, getFirestore, onSnapshot, query, setDoc, updateDoc, where, writeBatch, FieldPath } from 'firebase/firestore';
 import { firebaseConfig, cloudConfigured } from '../firebase';
 import { parentEmail, parentKeyOf, sha256Hex } from '../logic';
-import { OFFICE, OFFICE_NAME, MAX_FILES, parentMsgKey, cleanMessage, buildThread, buildMessage, buildAttachment, afterMessage, isUnread, orderMembers } from '../messaging';
+import { OFFICE, OFFICE_NAME, MAX_FILES, parentMsgKey, cleanMessage, buildThread, buildMessage, buildAttachment, afterMessage, isUnread, orderMembers, mailQueueDocs } from '../messaging';
 
 export const portalAvailable = cloudConfigured;
 
@@ -166,13 +166,17 @@ export async function changeParentPassword(current, next, codeHash) {
   await updateDoc(doc(db, 'parents', user.uid), { defaultPassword: false });
 }
 
-/** Sends an excuse request to the child's teacher. */
-export async function sendExcuse({ studentId, sectionId, studentName, guardianName, dates, reason, note, periods }) {
+/** Sends an excuse request to the child's teacher. files: prepared photos/PDFs (excuse letter, medical certificate). */
+export async function sendExcuse({ studentId, sectionId, studentName, guardianName, dates, reason, note, periods, files = [], mobile }) {
   const { auth, db } = start();
   const uid = auth.currentUser?.uid;
   if (!uid) throw new Error('Sign in again first.');
+  if (files.length > MAX_FILES) throw new Error(`Up to ${MAX_FILES} files.`);
   const id = `ex-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-  await setDoc(doc(db, 'excuses', id), {
+  const atts = files.map((file) => buildAttachment({ excuseId: id, from: { key: parentMsgKey(mobile) }, file }));
+  const b = writeBatch(db);
+  atts.forEach((a) => b.set(doc(db, 'attachments', a.id), a));
+  b.set(doc(db, 'excuses', id), {
     id,
     studentId,
     sectionId,
@@ -184,9 +188,11 @@ export async function sendExcuse({ studentId, sectionId, studentName, guardianNa
     note: note.trim(),
     // Excused for these class periods only (numbers, e.g. [1, 2]); left out = the whole day.
     ...(periods?.length ? { periods: [...periods].sort((a, b) => a - b) } : {}),
+    ...(atts.length ? { files: atts.map(({ id: fid, name, type, size }) => ({ id: fid, name, type, size })) } : {}),
     status: 'pending',
     createdAt: new Date().toISOString(),
   });
+  await b.commit();
 }
 
 /* ---------------------------------------------------------------------
@@ -223,6 +229,7 @@ export async function sendParentMessage({ mobile, parentName, thread, threads = 
       b.set(doc(db, 'threads', t.id), t);
       atts.forEach((a) => b.set(doc(db, 'attachments', a.id), a));
       b.set(doc(db, 'messages', m.id), m);
+      mailQueueDocs(t, m).forEach((q) => b.set(doc(db, 'mailQueue', q.id), q)); // email alerts for the staff
       await b.commit();
       return t.id;
     }
@@ -234,6 +241,7 @@ export async function sendParentMessage({ mobile, parentName, thread, threads = 
   const b = writeBatch(db);
   atts.forEach((a) => b.set(doc(db, 'attachments', a.id), a));
   b.set(doc(db, 'messages', m.id), m);
+  mailQueueDocs(next, m).forEach((q) => b.set(doc(db, 'mailQueue', q.id), q)); // email alerts for the staff
   // Only these fields, and only the parent's own "read" time (firestore.rules allows nothing else).
   b.update(doc(db, 'threads', thread.id), 'lastAt', next.lastAt, 'lastText', next.lastText, 'lastFrom', next.lastFrom, 'lastName', next.lastName, new FieldPath('readAt', me), m.at);
   await b.commit();

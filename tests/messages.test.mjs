@@ -113,3 +113,28 @@ const SEC = 'sec-k-sampaguita', SEC2 = 'sec-2-narra';
   err = ''; try { await w.eng.sendMessage(tid, '   ', []); } catch (e) { err = e.message; }
   check('A2 no text and no file is refused', /Type a message/.test(err));
 }
+// ---- excuse request with a photo (demo parent) ----
+{
+  const w = world(); const [a] = w.roster(SEC); const gA = w.eng.guardianOf(a.id);
+  await w.eng.demoSendExcuse({ studentId: a.id, sectionId: SEC, studentName: 'x', guardianName: gA.name, dates: [w.clock.d], reason: 'Sick', note: '', files: [{ name: 'medcert.jpg', type: 'image/jpeg', size: 10, data: 'QUJD' }], mobile: parentKeyOf(gA.mobile) });
+  const ex = [...w.state.excuses.values()].find((x) => x.studentId === a.id && x.files?.length);
+  check('X1 excuse request keeps the attached photo', ex && !('data' in ex.files[0]) && (await w.eng.fetchAttachment(ex.files[0].id))?.excuseId === ex.id);
+  w.as('u-maria');
+  check('X1 the teacher sees the file on the request', (await w.eng.listExcuses()).some((x) => x.id === ex.id && x.files.length === 1));
+}
+// ---- email alerts queue (mailQueue) ----
+{
+  const w = world(); const sec = w.state.sections.get(SEC);
+  const adviser = [...w.state.users.values()].find((u) => u.teacherId === sec.teacherId);
+  const [a] = w.roster(SEC); const pA = parentMsgKey(parentKeyOf(w.eng.guardianOf(a.id).mobile));
+  w.as(adviser.uid); w.log.length = 0;
+  const id = await w.eng.startThread({ to: [pA, OFFICE], studentId: a.id, text: 'Hello' });
+  const q = w.log.filter((l) => l[0] === 'put' && l[1] === 'mailQueue').map((l) => l[3].to);
+  check('Q1 only the other staff get an email alert (not the parent, not the writer)', q.join() === OFFICE, q.join());
+  w.as('u-admin'); w.log.length = 0;
+  await w.eng.markThreadRead(id);
+  check('Q1 opening the conversation cancels the email', w.log.some((l) => l[0] === 'rm' && l[1] === 'mailQueue' && l[2] === `${id}_${OFFICE}`));
+  w.as(adviser.uid);
+  await w.eng.setMyEmailAlerts(false);
+  check('Q2 a teacher can turn email alerts off', (await w.eng.myEmailAlerts()).on === false);
+}

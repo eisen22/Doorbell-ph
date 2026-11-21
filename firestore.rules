@@ -76,7 +76,14 @@ service cloud.firestore {
 
     // School setup: only the admin changes these; all staff can read them.
     match /sections/{id}    { allow read: if isStaff(); allow write: if isAdmin(); }
-    match /teachers/{id}    { allow read: if isStaff(); allow write: if isAdmin(); }
+    match /teachers/{id}    {
+      allow read: if isStaff();
+      allow write: if isAdmin();
+      // A teacher turns their own email alerts for new messages on or off (Settings), and nothing else.
+      allow update: if isStaff() && account().get('teacherId', '') == id
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['emailAlerts'])
+        && request.resource.data.emailAlerts is bool;
+    }
     match /students/{id}    { allow read: if isStaff(); allow write: if isAdmin(); }
     match /guardians/{id}   { allow read: if isStaff(); allow write: if isAdmin(); }
     match /enrollments/{id} { allow read: if isStaff(); allow write: if isAdmin(); }
@@ -170,7 +177,8 @@ service cloud.firestore {
         && request.resource.data.reason is string && request.resource.data.reason.size() <= 60
         && request.resource.data.get('note', '').size() <= 500
         && (!('periods' in request.resource.data) || (request.resource.data.periods is list && request.resource.data.periods.size() <= 12))
-        && request.resource.data.keys().hasOnly(['id', 'studentId', 'sectionId', 'parentUid', 'studentName', 'guardianName', 'dates', 'reason', 'note', 'periods', 'status', 'createdAt']);
+        && request.resource.data.get('files', []) is list && request.resource.data.get('files', []).size() <= 3
+        && request.resource.data.keys().hasOnly(['id', 'studentId', 'sectionId', 'parentUid', 'studentName', 'guardianName', 'dates', 'reason', 'note', 'periods', 'files', 'status', 'createdAt']);
       allow update: if isAdmin() || teachesSection(resource.data.sectionId);
       allow delete: if isAdmin();
     }
@@ -230,20 +238,56 @@ service cloud.firestore {
     // A photo or PDF sent in a message (base64, at most about 700 KB: one Firestore document; Firebase Storage
     // would need the paid Blaze plan). Read one at a time by the people in its conversation (and the admin).
     // Never changed afterwards; only the admin can delete it ("Remove all school data").
+    // A file attached to an excuse request: the parent who sent the request, or a teacher of that child's class
+    // (the adviser or a subject teacher). The admin is allowed separately.
+    function canOpenExcuseFile(excuseId) {
+      let ex = get(/databases/$(database)/documents/excuses/$(excuseId)).data;
+      return (signedIn() && ex.parentUid == request.auth.uid) || teachesSection(ex.sectionId) || subjectTeacher(ex.sectionId);
+    }
     match /attachments/{id} {
+      // Of a message: the people in its conversation. Of an excuse request: the admin, the class's adviser and
+      // subject teachers, and the parent who sent it (canOpenExcuseFile). No other teacher or parent.
       allow get: if isAdmin()
-        || (signedIn() && isMember(get(/databases/$(database)/documents/threads/$(resource.data.threadId)).data.members));
+        || (resource.data.get('threadId', '') != ''
+            && isMember(get(/databases/$(database)/documents/threads/$(resource.data.threadId)).data.members))
+        || (resource.data.get('excuseId', '') != '' && canOpenExcuseFile(resource.data.excuseId));
       allow list: if isAdmin();
       allow create: if signedIn()
-        && request.resource.data.keys().hasOnly(['id', 'threadId', 'from', 'name', 'type', 'size', 'data', 'at'])
         && request.resource.data.from == myKey()
-        && request.resource.data.threadId is string
-        && isMember(getAfter(/databases/$(database)/documents/threads/$(request.resource.data.threadId)).data.members)
         && request.resource.data.type in ['image/jpeg', 'image/png', 'image/webp', 'application/pdf']
         && request.resource.data.data is string && request.resource.data.data.size() <= 960000
-        && request.resource.data.name is string && request.resource.data.name.size() <= 120;
+        && request.resource.data.name is string && request.resource.data.name.size() <= 120
+        && (
+          // a message's file: by someone in that conversation (also a conversation created in the same save)
+          (request.resource.data.keys().hasOnly(['id', 'threadId', 'from', 'name', 'type', 'size', 'data', 'at'])
+            && request.resource.data.threadId is string
+            && isMember(getAfter(/databases/$(database)/documents/threads/$(request.resource.data.threadId)).data.members))
+          // an excuse request's file: by the parent who sends that request (in the same save)
+          || (isParent()
+            && request.resource.data.keys().hasOnly(['id', 'excuseId', 'from', 'name', 'type', 'size', 'data', 'at'])
+            && request.resource.data.excuseId is string
+            && getAfter(/databases/$(database)/documents/excuses/$(request.resource.data.excuseId)).data.parentUid == request.auth.uid)
+        );
       allow update: if false;
       allow delete: if isAdmin();
+    }
+    // Email alerts waiting to be sent (src/messaging.js mailQueueDocs): one per teacher / the office per conversation.
+    // Written by whoever sends a message (for the OTHER staff in that conversation); read and deleted by the
+    // Worker (a gate account), which emails "X sent you a message" (no message text). The person it is for
+    // deletes it by opening the conversation (the id ends with their key).
+    match /mailQueue/{id} {
+      allow read: if isGate() || isAdmin();
+      allow create, update: if signedIn()
+        && request.resource.data.keys().hasOnly(['id', 'threadId', 'to', 'at', 'fromName', 'studentName'])
+        && request.resource.data.threadId is string && request.resource.data.to is string
+        && id == request.resource.data.threadId + '_' + request.resource.data.to
+        && request.resource.data.to != myKey()
+        && (request.resource.data.to == 'office' || request.resource.data.to.matches('t:.+'))
+        && isMember(getAfter(/databases/$(database)/documents/threads/$(request.resource.data.threadId)).data.members)
+        && request.resource.data.to in getAfter(/databases/$(database)/documents/threads/$(request.resource.data.threadId)).data.members
+        && request.resource.data.fromName is string && request.resource.data.fromName.size() <= 80
+        && request.resource.data.studentName is string && request.resource.data.studentName.size() <= 80;
+      allow delete: if isGate() || isAdmin() || (signedIn() && id.matches('.*_' + myKey()));
     }
     match /messages/{id} {
       allow read: if isAdmin() || isMember(resource.data.members);

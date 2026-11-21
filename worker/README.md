@@ -77,3 +77,30 @@ You need Node.js (already installed for the website) and the Doorbell-ph folder.
 - `npm test` runs the Worker against a fake Firestore and a fake Semaphore. It needs no internet.
 - `src/index.js` holds the schedule, Semaphore sending (only to a child's guardian number on file) and the class work. `src/firestore.js` is the Firestore REST helper.
 - The Worker reuses `../src/engine.js` and `../src/logic.js`. A change in how the website confirms days changes the Worker too, after `npx wrangler deploy`.
+
+## Email alerts for new messages (optional, free)
+
+When a parent, a teacher or the office writes in **Messages**, the teachers and the school office in that
+conversation get an email a few minutes later *if they haven't opened it yet*: "Althea Dela Cruz sent you a
+message in Doorbell about Daniel", with a link. The email never contains the message itself. Parents are not
+emailed. Teachers can turn it off in *Settings → Email alerts*; the office gets them only if *Settings → School
+office email* is filled in. Emails go out from 6 AM to 9 PM (Philippine time), at most 10 every 5 minutes.
+
+It uses **Brevo**'s free plan (300 emails a day, no credit card):
+
+1. Sign up at <https://www.brevo.com> (free plan).
+2. Add the sender: *Senders, domains & dedicated IPs → Senders → Add a sender*, e.g. the school's Gmail, and
+   click the link Brevo emails to that address. (With a Gmail sender, Brevo may show a Brevo address as the
+   sender to pass Gmail's checks; with the school's own domain, authenticate it there instead.)
+3. Make an API key: *SMTP & API → API keys → Generate a new API key*.
+4. Save both in Cloudflare and deploy:
+   ```powershell
+   cd C:\Users\diego\Documents\Doorbell-ph\worker
+   npx wrangler secret put BREVO_API_KEY
+   npx wrangler secret put EMAIL_FROM
+   npx wrangler deploy
+   ```
+   (EMAIL_FROM = the sender address from step 2.)
+
+Check it: send a message as a parent, wait about 10 minutes without opening it as the teacher, then look in the
+teacher's Gmail (and Spam). `npx wrangler tail` shows "Brevo refused an email" if something is wrong.
