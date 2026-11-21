@@ -1350,3 +1350,19 @@ textarea.input { height: auto; padding-top: 10px; padding-bottom: 10px; line-hei
     grid-template-rows: auto auto 1fr;
   }
 }
+
+/* Parent Messages: phone = one screen at a time; computer = list on the left, conversation on the right */
+.pp-msg-main { display: none; }
+.pp-msg-layout.has-pane .pp-msg-side { display: none; }
+.pp-msg-layout.has-pane .pp-msg-main { display: block; }
+.pp-msg-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; min-height: 360px; color: var(--muted); text-align: center; }
+.pp-msg-list button.on { background: var(--lime); }
+@media (min-width: 1000px) {
+  .pp-msg-layout { display: grid; grid-template-columns: minmax(320px, 400px) minmax(0, 1fr); gap: 24px; align-items: start; }
+  .pp-msg-layout .pp-msg-side, .pp-msg-layout.has-pane .pp-msg-side { display: flex; position: sticky; top: 16px; max-height: calc(100vh - 40px); overflow-y: auto; }
+  .pp-msg-layout .pp-msg-main { display: block; }
+  /* The conversation and New message: their own "Back" is not needed next to the list. */
+  .pp-msg-main > .pp-stack > .pp-back { display: none; }
+  .pp-msg-main .pp-chat { max-height: calc(100vh - 330px); min-height: 320px; }
+  .pp-msg-main .pp-msg-to { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+}

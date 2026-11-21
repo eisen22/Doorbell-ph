@@ -187,7 +187,7 @@ function Home({ st }) {
   const unreadMsgs = parentUnread(st);
   if (screen === 'messages')
     return (
-      <Shell school={school}>
+      <Shell school={school} wide>
         <ParentMessages st={st} api={msgApi} onBack={() => setScreen('home')} />
       </Shell>
     );

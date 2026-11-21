@@ -30,62 +30,89 @@ export function ParentMessages({ st, api, onBack }) {
   const [composing, setComposing] = useState(false);
   const threads = [...(st.threads ?? [])].map(named).sort((a, b) => b.lastAt.localeCompare(a.lastAt));
   const open = threads.find((t) => t.id === openId);
-  if (composing)
-    return (
-      <Compose
-        st={st}
-        api={api}
-        onBack={() => setComposing(false)}
-        onSent={(id) => {
-          setComposing(false);
-          setOpenId(id);
-        }}
-      />
-    );
-  if (open) return <Thread st={st} api={api} thread={open} me={me} onBack={() => setOpenId(null)} />;
+  // Phone: one screen at a time (the list, a conversation, or New message).
+  // Computer (1000 px and wider, see .pp-msg-layout in style.css): the list on the left, the open
+  // conversation or New message on the right.
+  const pane = composing ? (
+    <Compose
+      st={st}
+      api={api}
+      onBack={() => setComposing(false)}
+      onSent={(id) => {
+        setComposing(false);
+        setOpenId(id);
+      }}
+    />
+  ) : open ? (
+    <Thread key={open.id} st={st} api={api} thread={open} me={me} onBack={() => setOpenId(null)} />
+  ) : null;
   return (
-    <div className="pp-stack">
-      <button type="button" className="pp-back" onClick={onBack}>
-        <ChevronLeft size={18} aria-hidden="true" /> Back
-      </button>
-      <h1 className="pp-h1">Messages</h1>
-      <p className="pp-muted">Write to your child’s teacher or the school office. You can include both in one conversation.</p>
-      <p className="pp-muted pp-small">
-        Messages are kept by the school and only the people in a conversation can read them. For child safety, the school admin may review a
-        conversation; every review is recorded.
-      </p>
-      <button type="button" className="btn btn-ink wide pp-big" onClick={() => setComposing(true)}>
-        <Plus size={18} aria-hidden="true" /> New message
-      </button>
-      {threads.length ? (
-        <ul className="pp-card pp-msg-list">
-          {threads.map((t) => {
-            const unread = isUnread(t, me);
-            return (
-              <li key={t.id}>
-                <button type="button" className={unread ? 'unread' : ''} onClick={() => setOpenId(t.id)}>
-                  <span className="pp-msg-top">
-                    <b>{titleFor(t, me)}</b>
-                    <time>{inboxTime(t.lastAt)}</time>
-                  </span>
-                  {t.studentName && <span className="pp-small pp-muted">About {t.studentName.split(' ')[0]}</span>}
-                  <span className="pp-msg-preview">
-                    {t.lastFrom === me ? 'You: ' : ''}
-                    {t.lastText}
-                  </span>
-                  {unread && <span className="pp-msg-new">New</span>}
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      ) : (
-        <p className="pp-card pp-muted pp-center">
-          <MessagesSquare size={28} aria-hidden="true" />
-          <br />
-          No messages yet.
+    <div className={`pp-msg-layout ${pane ? 'has-pane' : ''}`}>
+      <div className="pp-stack pp-msg-side">
+        <button type="button" className="pp-back" onClick={onBack}>
+          <ChevronLeft size={18} aria-hidden="true" /> Back
+        </button>
+        <h1 className="pp-h1">Messages</h1>
+        <p className="pp-muted">Write to your child’s teacher or the school office. You can include both in one conversation.</p>
+        <p className="pp-muted pp-small">
+          Messages are kept by the school and only the people in a conversation can read them. For child safety, the school admin may review a
+          conversation; every review is recorded.
         </p>
-      )}
+        <button
+          type="button"
+          className="btn btn-ink wide pp-big"
+          onClick={() => {
+            setOpenId(null);
+            setComposing(true);
+          }}
+        >
+          <Plus size={18} aria-hidden="true" /> New message
+        </button>
+        {threads.length ? (
+          <ul className="pp-card pp-msg-list">
+            {threads.map((t) => {
+              const unread = isUnread(t, me);
+              return (
+                <li key={t.id}>
+                  <button
+                    type="button"
+                    className={`${unread ? 'unread' : ''} ${t.id === openId && !composing ? 'on' : ''}`}
+                    onClick={() => {
+                      setComposing(false);
+                      setOpenId(t.id);
+                    }}
+                  >
+                    <span className="pp-msg-top">
+                      <b>{titleFor(t, me)}</b>
+                      <time>{inboxTime(t.lastAt)}</time>
+                    </span>
+                    {t.studentName && <span className="pp-small pp-muted">About {t.studentName.split(' ')[0]}</span>}
+                    <span className="pp-msg-preview">
+                      {t.lastFrom === me ? 'You: ' : ''}
+                      {t.lastText}
+                    </span>
+                    {unread && <span className="pp-msg-new">New</span>}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
+          <p className="pp-card pp-muted pp-center">
+            <MessagesSquare size={28} aria-hidden="true" />
+            <br />
+            No messages yet.
+          </p>
+        )}
+      </div>
+      <div className="pp-msg-main">
+        {pane ?? (
+          <div className="pp-card pp-msg-empty">
+            <MessagesSquare size={36} aria-hidden="true" />
+            <p>Pick a conversation, or press New message.</p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
