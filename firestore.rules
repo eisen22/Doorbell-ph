@@ -76,7 +76,14 @@ service cloud.firestore {
 
     // School setup: only the admin changes these; all staff can read them.
     match /sections/{id}    { allow read: if isStaff(); allow write: if isAdmin(); }
-    match /teachers/{id}    { allow read: if isStaff(); allow write: if isAdmin(); }
+    match /teachers/{id}    {
+      allow read: if isStaff();
+      allow write: if isAdmin();
+      // A teacher turns their own email alerts for new messages on or off (Settings), and nothing else.
+      allow update: if isStaff() && account().get('teacherId', '') == id
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['emailAlerts'])
+        && request.resource.data.emailAlerts is bool;
+    }
     match /students/{id}    { allow read: if isStaff(); allow write: if isAdmin(); }
     match /guardians/{id}   { allow read: if isStaff(); allow write: if isAdmin(); }
     match /enrollments/{id} { allow read: if isStaff(); allow write: if isAdmin(); }
@@ -267,6 +274,24 @@ service cloud.firestore {
         );
       allow update: if false;
       allow delete: if isAdmin();
+    }
+    // Email alerts waiting to be sent (src/messaging.js mailQueueDocs): one per teacher / the office per conversation.
+    // Written by whoever sends a message (for the OTHER staff in that conversation); read and deleted by the
+    // Worker (a gate account), which emails "X sent you a message" (no message text). The person it is for
+    // deletes it by opening the conversation (the id ends with their key).
+    match /mailQueue/{id} {
+      allow read: if isGate() || isAdmin();
+      allow create, update: if signedIn()
+        && request.resource.data.keys().hasOnly(['id', 'threadId', 'to', 'at', 'fromName', 'studentName'])
+        && request.resource.data.threadId is string && request.resource.data.to is string
+        && id == request.resource.data.threadId + '_' + request.resource.data.to
+        && request.resource.data.to != myKey()
+        && (request.resource.data.to == 'office' || request.resource.data.to.matches('t:.+'))
+        && isMember(getAfter(/databases/$(database)/documents/threads/$(request.resource.data.threadId)).data.members)
+        && request.resource.data.to in getAfter(/databases/$(database)/documents/threads/$(request.resource.data.threadId)).data.members
+        && request.resource.data.fromName is string && request.resource.data.fromName.size() <= 80
+        && request.resource.data.studentName is string && request.resource.data.studentName.size() <= 80;
+      allow delete: if isGate() || isAdmin() || (signedIn() && id.matches('.*_' + myKey()));
     }
     match /messages/{id} {
       allow read: if isAdmin() || canRead(resource.data.members);
