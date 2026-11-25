@@ -340,6 +340,14 @@ export class Engine {
   async sendPasswordReset(email) {
     await this.auth.sendPasswordReset(email.trim());
   }
+  // Forgot password, for a parent (who 'parent', a mobile number) or a staff member (who 'staff', an
+  // email that is not Gmail): a new password is texted to the number on file (worker/src/passwords.js).
+  async requestNewPassword(who, login) {
+    await this.auth.requestNewPassword(who, who === 'staff' ? login.trim().toLowerCase() : login);
+  }
+  async publicSchoolInfo() {
+    return (await this.auth.publicSchoolInfo?.()) ?? null;
+  }
   // The signed-in teacher or admin changes their own password (Settings). At least 8 characters.
   async changePassword(current, next) {
     if (!this.session) throw new Error('Sign in again first.');

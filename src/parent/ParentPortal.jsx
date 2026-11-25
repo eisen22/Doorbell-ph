@@ -304,7 +304,8 @@ function Home({ st }) {
         />
       )}
       <div className="pp-foot">
-        {!st.profile?.defaultPassword && (
+        {/* Google sign-ins have no password here: Google keeps it. */}
+        {!st.profile?.defaultPassword && st.profile?.via !== 'google' && (
           <button type="button" className="pp-link" onClick={() => setScreen('password')}>
             <KeyRound size={15} aria-hidden="true" /> Change password
           </button>

@@ -52,6 +52,8 @@ export const parentPortalMethods = {
       updatedAt: new Date().toISOString(),
     };
     this.put('parentKeys', key, doc);
+    // Gmail -> number, so the parent can also sign in with Google (firestore.rules: parentEmails).
+    if (g.email) this.put('parentEmails', g.email, { mobile: key, guardianId: g.id, updatedAt: doc.updatedAt });
   },
   // What the parent portal shows for one child in one month ('2026-11').
   parentMonthDoc(studentId, month) {

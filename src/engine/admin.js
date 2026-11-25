@@ -13,6 +13,7 @@ import {
   eachDate,
   isoWeekday,
   addDays,
+  parentKeyOf,
 } from '../logic';
 import { dayId, fmtDay, schedulesOverlap, uid, byName } from './util';
 
@@ -49,12 +50,40 @@ export const adminMethods = {
       notices: this.s.calendarNotices ?? [],
     });
   },
+  // ---------------------------------------------------------------------
+  // PASSWORDS BY TEXT (worker/src/passwords.js makes the password and texts it; nobody sees it here).
+  //   reason 'new'   = a new parent number, or a new teacher/admin with a mobile number (welcome text)
+  //   reason 'admin' = the admin pressed "Send new password"
+  // ---------------------------------------------------------------------
+  queuePassword(who, login, reason) {
+    const clean = who === 'parent' ? parentKeyOf(login) : String(login ?? '').trim().toLowerCase();
+    if (!clean) return false;
+    const id = `${who === 'parent' ? 'p' : 's'}_${clean}`;
+    this.put('passwordRequests', id, { who, login: clean, reason, at: new Date().toISOString(), state: 'new' });
+    return true;
+  },
+  // Admin -> Students: texts this child's guardian a new parent portal password.
+  async sendParentPassword(studentId) {
+    const g = this.guardianOf(studentId);
+    if (!g || !parentKeyOf(g.mobile)) throw new Error('This child has no guardian mobile number on file.');
+    this.queuePassword('parent', g.mobile, 'admin');
+    await this.logAudit('parent.password', g.name, `new password texted to ${g.mobile}`);
+    return g.mobile;
+  },
+  // Admin -> Teachers / Settings -> Admins: texts a teacher or admin a new password (mobile number needed).
+  async sendStaffPassword(email, mobile) {
+    if (!parentKeyOf(mobile)) throw new Error('Add a mobile number first: the new password is sent by text.');
+    this.queuePassword('staff', email, 'admin');
+    await this.logAudit('account.password', email, `new password texted to ${mobile}`);
+  },
   // Admin -> Settings: SMS templates, streak days, school name, etc.
   async updateSettings(patch) {
     const renamed = patch.schoolName !== undefined && patch.schoolName !== this.settings.schoolName;
     this.s.meta = { ...this.s.meta, settings: { ...this.settings, ...patch } };
     this.normalizeSections();
     this.saveMeta();
+    // What the sign-in page may show before anyone signs in ("lost your phone? email the school").
+    this.put('meta', 'public', { schoolName: this.settings.schoolName ?? '', officeEmail: this.settings.officeEmail ?? '' });
     // The parent portal shows the school's name: rewrite this month's pages with the new one.
     if (renamed) this.syncParentDays(null, [this.clock.today().slice(0, 7)]);
     await this.logAudit('settings.update', 'settings', Object.keys(patch).join(', '));
@@ -423,15 +452,18 @@ export const adminMethods = {
     // gradeLevel: the grade they teach ('K'...'6'), used to show only that grade's classes when placing them.
     const teacher = { id: uid('t'), name: input.name, email: input.email, mobile: input.mobile, subjects: input.subjects ?? [], gradeLevel: input.gradeLevel ?? null, active: true };
     const { uid: accountUid, tempPassword } = await this.auth.createTeacherAccount(input.email, input.name, teacher.id);
+    // With a mobile number, the Worker replaces the temporary password with a new one and texts it.
+    const textedTo = this.mode === 'cloud' && parentKeyOf(input.mobile) ? input.mobile : null;
     teacher.uid = accountUid;
     const account = { uid: accountUid, email: input.email, name: input.name, role: 'teacher', teacherId: teacher.id };
     this.s.users.set(accountUid, account);
     this.put('users', accountUid, account);
     this.s.teachers.set(teacher.id, teacher);
     this.put('teachers', teacher.id, teacher);
-    await this.logAudit('teacher.create', teacher.name, 'sign-in account created');
+    if (textedTo) this.queuePassword('staff', input.email, 'new');
+    await this.logAudit('teacher.create', teacher.name, textedTo ? `sign-in account created, password texted to ${textedTo}` : 'sign-in account created');
     this.emit();
-    return { teacher, tempPassword };
+    return { teacher, tempPassword: textedTo ? null : tempPassword, textedTo };
   },
   // ---------------------------------------------------------------------
   // GATE SCANNER ACCOUNTS
@@ -472,7 +504,7 @@ export const adminMethods = {
   admins() {
     return [...this.s.users.values()].filter((u) => u.role === 'admin').sort((a, b) => a.name.localeCompare(b.name));
   },
-  async addAdmin({ name, email }) {
+  async addAdmin({ name, email, mobile }) {
     const cleanName = (name ?? '').trim();
     const clean = (email ?? '').trim().toLowerCase();
     if (!cleanName) throw new Error("Enter the new admin's name.");
@@ -486,12 +518,16 @@ export const adminMethods = {
         throw new Error('That email already has a sign-in account (maybe a removed admin or teacher). Delete it in Firebase console -> Authentication first, or use another email.');
       throw e;
     }
-    const account = { uid: made.uid || uid('u'), email: clean, name: cleanName, role: 'admin' };
+    const phone = parentKeyOf(mobile);
+    const account = { uid: made.uid || uid('u'), email: clean, name: cleanName, role: 'admin', ...(phone ? { mobile: phone } : {}) };
     this.s.users.set(account.uid, account);
     this.put('users', account.uid, account);
+    // With a mobile number, the Worker replaces the temporary password with a new one and texts it.
+    const textedTo = this.mode === 'cloud' && phone ? phone : null;
+    if (textedTo) this.queuePassword('staff', clean, 'new');
     await this.logAudit('admin.create', cleanName, clean);
     this.emit();
-    return { account, tempPassword: made.tempPassword };
+    return { account, tempPassword: textedTo ? null : made.tempPassword, textedTo };
   },
   async removeAdmin(accountUid) {
     const acc = this.s.users.get(accountUid);
@@ -822,6 +858,7 @@ export const adminMethods = {
         touched.push(other);
       }
     }
+    const isNew = !g;
     if (!g) {
       g = {
         id: uid('g'),
@@ -845,30 +882,55 @@ export const adminMethods = {
       smsConsent: input.smsConsent,
       preferredLanguage: input.preferredLanguage,
     });
+    // Optional Gmail: the parent may also sign in to the portal with Google (parentEmails, see syncParentKey).
+    if (input.guardianEmail !== undefined) {
+      const email = String(input.guardianEmail ?? '').trim().toLowerCase() || null;
+      if ((g.email ?? null) !== email) {
+        if (g.email) this.persistence.remove('parentEmails', g.email); // the old Gmail stops working
+        g.email = email;
+      }
+    }
     this.put('guardians', g.id, g);
     touched.push(g);
     if (input.sectionId !== undefined) this.placeStudent(student.id, input.sectionId);
-    return { student, sibling, touched };
+    return { student, sibling, touched, newGuardian: isNew ? g : null };
   },
   async saveStudent(input) {
     await this.ready;
-    const { student, touched } = this.upsertStudent(input);
+    this.checkGuardianEmail(input);
+    const { student, touched, newGuardian } = this.upsertStudent(input);
     for (const g of touched) await this.syncParentKey(g);
+    // A new parent number gets its parent portal account and password by text (cloud only).
+    if (newGuardian && this.mode === 'cloud') this.queuePassword('parent', newGuardian.mobile, 'new');
     await this.logAudit(input.id ? 'student.update' : 'student.create', `${student.firstName} ${student.lastName}`);
     this.emit();
     return student;
+  },
+  // A guardian's Gmail must be a real address, not used by another guardian, and not a staff sign-in.
+  checkGuardianEmail(input) {
+    const email = String(input.guardianEmail ?? '').trim().toLowerCase();
+    if (!email) return;
+    if (!/^[^@\s/]+@[^@\s/]+\.[^@\s/]+$/.test(email)) throw new Error('The guardian Gmail address is not valid.');
+    const other = [...this.s.guardians.values()].find((g) => g.email === email && g.mobile !== input.guardianMobile);
+    if (other) throw new Error(`This Gmail is already used by another guardian (${other.name}).`);
+    if ([...this.s.users.values()].some((u) => u.email?.toLowerCase() === email))
+      throw new Error('This Gmail belongs to a teacher or admin account. Use another Gmail for the parent.');
   },
   // Adds many children at once (Admin -> Students -> Import Excel). Rows are checked first in files.js.
   async importStudents(inputs) {
     await this.ready;
     let linkedSiblings = 0;
     const touched = new Map();
+    const added = [];
     for (const input of inputs) {
       const res = this.upsertStudent(input);
       if (res.sibling) linkedSiblings++;
       for (const g of res.touched) touched.set(g.id, g);
+      if (res.newGuardian) added.push(res.newGuardian);
     }
     for (const g of touched.values()) await this.syncParentKey(g);
+    // New parent numbers get their parent portal accounts and passwords by text (cloud only).
+    if (this.mode === 'cloud') for (const g of added) this.queuePassword('parent', g.mobile, 'new');
     await this.logAudit('student.import', `${inputs.length} students`, `${linkedSiblings} linked to an existing guardian`);
     this.emit();
     return { created: inputs.length, linkedSiblings };

@@ -104,3 +104,23 @@ It uses **Brevo**'s free plan (300 emails a day, no credit card):
 
 Check it: send a message as a parent, wait about 10 minutes without opening it as the teacher, then look in the
 teacher's Gmail (and Spam). `npx wrangler tail` shows "Brevo refused an email" if something is wrong.
+
+## New passwords by text (parents, and staff without a Gmail address)
+
+When the admin adds a parent number (or a teacher or admin with a mobile number), or someone presses
+"Forgot password?" and accepts, the Worker makes a random password, sets it on the account and texts it.
+The password is never saved in Firestore; the SMS log shows it hidden. Staff with a Gmail address get
+Firebase's reset link instead. This needs the Firebase **service account** key, because only a trusted
+server may set someone else's password:
+
+1. Firebase console → Project settings → **Service accounts** → **Generate new private key**. A `.json` file downloads.
+2. In this `worker` folder:
+   ```
+   npx wrangler secret put FIREBASE_SERVICE_ACCOUNT
+   ```
+   Paste the whole contents of the `.json` file and press Enter.
+3. Delete the downloaded file, or keep it somewhere safe outside this project. Never commit it.
+4. Publish the newest `firestore.rules` (it adds `passwordRequests`).
+
+`npx wrangler tail` shows "Password step failed" or `passwords: "skipped (FIREBASE_SERVICE_ACCOUNT is not set)"` if something is missing.
+"Forgot password?" for the same account works at most once every 15 minutes.

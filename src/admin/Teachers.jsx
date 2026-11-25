@@ -44,7 +44,20 @@ export function TeacherModal({ input, sections, teachers, onClose, onSaved }) {
   const live = sections.filter((s) => !s.archived);
   const [classes, setClasses] = useState(new Set(live.filter((s) => input.id && s.teacherId === input.id).map((s) => s.id)));
   const [error, setError] = useState(null);
+  const [info, setInfo] = useState(null);
   const [busy, setBusy] = useState(false);
+  // Texts this teacher a new password (worker/src/passwords.js), using the mobile number saved on file.
+  const sendPassword = async () => {
+    setError(null);
+    setInfo(null);
+    try {
+      const mobile = normalizePhMobile(input.mobile ?? '');
+      await repo.sendStaffPassword(input.email, mobile);
+      setInfo(`A new password will be texted to ${displayPhMobile(mobile)} within a few minutes. The old one stops working.`);
+    } catch (e) {
+      setError(e.message);
+    }
+  };
   const nameOf = (id) => teachers.find((t) => t.id === id)?.name;
   // The grade they teach: picked here, or (for older records) the grade of the class they advise.
   const grade = edit.gradeLevel ?? live.find((s) => input.id && s.teacherId === input.id)?.gradeLevel ?? '';
@@ -80,7 +93,7 @@ export function TeacherModal({ input, sections, teachers, onClose, onSaved }) {
           teacherId: want ? id : null,
         });
       }
-      onSaved({ name: res.teacher.name, email: res.teacher.email, tempPassword: res.tempPassword });
+      onSaved({ name: res.teacher.name, email: res.teacher.email, tempPassword: res.tempPassword, textedTo: res.textedTo });
     } catch (e) {
       setError(e.message);
     }
@@ -92,6 +105,11 @@ export function TeacherModal({ input, sections, teachers, onClose, onSaved }) {
       onClose={onClose}
       footer={
         <>
+          {input.id && (
+            <button className="btn" onClick={sendPassword} disabled={busy} title="Text this teacher a new password">
+              Send new password
+            </button>
+          )}
           <button className="btn" onClick={onClose}>
             Cancel
           </button>
@@ -178,6 +196,11 @@ export function TeacherModal({ input, sections, teachers, onClose, onSaved }) {
         </p>
       </fieldset>
       {error && <p className="error">{error}</p>}
+      {info && (
+        <p className="ok-text" role="status">
+          {info}
+        </p>
+      )}
     </Modal>
   );
 }
@@ -392,6 +415,7 @@ export function Teachers() {
           onSaved={(r) => {
             setEdit(null);
             if (r.tempPassword) setCreated({ name: r.name, email: r.email, password: r.tempPassword });
+            else if (r.textedTo) flash(`Teacher added. Their password will be texted to ${displayPhMobile(r.textedTo)}.`);
             else flash('Teacher updated');
           }}
         />

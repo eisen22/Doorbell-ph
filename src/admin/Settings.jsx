@@ -22,6 +22,7 @@ import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   normalizePhMobile,
+  displayPhMobile,
   describeStreak,
   describeTotal,
   DEFAULT_LIMITS,
@@ -398,6 +399,7 @@ function AdminsCard({ flash }) {
   const me = data?.me;
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  const [mobile, setMobile] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [created, setCreated] = useState(null);
@@ -407,10 +409,15 @@ function AdminsCard({ flash }) {
     setError('');
     setBusy(true);
     try {
-      const res = await repo.addAdmin({ name, email });
-      setCreated({ name: res.account.name, email: res.account.email, password: res.tempPassword });
+      const phone = mobile.trim() ? normalizePhMobile(mobile.trim()) : '';
+      if (mobile.trim() && !phone) throw new Error('Mobile must look like 0917 123 4567.');
+      const res = await repo.addAdmin({ name, email, mobile: phone });
+      // With a mobile number, the password is texted (worker/src/passwords.js); otherwise it is shown once.
+      if (res.textedTo) flash(`${res.account.name} was added. Their password will be texted to ${displayPhMobile(res.textedTo)}.`);
+      else setCreated({ name: res.account.name, email: res.account.email, password: res.tempPassword });
       setName('');
       setEmail('');
+      setMobile('');
     } catch (err) {
       setError(err.message);
     } finally {
@@ -423,6 +430,16 @@ function AdminsCard({ flash }) {
     try {
       await repo.removeAdmin(a.uid);
       flash(`${a.name} is no longer an admin.`);
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+  // Texts an admin a new password (only if they have a mobile number on file).
+  const sendPassword = async (a) => {
+    setError('');
+    try {
+      await repo.sendStaffPassword(a.email, a.mobile);
+      flash(`A new password will be texted to ${displayPhMobile(a.mobile)} within a few minutes.`);
     } catch (err) {
       setError(err.message);
     }
@@ -443,6 +460,11 @@ function AdminsCard({ flash }) {
                 <b>{a.name}</b> · {a.email}
                 {a.uid === me ? ' (you)' : ''}
               </span>
+              {a.uid !== me && a.mobile && (
+                <button className="btn btn-sm" onClick={() => sendPassword(a)}>
+                  Send new password
+                </button>
+              )}
               {a.uid !== me && many && (
                 <button className="btn btn-sm" onClick={() => setConfirm(a)}>
                   <Trash2 size={15} aria-hidden="true" /> Remove
@@ -460,6 +482,10 @@ function AdminsCard({ flash }) {
         <label className="field">
           <span>Email</span>
           <input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="principal@yourschool.edu.ph" />
+        </label>
+        <label className="field">
+          <span>Mobile (optional)</span>
+          <input className="input" type="tel" value={mobile} onChange={(e) => setMobile(e.target.value)} placeholder="0917 123 4567" />
         </label>
         <button className="btn btn-ink align-end" disabled={busy || !name.trim() || !email.trim()}>
           <Plus size={17} aria-hidden="true" /> {busy ? 'Adding…' : 'Add admin'}
@@ -529,8 +555,63 @@ function StartOverCard() {
   const [typed, setTyped] = useState('');
   const [status, setStatus] = useState(null);
   const [error, setError] = useState('');
+  const [trim, setTrim] = useState(false); // the "Keep only 4 sample classes" box is open
   return (
     <Card title="Start over">
+      {repo.trimToSmallSample && (
+        <>
+          <p className="muted small">
+            Fewer Firestore reads: every sign-in reads the whole school, so a big sample uses up the free 50,000 reads a day quickly. Keep only
+            Maria Santos's Kindergarten classes (Sampaguita and Gumamela) and Grade 6 Mercury and Venus, with their teachers, children, parents and
+            passwords. Everything about the other classes is removed.
+          </p>
+          <button className="btn" onClick={() => setTrim(true)}>
+            Keep only 4 sample classes
+          </button>
+        </>
+      )}
+      {trim && (
+        <Modal
+          title="Keep only 4 sample classes?"
+          onClose={() => !status && setTrim(false)}
+          footer={
+            <>
+              <button className="btn" onClick={() => setTrim(false)} disabled={!!status && !status.startsWith('Done')}>
+                {status?.startsWith('Done') ? 'Close' : 'Cancel'}
+              </button>
+              {!status?.startsWith('Done') && (
+                <button
+                  className="btn btn-danger"
+                  disabled={!!status}
+                  onClick={async () => {
+                    setError('');
+                    try {
+                      const r = await repo.trimToSmallSample((m) => setStatus(m));
+                      setStatus(`Done: kept ${r.classes} classes and ${r.children} children; ${r.removed} documents removed. Reload the page.`);
+                    } catch (e) {
+                      setError(e.message);
+                      setStatus(null);
+                    }
+                  }}
+                >
+                  Remove the other classes
+                </button>
+              )}
+            </>
+          }
+        >
+          <p>
+            This removes every other class with its children, guardians, attendance, texts, alerts, messages and parent portal data, and the
+            teachers who teach none of the 4 classes. It cannot be undone. The 4 classes, their accounts and passwords stay as they are.
+          </p>
+          {status && <p className="muted">{status}</p>}
+          {error && (
+            <p className="error" role="alert">
+              {error}
+            </p>
+          )}
+        </Modal>
+      )}
       <p className="muted small">
         Removes all sections, teachers, students, guardians, attendance, texts, alerts and parent portal data. Kept: admin accounts, the gate
         account, these settings, the calendar and the audit log. Use it to load the new sample school (Overview, then "Load sample school") or

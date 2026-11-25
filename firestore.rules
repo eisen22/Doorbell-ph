@@ -47,7 +47,17 @@ service cloud.firestore {
     // and has a parents/{uid} profile. parentKeys/{09XXXXXXXXX} lists that number's children.
     function parentEmailFor(mobile) { return 'p' + mobile + '@parents.doorbell-ph-f12d0.firebaseapp.com'; }
     function parentProfile() { return get(/databases/$(database)/documents/parents/$(request.auth.uid)).data; }
-    function isParent() { return signedIn() && exists(/databases/$(database)/documents/parents/$(request.auth.uid)); }
+    // A parent who signs in with Google stays a parent only while the school keeps that Gmail on the
+    // child's guardian record (parentEmails/{gmail} -> the same number).
+    function isParent() {
+      return signedIn() && exists(/databases/$(database)/documents/parents/$(request.auth.uid))
+        && (parentProfile().get('via', '') != 'google' || googleParentOk(parentProfile().mobile));
+    }
+    function googleParentOk(mobile) {
+      return request.auth.token.email_verified == true
+        && exists(/databases/$(database)/documents/parentEmails/$(request.auth.token.email))
+        && get(/databases/$(database)/documents/parentEmails/$(request.auth.token.email)).data.mobile == mobile;
+    }
     function parentKey() { return get(/databases/$(database)/documents/parentKeys/$(parentProfile().mobile)).data; }
     function parentOf(studentId) { return isParent() && studentId in parentKey().studentIds; }
 
@@ -70,8 +80,29 @@ service cloud.firestore {
 
     // School settings, school year and calendar (meta/school, meta/calendar).
     match /meta/{id} {
-      allow read: if isStaff();
+      // meta/public = the school's name and office email, shown on the sign-in page (no sign-in yet).
+      allow read: if isStaff() || id == 'public';
       allow write: if isAdmin();
+    }
+
+    // "Send me a new password" requests (worker/src/passwords.js makes the password and texts it).
+    // Anyone may ask from the sign-in page, but the same account at most once every 15 minutes; the
+    // admin may ask any time (new parent, new teacher or admin, "Send new password"). Nobody can read
+    // them: the Worker uses the service account. One document per account: p_<09 number> or s_<email>.
+    function passwordRequestOk(id) {
+      let d = request.resource.data;
+      return d.keys().hasOnly(['who', 'login', 'reason', 'at', 'state']) && d.state == 'new' && d.login is string
+        && ((d.who == 'parent' && d.login.matches('09[0-9]{9}') && id == 'p_' + d.login)
+          || (d.who == 'staff' && d.login.size() <= 100 && d.login.matches('[^@ /]+@[^@ /]+') && id == 's_' + d.login));
+    }
+    function forgotRequest() {
+      return request.resource.data.reason == 'forgot' && request.resource.data.at == request.time;
+    }
+    match /passwordRequests/{id} {
+      allow create: if passwordRequestOk(id) && (forgotRequest() || (isAdmin() && request.resource.data.reason in ['new', 'admin']));
+      allow update: if passwordRequestOk(id) && (
+        (forgotRequest() && (!(resource.data.at is timestamp) || request.time > resource.data.at + duration.value(15, 'm')))
+        || (isAdmin() && request.resource.data.reason in ['new', 'admin']));
     }
 
     // School setup: only the admin changes these; all staff can read them.
@@ -148,6 +179,12 @@ service cloud.firestore {
     // Afterwards the parent may only remove the proof and clear the "default password" warning.
     match /parents/{uid} {
       allow read: if (signedIn() && request.auth.uid == uid) || isStaff();
+      // Signing in with Google: the Gmail the school saved on the guardian record links it to that number.
+      allow create: if signedIn() && request.auth.uid == uid && !isStaff()
+        && request.resource.data.keys().hasOnly(['mobile', 'via', 'email', 'defaultPassword', 'createdAt'])
+        && request.resource.data.via == 'google' && request.resource.data.defaultPassword == false
+        && request.resource.data.email == request.auth.token.email
+        && googleParentOk(request.resource.data.mobile);
       allow create: if signedIn() && request.auth.uid == uid
         && request.resource.data.keys().hasOnly(['mobile', 'proof', 'defaultPassword', 'createdAt'])
         && request.resource.data.mobile is string && request.resource.data.mobile.matches('09[0-9]{9}')
@@ -159,7 +196,17 @@ service cloud.firestore {
       allow update: if signedIn() && request.auth.uid == uid
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['proof', 'defaultPassword', 'dismissed'])
         && !('proof' in request.resource.data);
+      // The school moved this Gmail to another number: the Google parent follows it.
+      allow update: if signedIn() && request.auth.uid == uid && resource.data.get('via', '') == 'google'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['mobile'])
+        && googleParentOk(request.resource.data.mobile);
       allow delete: if isAdmin();
+    }
+    // Gmail -> parent number, for parents who sign in with Google (Admin -> Students -> guardian Gmail).
+    // Readable only by that Google account; written by the admin.
+    match /parentEmails/{email} {
+      allow read: if signedIn() && request.auth.token.email == email;
+      allow write: if isAdmin();
     }
     // One child's month as the parent sees it (confirmed days only). Written by staff and the Worker.
     match /parentDays/{id} {

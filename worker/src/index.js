@@ -17,6 +17,7 @@
 // decides what it may do, like for any user. Secrets (passwords, API key) are kept in Cloudflare.
 // =====================================================================
 import { Firestore } from './firestore.js';
+import { sendPasswords } from './passwords.js';
 import { Engine, emptyState } from '../../src/engine.js';
 import { addDays, isSchoolDay, manilaTime, manilaToday, shouldAutoFinalize, classEnded, semesterOf, parentKeyOf } from '../../src/logic.js';
 
@@ -40,10 +41,28 @@ export async function run(env, now = new Date(), fetchFn = (...args) => fetch(..
   const hour = Number(manilaTime(now).slice(0, 2));
   const weekday = new Date(`${manilaToday(now)}T12:00:00+08:00`).getUTCDay(); // 0 = Sunday
   const classMinute = now.getUTCMinutes() % 5 === 0 && hour >= 6 && hour <= 18 && weekday !== 0;
+  // New passwords by text (worker/src/passwords.js): every minute except the class-work minutes.
+  // Each one uses about 8 of the 50 web requests a run may make, so fewer texts are sent that minute.
+  let passwordWork = false;
+  // The settings are read once per run and shared (each read counts toward the free 50,000 a day).
+  let settings = null;
+  try {
+    settings = (await db.get('meta/school'))?.data.settings ?? {};
+  } catch (e) {
+    console.error('Settings not read:', e.message);
+  }
+  if (!classMinute && settings) {
+    try {
+      report.passwords = await sendPasswords(env, fetchFn, settings);
+      passwordWork = typeof report.passwords === 'object' && report.passwords.done + report.passwords.failed + report.passwords.skipped > 0;
+    } catch (e) {
+      console.error('Password step failed:', e.message);
+    }
+  }
   try {
     // Cloudflare's free plan allows 50 web requests per run, and each text needs 3 of them:
-    // 14 texts on a normal minute, 6 on the minutes that also do the class work.
-    report.sms = await sendQueuedSms(db, env, fetchFn, classMinute ? 6 : 14);
+    // 14 texts on a normal minute, 6 on the minutes that also do the class work or send passwords.
+    report.sms = await sendQueuedSms(db, env, fetchFn, classMinute || passwordWork ? 6 : 14, settings);
   } catch (e) {
     console.error('SMS step failed:', e.message);
   }
@@ -151,9 +170,8 @@ export function toSemaphoreNumber(to) {
   return m ? `63${m[1]}` : null;
 }
 
-async function sendQueuedSms(db, env, fetchFn, batch = 14) {
-  const school = await db.get('meta/school');
-  const settings = school?.data.settings ?? {};
+async function sendQueuedSms(db, env, fetchFn, batch = 14, preloaded = null) {
+  const settings = preloaded ?? (await db.get('meta/school'))?.data.settings ?? {};
   if (settings.smsProvider !== 'semaphore') return 'skipped (Semaphore is not chosen in Settings)';
   if (!env.SEMAPHORE_API_KEY) throw new Error('SEMAPHORE_API_KEY secret is missing');
   const queued = await db.query('sms', [['status', 'EQUAL', 'queued']], batch);
@@ -261,9 +279,12 @@ async function dailyWork(db, now) {
   sections.forEach((s) => norm.normalizeSection(s));
 
   // 1. Which class days need work?
+  // Today on every run; the last 7 days (classes nobody confirmed) only once an hour, at :00. Each
+  // class day checked is one read, so looking back every 5 minutes used most of the free daily reads.
+  const back = now.getUTCMinutes() < 5 ? 7 : 0;
   const due = [];
   for (const sec of sections) {
-    for (let i = 7; i >= 0; i--) {
+    for (let i = back; i >= 0; i--) {
       const d = addDays(today, -i);
       if (d < meta.schoolYear.start || d > meta.schoolYear.end || !isSchoolDay(d, sec.schedule, calendar)) continue;
       due.push({ sec, d });

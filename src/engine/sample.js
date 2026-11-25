@@ -293,6 +293,13 @@ export function demoAuth(engine) {
     async sendPasswordReset() {
       throw new Error('Password reset emails work once the cloud is connected.');
     },
+    async requestNewPassword() {
+      throw new Error('New passwords by text work once the cloud is connected.');
+    },
+    async publicSchoolInfo() {
+      const st = engine().settings;
+      return { schoolName: st.schoolName, officeEmail: st.officeEmail ?? '' };
+    },
     async changePassword(current, next) {
       const email = engine().session?.email?.toLowerCase();
       if (!email || passwords.get(email) !== current) throw new Error('Your current password is wrong.');

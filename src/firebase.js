@@ -29,7 +29,7 @@ import {
   signInWithEmailAndPassword,
   signOut as fbSignOut,
 } from 'firebase/auth';
-import { collection, doc, getDoc, getDocs, initializeFirestore, limit, onSnapshot, orderBy, query, where, writeBatch } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, initializeFirestore, limit, onSnapshot, orderBy, query, serverTimestamp, setDoc, where, writeBatch } from 'firebase/firestore';
 import { DEPED_SY_2026_2027, manilaToday } from './logic';
 import { Engine, emptyState, realClock, schoolYear as defaultYear, settings as defaultSettings, buildDemoState } from './engine';
 
@@ -68,6 +68,27 @@ function looksRight(col, d) {
 }
 
 // An empty school (used before data arrives, and after signing out).
+// The small sample school (Settings -> Start over, Overview -> Load sample school): Maria Santos's two
+// Kindergarten classes and Grade 6 Mercury and Venus. Fewer documents = fewer Firestore reads per sign-in.
+export const SMALL_SAMPLE = ['sec-k-sampaguita', 'sec-k-gumamela', 'sec-6-mercury', 'sec-6-venus'];
+// The demo generator's whole school, cut down to the SMALL_SAMPLE classes and their teachers.
+function smallSample(st) {
+  const keep = new Set(SMALL_SAMPLE);
+  for (const id of [...st.sections.keys()]) if (!keep.has(id)) st.sections.delete(id);
+  const kids = new Set();
+  for (const [id, e] of [...st.enrollments]) (keep.has(e.sectionId) ? kids.add(e.studentId) : st.enrollments.delete(id));
+  for (const id of [...st.students.keys()]) if (!kids.has(id)) st.students.delete(id);
+  for (const [id, g] of [...st.guardians]) {
+    g.studentIds = (g.studentIds ?? []).filter((k) => kids.has(k));
+    if (!g.studentIds.length) st.guardians.delete(id);
+  }
+  const other = (x) => (x.sectionId && !keep.has(x.sectionId)) || (x.studentId && !kids.has(x.studentId));
+  for (const col of ['attendance', 'confirmations', 'sms', 'notifications']) for (const [id, x] of [...st[col]]) if (other(x)) st[col].delete(id);
+  const teach = new Set([...st.sections.values()].flatMap((x) => [x.teacherId, ...(x.subjectTeacherIds ?? [])]).filter(Boolean));
+  for (const id of [...st.teachers.keys()]) if (!teach.has(id)) st.teachers.delete(id);
+  for (const [id, u] of [...st.users]) if (u.role === 'teacher' && !teach.has(u.teacherId)) st.users.delete(id);
+  return st;
+}
 const blankState = () => emptyState({ settings: structuredClone(defaultSettings), schoolYear: { ...defaultYear } });
 
 // Password given to the 4 sample teachers created by "Load sample school".
@@ -263,6 +284,26 @@ export function createCloudEngine() {
     },
     async sendPasswordReset(email) {
       await sendPasswordResetEmail(auth, email);
+    },
+    // "Forgot password?" for a parent (mobile number) or a staff member without a Gmail address: the
+    // Worker makes a new password and texts it (worker/src/passwords.js). Works without signing in.
+    // Asked again within 15 minutes, firestore.rules refuses it: the first text is still on its way, so
+    // the page says the same thing either way (it never tells whether the account exists).
+    async requestNewPassword(who, login) {
+      const id = `${who === 'parent' ? 'p' : 's'}_${login}`;
+      try {
+        await setDoc(doc(db, 'passwordRequests', id), { who, login, reason: 'forgot', at: serverTimestamp(), state: 'new' });
+      } catch (e) {
+        if (!String(e?.code ?? '').includes('permission-denied')) throw e;
+      }
+    },
+    // The school's name and office email for the sign-in page (meta/public, readable without signing in).
+    async publicSchoolInfo() {
+      try {
+        return (await getDoc(doc(db, 'meta', 'public'))).data() ?? null;
+      } catch {
+        return null;
+      }
     },
     // Changes the signed-in staff member's password. Firebase asks for the current one again first.
     async changePassword(current, next) {
@@ -551,7 +592,8 @@ export function createCloudEngine() {
      4 teacher accounts that can sign in with SAMPLE_TEACHER_PASSWORD.
      ================================================================= */
   engine.loadSampleSchool = async (onProgress = () => {}) => {
-    const sample = buildDemoState(manilaToday(), realClock); // same generator the demo mode uses
+    // Same generator as the demo mode, cut down to the SMALL_SAMPLE classes (fewer Firestore reads).
+    const sample = smallSample(buildDemoState(manilaToday(), realClock));
     const uidFor = new Map(); // sample uid (e.g. 'u-maria') -> real Firebase account uid
     const problems = [];
     for (const t of sample.teachers.values()) {
@@ -622,6 +664,72 @@ export function createCloudEngine() {
     const next = new Date(new Date(`${date}T00:00:00+08:00`).getTime() + 864e5).toISOString();
     const snap = await getDocs(query(collection(db, 'audit'), where('at', '>=', since), where('at', '<', next), orderBy('at', 'desc'), limit(3000)));
     return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  };
+
+  /* =================================================================
+     KEEP ONLY THE SMALL SAMPLE (Settings -> Start over -> "Keep only 4 sample classes"). Every sign-in
+     reads the whole school (students, guardians, enrollments; the admin also all attendance), so a
+     21-class sample uses up the free 50,000 reads a day quickly. This deletes everything that belongs
+     to the other classes and keeps the SMALL_SAMPLE classes as they are, with their teachers', parents'
+     and gate accounts and passwords. Reads each collection once; deletes go in batches of 450.
+     ================================================================= */
+  engine.trimToSmallSample = async (onProgress = () => {}) => {
+    const keep = new Set(SMALL_SAMPLE);
+    const read = async (col) => {
+      onProgress(`Reading ${col}…`);
+      try {
+        return (await getDocs(collection(db, col))).docs;
+      } catch {
+        return []; // a collection the rules do not let the admin list
+      }
+    };
+    const sections = await read('sections');
+    const kept = sections.filter((d) => keep.has(d.id)).map((d) => d.data());
+    if (!kept.length) throw new Error('None of the 4 sample classes are in the database. Nothing was removed.');
+    const keepTeachers = new Set(kept.flatMap((x) => [x.teacherId, ...(x.subjectTeacherIds ?? [])]).filter(Boolean));
+    const enrollments = await read('enrollments');
+    const keepKids = new Set(enrollments.filter((d) => keep.has(d.data().sectionId)).map((d) => d.data().studentId));
+    const gone = []; // document references to delete
+    const fixes = []; // [ref, data] to rewrite
+    const goneMobiles = new Set();
+    gone.push(...sections.filter((d) => !keep.has(d.id)).map((d) => d.ref));
+    gone.push(...enrollments.filter((d) => !keep.has(d.data().sectionId)).map((d) => d.ref));
+    gone.push(...(await read('students')).filter((d) => !keepKids.has(d.id)).map((d) => d.ref));
+    for (const d of await read('guardians')) {
+      const ids = d.data().studentIds ?? [];
+      const left = ids.filter((id) => keepKids.has(id));
+      if (!left.length) {
+        gone.push(d.ref);
+        if (d.data().mobile) goneMobiles.add(d.data().mobile);
+      } else if (left.length < ids.length) fixes.push([d.ref, { ...d.data(), studentIds: left }]);
+    }
+    gone.push(...(await read('parentKeys')).filter((d) => goneMobiles.has(d.id)).map((d) => d.ref));
+    gone.push(...(await read('parents')).filter((d) => goneMobiles.has(d.data().mobile)).map((d) => d.ref));
+    gone.push(...(await read('parentEmails')).filter((d) => goneMobiles.has(d.data().mobile)).map((d) => d.ref));
+    gone.push(...(await read('parentDays')).filter((d) => !keepKids.has(d.data().studentId)).map((d) => d.ref));
+    gone.push(...(await read('seating')).filter((d) => !keep.has(d.id)).map((d) => d.ref));
+    for (const col of ['attendance', 'confirmations']) gone.push(...(await read(col)).filter((d) => !keep.has(d.data().sectionId)).map((d) => d.ref));
+    // Texts, alerts and excuse requests about a removed child or class.
+    const otherClass = (x) => (x.sectionId && !keep.has(x.sectionId)) || (x.studentId && !keepKids.has(x.studentId));
+    for (const col of ['sms', 'notifications', 'excuses']) gone.push(...(await read(col)).filter((d) => otherClass(d.data())).map((d) => d.ref));
+    gone.push(...(await read('announcements')).filter((d) => d.data().sectionId && !keep.has(d.data().sectionId)).map((d) => d.ref));
+    // Conversations about a removed child, with their messages, files and email alerts.
+    const goneThreads = new Set((await read('threads')).filter((d) => d.data().studentId && !keepKids.has(d.data().studentId)).map((d) => d.id));
+    for (const id of goneThreads) gone.push(doc(db, 'threads', id));
+    for (const col of ['messages', 'attachments', 'mailQueue']) gone.push(...(await read(col)).filter((d) => goneThreads.has(d.data().threadId)).map((d) => d.ref));
+    // Teachers who teach none of the kept classes (their sign-in stays in Firebase Authentication).
+    const goneTeachers = new Set((await read('teachers')).filter((d) => !keepTeachers.has(d.id)).map((d) => d.id));
+    for (const id of goneTeachers) gone.push(doc(db, 'teachers', id));
+    gone.push(...(await read('users')).filter((d) => d.data().role === 'teacher' && goneTeachers.has(d.data().teacherId)).map((d) => d.ref));
+    const ops = [...gone.map((ref) => [ref, null]), ...fixes];
+    for (let i = 0; i < ops.length; i += 450) {
+      onProgress(`Removing ${Math.min(i + 450, ops.length)} of ${ops.length}…`);
+      const batch = writeBatch(db);
+      for (const [ref, data] of ops.slice(i, i + 450)) (data ? batch.set(ref, data) : batch.delete(ref));
+      await batch.commit();
+    }
+    await engine.logAudit('school.trim', 'sample school', `kept ${kept.length} classes and ${keepKids.size} children; ${gone.length} documents removed`);
+    return { removed: gone.length, classes: kept.length, children: keepKids.size };
   };
 
   /* =================================================================

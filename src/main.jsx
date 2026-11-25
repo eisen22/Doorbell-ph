@@ -34,7 +34,7 @@ import {
 import { useRepo, Logo, Wordmark, Skeleton, useLive, RepoProvider, PasswordInput, TodayNotice } from './ui';
 import { parentKeyOf } from './logic';
 // Parents sign in on this same page with their mobile number (parent/parentCloud.js), then /parent opens.
-import { signInParent, parentSignedIn } from './parent/parentCloud';
+import { signInParent, signInParentWithGoogle, parentSignedIn } from './parent/parentCloud';
 import ReactDOM from 'react-dom/client';
 // One file per screen: teacher/ (teacher only), admin/ (admin only), shared/ (both portals).
 import { Dashboard } from './teacher/Dashboard';
@@ -85,6 +85,11 @@ export function Login() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [notice, setNotice] = useState(null);
+  const [askReset, setAskReset] = useState(null); // 'sms' | 'link': the "Reset your password?" box is open
+  const [school, setSchool] = useState(null); // meta/public: school name and office email
+  useEffect(() => {
+    repo.publicSchoolInfo?.().then(setSchool, () => {});
+  }, [repo]);
   const [setup, setSetup] = useState(false); // true = the database has no admin yet: show "First-time setup"
   const [name, setName] = useState('School Admin');
   // Who is signing in: 'parent' (mobile number) or 'staff' (teachers and admins: email or Google).
@@ -181,11 +186,22 @@ export function Login() {
       setBusy(false);
     }
   };
-  // Teachers and admins: Google account (only emails the admin added; see firebase.js).
+  // Google account: teachers and admins (only emails the admin added; see firebase.js), and parents
+  // whose Gmail the school saved on their child's record (parentCloud.js).
   const google = async () => {
     setError(null);
     setNotice(null);
     setBusy(true);
+    if (who === 'parent') {
+      try {
+        await signInParentWithGoogle(remember);
+        navigate('/parent', { replace: true });
+      } catch (err) {
+        setError(err.message);
+        setBusy(false);
+      }
+      return;
+    }
     try {
       const s = await repo.signInWithGoogle(remember);
       navigate(s.role === 'admin' ? '/admin' : '/', { replace: true });
@@ -195,18 +211,43 @@ export function Login() {
       setBusy(false);
     }
   };
-  const forgot = async () => {
+  // FORGOT PASSWORD. Parents, and staff without a Gmail address: after they accept, the Worker makes a
+  // new password and texts it to the number on file (worker/src/passwords.js). Gmail addresses get
+  // Firebase's reset link instead, where they type a new password themselves. The page never says
+  // whether the number or email has an account.
+  const forgot = () => {
     setError(null);
     setNotice(null);
-    // Parents sign in with a mobile number: there is no email to send a reset link to.
-    if (who === 'parent') return setNotice("Ask the school office to reset your password. It goes back to the default password (see below).");
-    if (!email.includes('@')) return setError('Type your email first, then press "Forgot password?".');
+    const id = email.trim();
+    if (who === 'parent') {
+      if (!parentKeyOf(id)) return setError('Type your mobile number first, then press "Forgot password?".');
+      return setAskReset('sms');
+    }
+    if (!id.includes('@')) return setError('Type your email first, then press "Forgot password?".');
+    setAskReset(/@gmail\.com$/i.test(id) ? 'link' : 'sms');
+  };
+  const confirmReset = async () => {
+    const kind = askReset;
+    const id = email.trim();
+    setAskReset(null);
+    setBusy(true);
     try {
-      await repo.sendPasswordReset(email);
-      // Firebase answers "sent" even for an address that has no account or no real inbox, so don't promise it arrived.
-      setNotice(`If ${email.trim()} is a Doorbell account, a reset link was sent there (check Spam too). No email arrived? Ask the school admin.`);
+      if (kind === 'link') {
+        await repo.sendPasswordReset(id);
+        // Firebase answers "sent" even for an address that has no account, so don't promise it arrived.
+        setNotice(`If ${id} has a Doorbell account, we sent it a link (check Spam too). Open the link and type your new password.`);
+      } else {
+        await repo.requestNewPassword(who === 'parent' ? 'parent' : 'staff', who === 'parent' ? parentKeyOf(id) : id);
+        setNotice(
+          who === 'parent'
+            ? 'If this number is registered at the school, a new password will be texted to it within a few minutes. Sign in with it.'
+            : 'If this account has a mobile number on file, a new password will be texted to it within a few minutes. Sign in with it.',
+        );
+      }
     } catch (err) {
       setError(err.code === 'auth/invalid-email' ? 'That email address is not valid. Check it and try again.' : err.message);
+    } finally {
+      setBusy(false);
     }
   };
   return (
@@ -275,13 +316,13 @@ export function Login() {
                 </span>
               </button>
             </div>
-            {who === 'staff' && !demo.length && (
+            {!demo.length && (
               <>
                 <button type="button" className="btn wide google-btn" onClick={google} disabled={busy}>
                   <GoogleG /> Sign in with Google
                 </button>
                 <p className="login-or">
-                  <span>or use your email and password</span>
+                  <span>{who === 'parent' ? 'or use your mobile number and password' : 'or use your email and password'}</span>
                 </p>
               </>
             )}
@@ -339,20 +380,55 @@ export function Login() {
               <button type="button" className="link-btn center" onClick={forgot}>
                 <KeyRound size={14} /> Forgot password?
               </button>
+              {askReset && (
+                <div className="reset-confirm" role="alertdialog" aria-labelledby="reset-title" aria-describedby="reset-text">
+                  <p id="reset-title">
+                    <b>Reset your password?</b>
+                  </p>
+                  <p id="reset-text">
+                    {askReset === 'link'
+                      ? `We will send a link to ${email.trim()}. Open it and type a new password.`
+                      : who === 'parent'
+                        ? "If you accept, your account's password will be reset and a new password will be sent to your phone number."
+                        : "If you accept, your account's password will be reset and a new password will be sent to the mobile number the school has on file for you."}
+                  </p>
+                  {askReset === 'sms' && (
+                    <p className="muted small">
+                      Lost your phone or changed your number? Contact the school admin{' '}
+                      {school?.officeEmail ? (
+                        <>
+                          through the school's email, <a href={`mailto:${school.officeEmail}`}>{school.officeEmail}</a>.
+                        </>
+                      ) : (
+                        'at the school office.'
+                      )}
+                    </p>
+                  )}
+                  <div className="reset-actions">
+                    <button type="button" className="btn btn-ink" onClick={confirmReset} disabled={busy}>
+                      Accept
+                    </button>
+                    <button type="button" className="btn" onClick={() => setAskReset(null)}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
             </form>
             {who === 'parent' && (
               <details className="parent-help">
                 <summary>Signing in for the first time?</summary>
                 <p>
-                  Use the mobile number the school has on file. Your default password is your child's initials (first, middle, last name) and birthday
-                  (MMDDYY), in small letters. Example: Alice Pati Garcia, born Aug 13, 2021 → <code>apg081321</code>. Two or more children? Use the eldest
-                  child's. Forgot it? Ask the teacher or the school office.
+                  When the school registers your mobile number, you get a text with your password. Sign in with that mobile number and the password.
+                  No text, or forgot it? Type your number and press "Forgot password?". If you gave the school your Gmail, you can also use
+                  "Sign in with Google".
                 </p>
               </details>
             )}
             {who === 'staff' && (
               <p className="muted small">
-                New teacher? The school admin adds your email first. Then sign in with Google (Gmail) or with the temporary password the admin gives you.
+                New teacher? The school admin adds your email first. Then sign in with Google (Gmail), or with the password texted to your mobile
+                number or given by the admin.
               </p>
             )}
             {demo.length > 0 && (

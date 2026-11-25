@@ -46,8 +46,10 @@ export function toFields(obj) {
 }
 
 export class Firestore {
-  constructor(env, fetchFn = fetch) {
+  // tokenFn (optional): another way to get a token, e.g. the service account's (worker/src/passwords.js).
+  constructor(env, fetchFn = fetch, tokenFn = null) {
     this.env = env;
+    this.tokenFn = tokenFn;
     // Wrapped so Cloudflare's fetch is never called with the wrong `this` ("Illegal invocation").
     this.fetch = (...args) => fetchFn(...args);
     this.root = `projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents`;
@@ -58,6 +60,7 @@ export class Firestore {
 
   // Signs in with the Worker's Doorbell account (a gate account made in Settings & SMS).
   async signIn() {
+    if (this.tokenFn) return this.tokenFn();
     if (this.token && Date.now() < this.tokenUntil) return this.token;
     const res = await this.fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${this.env.FIREBASE_API_KEY}`, {
       method: 'POST',

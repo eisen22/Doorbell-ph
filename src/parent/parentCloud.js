@@ -19,7 +19,9 @@
 import { getApps, initializeApp } from 'firebase/app';
 import {
   EmailAuthProvider,
+  GoogleAuthProvider,
   browserLocalPersistence,
+  browserPopupRedirectResolver,
   browserSessionPersistence,
   setPersistence,
   createUserWithEmailAndPassword,
@@ -28,6 +30,7 @@ import {
   onAuthStateChanged,
   reauthenticateWithCredential,
   signInWithEmailAndPassword,
+  signInWithPopup,
   signOut as fbSignOut,
   updatePassword,
 } from 'firebase/auth';
@@ -62,7 +65,7 @@ function start() {
   return fb;
 }
 
-const WRONG = 'Wrong mobile number or password. First time? Use the default password from the school.';
+const WRONG = 'Wrong mobile number or password. Use the password the school texted you, or press "Forgot password?".';
 const isCredentialError = (e) => /invalid-credential|wrong-password|user-not-found|invalid-login/.test(e?.code ?? '');
 const friendly = (e) => {
   const code = e?.code ?? '';
@@ -126,6 +129,50 @@ export async function signInParent(mobileInput, passwordInput, remember = true) 
     // The password is not this number's default password (or the number is not registered): undo.
     await cred.user.delete().catch(() => fbSignOut(auth));
     throw new Error(WRONG);
+  }
+}
+
+/**
+ * Signs a parent in with Google. Works only for a Gmail the school saved on the child's guardian record
+ * (Admin -> Students): parentEmails/{gmail} says which number it belongs to, and the parent profile is
+ * linked to that number (firestore.rules checks both). The mobile number and password keep working too.
+ */
+export async function signInParentWithGoogle(remember = true) {
+  const { auth, db } = start();
+  try {
+    localStorage.setItem(PARENT_REMEMBER_KEY, remember ? '1' : '0');
+  } catch {
+    /* storage blocked */
+  }
+  await setPersistence(auth, remember ? browserLocalPersistence : browserSessionPersistence);
+  const provider = new GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: 'select_account' });
+  let cred;
+  try {
+    // The 3rd argument: this Firebase copy starts with initializeAuth, which leaves out the pop-up helper.
+    cred = await signInWithPopup(auth, provider, browserPopupRedirectResolver);
+  } catch (e) {
+    const code = e?.code ?? '';
+    if (code.includes('popup-closed') || code.includes('cancelled-popup')) throw new Error('Google sign-in was closed before it finished.');
+    if (code.includes('popup-blocked')) throw new Error('The browser blocked the Google window. Allow pop-ups for this site and try again.');
+    throw friendly(e);
+  }
+  const email = (cred.user.email ?? '').toLowerCase();
+  const notLinked = new Error(
+    `${email || 'This Google account'} is not linked to a child at this school. Sign in with your mobile number, or ask the school to add your Gmail to your child's record.`,
+  );
+  try {
+    const link = await getDoc(doc(db, 'parentEmails', email));
+    if (!link.exists()) throw notLinked;
+    const mobile = link.data().mobile;
+    const ref = doc(db, 'parents', cred.user.uid);
+    const snap = await getDoc(ref);
+    if (!snap.exists()) await setDoc(ref, { mobile, via: 'google', email, defaultPassword: false, createdAt: new Date().toISOString() });
+    else if (snap.data().via !== 'google') throw notLinked; // a password account with this address: not for Google
+    else if (snap.data().mobile !== mobile) await updateDoc(ref, { mobile }); // the school moved the Gmail to another number
+  } catch {
+    await fbSignOut(auth);
+    throw notLinked;
   }
 }
 

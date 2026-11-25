@@ -155,6 +155,7 @@ export function AdminStudents() {
                 sex: 'M',
                 guardianName: '',
                 guardianMobile: '',
+                guardianEmail: '',
                 relationship: 'Mother',
                 smsConsent: true,
                 preferredLanguage: 'en',
@@ -446,6 +447,7 @@ export const toStudentInput = (r) => ({
   sex: r.student.sex,
   guardianName: r.guardian?.name ?? '',
   guardianMobile: r.guardian ? displayPhMobile(r.guardian.mobile).replace(/\s/g, '') : '',
+  guardianEmail: r.guardian?.email ?? '',
   relationship: r.guardian?.relationship ?? 'Mother',
   smsConsent: r.guardian?.smsConsent ?? false,
   preferredLanguage: r.guardian?.preferredLanguage ?? 'en',
@@ -456,6 +458,18 @@ export function StudentModal({ input, sections, onClose, onSaved }) {
   const repo = useRepo();
   const [f, setF] = useState(input);
   const [error, setError] = useState(null);
+  const [info, setInfo] = useState(null);
+  // Texts the guardian a new parent portal password (worker/src/passwords.js), to the number on file.
+  const sendPassword = async () => {
+    setError(null);
+    setInfo(null);
+    try {
+      const to = await repo.sendParentPassword(f.id);
+      setInfo(`A new parent portal password will be texted to ${displayPhMobile(to)} within a few minutes. The old one stops working.`);
+    } catch (e) {
+      setError(e.message);
+    }
+  };
   // The child's grade: only that grade's sections are listed (starts at the grade of their current section).
   const [grade, setGrade] = useState(sections.find((s) => s.id === input.sectionId)?.gradeLevel ?? '');
   const gradeSections = sections.filter((s) => (!s.archived || s.id === f.sectionId) && (!grade || (s.gradeLevel ?? 'K') === grade));
@@ -467,8 +481,16 @@ export function StudentModal({ input, sections, onClose, onSaved }) {
     const mobile = normalizePhMobile(f.guardianMobile);
     if (!mobile) return setError('Guardian mobile must look like 0917 123 4567.');
     if (!f.guardianName.trim()) return setError("Enter the guardian's name.");
-    await repo.saveStudent({ ...f, guardianMobile: mobile, firstName: f.firstName.trim(), lastName: f.lastName.trim() });
-    onSaved(f.id ? 'Student updated' : 'Student added. A QR card was created automatically.');
+    try {
+      await repo.saveStudent({ ...f, guardianMobile: mobile, guardianEmail: (f.guardianEmail ?? '').trim(), firstName: f.firstName.trim(), lastName: f.lastName.trim() });
+    } catch (e) {
+      return setError(e.message);
+    }
+    onSaved(
+      f.id
+        ? 'Student updated'
+        : "Student added. A QR card was created automatically. A new guardian number gets the parent portal password by text.",
+    );
   };
   return (
     <Modal
@@ -476,6 +498,11 @@ export function StudentModal({ input, sections, onClose, onSaved }) {
       onClose={onClose}
       footer={
         <>
+          {f.id && input.guardianMobile && (
+            <button className="btn" onClick={sendPassword} title="Text the guardian a new parent portal password">
+              Send parent new password
+            </button>
+          )}
           <button className="btn" onClick={onClose}>
             Cancel
           </button>
@@ -577,6 +604,17 @@ export function StudentModal({ input, sections, onClose, onSaved }) {
           <input className="input" value={f.guardianMobile} onChange={(e) => set({ guardianMobile: e.target.value })} placeholder="0917 123 4567" />
         </label>
         <label className="field">
+          <span>Gmail (optional)</span>
+          <input
+            className="input"
+            type="email"
+            value={f.guardianEmail ?? ''}
+            onChange={(e) => set({ guardianEmail: e.target.value })}
+            placeholder="parent@gmail.com"
+            title="Lets the parent also sign in to the parent portal with Google"
+          />
+        </label>
+        <label className="field">
           <span>SMS language</span>
           <select className="input" value={f.preferredLanguage} onChange={(e) => set({ preferredLanguage: e.target.value })}>
             <option value="en">English</option>
@@ -589,6 +627,11 @@ export function StudentModal({ input, sections, onClose, onSaved }) {
       </label>
       <p className="muted small">Siblings: use the same mobile number and they will share one guardian record.</p>
       {error && <p className="error">{error}</p>}
+      {info && (
+        <p className="ok-text" role="status">
+          {info}
+        </p>
+      )}
     </Modal>
   );
 }

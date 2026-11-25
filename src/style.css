@@ -498,6 +498,9 @@ a.kpi:hover { background: var(--surface) !important; }
 .demo-acc { display: flex; flex-direction: column; align-items: flex-start; border: 1px solid var(--line); background: var(--frame); border-radius: var(--r-sm); padding: 8px 12px; cursor: pointer; text-align: left; }
 .demo-acc:hover { border-color: var(--ink); }
 .demo-acc span { color: var(--muted); font-size: 12.5px; }
+.reset-confirm { border: 1px solid var(--line); background: var(--surface); border-radius: var(--r-md); padding: 14px; display: flex; flex-direction: column; gap: 8px; font-size: 14px; }
+.reset-confirm p { margin: 0; }
+.reset-actions { display: flex; gap: 8px; }
 .boot { display: grid; place-items: center; }
 
 /* ---------- clickable dashboard ---------- */
