@@ -563,9 +563,12 @@ a.kpi:hover { background: var(--surface) !important; }
 .card-slot { display: flex; flex-direction: column; align-items: center; gap: 6px; }
 .sheet-sticker .card-slot { gap: 0; }
 .sheet-sticker .slot-print { display: none; }
+.card-picked .idcard, .card-picked .sticker { outline: 3px solid var(--ink); outline-offset: 3px; }
 @media print {
   .print-single .card-slot:not(.print-target) { display: none !important; }
   .slot-print { display: none !important; }
+  .card-picked .idcard, .card-picked .sticker { outline: none; }
+  .today-notice { display: none !important; } /* the "classes are suspended" banner is not part of the cards */
 }
 @media (max-width: 1080px) { .sms-layout { grid-template-columns: minmax(0, 1fr); } .phone-col { position: static; height: 520px; } }
 @media (max-width: 860px) { .login-card { grid-template-columns: minmax(0, 1fr); } .login-art { display: none; } }

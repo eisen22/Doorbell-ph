@@ -30,6 +30,7 @@ export function QrCards() {
   const [layout, setLayout] = useState('card');
   const [printId, setPrintId] = useState(null);
   const [find, setFind] = useState('');
+  const [picked, setPicked] = useState(null); // a student found by the search: their card is shown first
   const { data } = useLive(async (r) => ({
     rows: await r.listStudentRows(),
     sections: (await r.listSections()).filter((s) => !s.archived),
@@ -56,11 +57,21 @@ export function QrCards() {
   const levelSecs = data.sections.filter((s) => level === 'all' || s.gradeLevel === level);
   const sec = levelSecs.find((s) => s.id === sectionId) ?? levelSecs[0];
   const enrolled = data.rows.filter((r) => r.enrollment?.status === 'active');
-  const rows = enrolled.filter((r) => r.enrollment.sectionId === sec?.id);
+  const inSection = enrolled.filter((r) => r.enrollment.sectionId === sec?.id);
+  // The searched student's card comes first; the rest of the class follows.
+  const rows = [...inSection.filter((r) => r.student.id === picked), ...inSection.filter((r) => r.student.id !== picked)];
   const matches =
     find.trim().length >= 2
       ? enrolled.filter((r) => `${r.student.firstName} ${r.student.lastName}`.toLowerCase().includes(find.toLowerCase())).slice(0, 6)
       : [];
+  // Search result: open the student's class and show their card on top (nothing is printed yet).
+  const showOne = (r) => {
+    setLevel('all');
+    setSectionId(r.enrollment.sectionId);
+    setPicked(r.student.id);
+    setFind('');
+    setTimeout(() => document.querySelector('.card-picked')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50);
+  };
   const printOne = async (r) => {
     if (r.enrollment && r.enrollment.sectionId !== sec?.id) {
       setLevel('all');
@@ -91,7 +102,7 @@ export function QrCards() {
       <Card className="no-print">
         <div className="find-one">
           <label className="field">
-            <span>Print one student's card (new student, lost or damaged card)</span>
+            <span>Find a student's card (new student, lost or damaged card)</span>
             <div className="search-box">
               <Search size={16} />
               <input className="input" value={find} onChange={(e) => setFind(e.target.value)} placeholder="Type a name" />
@@ -101,14 +112,12 @@ export function QrCards() {
             <ul className="find-results">
               {matches.map((r) => (
                 <li key={r.student.id}>
-                  <button onClick={() => printOne(r)}>
+                  <button onClick={() => showOne(r)}>
                     <strong>
                       {r.student.lastName}, {r.student.firstName}
                     </strong>
                     <span className="muted small">{r.section?.name}</span>
-                    <span className="link">
-                      <Printer size={14} /> Print
-                    </span>
+                    <span className="link">Show card</span>
                   </button>
                 </li>
               ))}
@@ -120,6 +129,7 @@ export function QrCards() {
           onChange={(v) => {
             setLevel(v);
             setSectionId(null);
+            setPicked(null);
           }}
           counts={countByGrade(data.sections, (s) => s.gradeLevel)}
         />
@@ -170,7 +180,10 @@ export function QrCards() {
       ) : (
         <div className={`print-sheet sheet-${layout} ${printId ? 'print-single' : ''}`}>
           {rows.map((r) => (
-            <div key={r.student.id} className={`card-slot ${printId === r.student.id ? 'print-target' : ''}`}>
+            <div
+              key={r.student.id}
+              className={`card-slot ${printId === r.student.id ? 'print-target' : ''} ${picked === r.student.id ? 'card-picked' : ''}`}
+            >
               <IdCard row={r} layout={layout} color={sec.color} school={data.settings.schoolName} />
               <button className="btn btn-sm no-print slot-print" onClick={() => printOne(r)}>
                 <Printer size={14} /> Print this card
