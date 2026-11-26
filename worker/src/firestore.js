@@ -81,6 +81,7 @@ export class Firestore {
     if (!res.ok) {
       const err = new Error(`Firestore ${res.status}: ${json.error?.message ?? 'error'}`);
       err.status = json.error?.status;
+      err.code = res.status;
       throw err;
     }
     return json;
@@ -123,6 +124,9 @@ export class Firestore {
    *   { path, patch, ifUpdateTime }       -> change only these fields; with ifUpdateTime it fails if
    *                                          someone changed the document in between (used to claim a text)
    *   { path, remove: true }              -> delete the document
+   *   { path, merge, mask }               -> change only the fields listed in mask (dotted paths, e.g.
+   *                                          ['records.`stu-1`.scannedAt']), keeping everything else
+   *   ifMissing: true (with data or merge) -> fails if the document already exists (create once)
    */
   async commit(writes) {
     for (let i = 0; i < writes.length; i += 450) {
@@ -130,15 +134,25 @@ export class Firestore {
         writes: writes.slice(i, i + 450).map((w) => {
           const name = `${this.root}/${w.path}`;
           if (w.remove) return { delete: name };
+          if (w.merge) {
+            const out = { update: { name, fields: toFields(w.merge) }, updateMask: { fieldPaths: w.mask } };
+            if (w.ifMissing) out.currentDocument = { exists: false };
+            return out;
+          }
           if (w.patch) {
             const out = { update: { name, fields: toFields(w.patch) }, updateMask: { fieldPaths: Object.keys(w.patch) } };
             if (w.ifUpdateTime) out.currentDocument = { updateTime: w.ifUpdateTime };
             return out;
           }
-          return { update: { name, fields: toFields(w.data) } };
+          return { update: { name, fields: toFields(w.data) }, ...(w.ifMissing ? { currentDocument: { exists: false } } : {}) };
         }),
       };
       await this.call(`${this.base}:commit`, { method: 'POST', body: JSON.stringify(body) });
     }
   }
+}
+
+/** A field path for a merge mask: fp('records', 'stu-1', 'scannedAt') -> 'records.`stu-1`.scannedAt'. */
+export function fp(...parts) {
+  return parts.map((p) => (/^[A-Za-z_][A-Za-z_0-9]*$/.test(p) ? p : `\`${String(p).replace(/[`\\]/g, (c) => `\\${c}`)}\``)).join('.');
 }

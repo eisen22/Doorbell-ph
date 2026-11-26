@@ -604,7 +604,7 @@ export function StudentModal({ input, sections, onClose, onSaved }) {
           <input className="input" value={f.guardianMobile} onChange={(e) => set({ guardianMobile: e.target.value })} placeholder="0917 123 4567" />
         </label>
         <label className="field">
-          <span>Gmail (optional)</span>
+          <span>Gmail (optional: Google sign-in, and a new parent gets the password by email too)</span>
           <input
             className="input"
             type="email"

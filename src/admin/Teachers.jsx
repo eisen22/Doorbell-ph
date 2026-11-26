@@ -37,6 +37,9 @@ export const toTeacherInput = (t) => ({
   subjects: t.subjects ?? [],
   gradeLevel: t.gradeLevel ?? null,
 });
+// "0917 123 4567 and maria@gmail.com": where a new password is sent.
+export const sentTo = (mobile, email) => [mobile ? displayPhMobile(mobile) : null, email].filter(Boolean).join(' and ');
+
 /** Add or edit a teacher, including which classes they handle. */
 export function TeacherModal({ input, sections, teachers, onClose, onSaved }) {
   const repo = useRepo();
@@ -46,14 +49,14 @@ export function TeacherModal({ input, sections, teachers, onClose, onSaved }) {
   const [error, setError] = useState(null);
   const [info, setInfo] = useState(null);
   const [busy, setBusy] = useState(false);
-  // Texts this teacher a new password (worker/src/passwords.js), using the mobile number saved on file.
+  // Sends this teacher a new password (worker/src/passwords.js), by text to the mobile number on file and by email.
   const sendPassword = async () => {
     setError(null);
     setInfo(null);
     try {
       const mobile = normalizePhMobile(input.mobile ?? '');
-      await repo.sendStaffPassword(input.email, mobile);
-      setInfo(`A new password will be texted to ${displayPhMobile(mobile)} within a few minutes. The old one stops working.`);
+      const { textedTo, emailedTo } = await repo.sendStaffPassword(input.email, mobile);
+      setInfo(`A new password will be sent to ${sentTo(textedTo, emailedTo)} within a few minutes. The old one stops working.`);
     } catch (e) {
       setError(e.message);
     }
@@ -93,7 +96,7 @@ export function TeacherModal({ input, sections, teachers, onClose, onSaved }) {
           teacherId: want ? id : null,
         });
       }
-      onSaved({ name: res.teacher.name, email: res.teacher.email, tempPassword: res.tempPassword, textedTo: res.textedTo });
+      onSaved({ name: res.teacher.name, email: res.teacher.email, tempPassword: res.tempPassword, textedTo: res.textedTo, emailedTo: res.emailedTo });
     } catch (e) {
       setError(e.message);
     }
@@ -106,7 +109,7 @@ export function TeacherModal({ input, sections, teachers, onClose, onSaved }) {
       footer={
         <>
           {input.id && (
-            <button className="btn" onClick={sendPassword} disabled={busy} title="Text this teacher a new password">
+            <button className="btn" onClick={sendPassword} disabled={busy} title="Send this teacher a new password by text and email">
               Send new password
             </button>
           )}
@@ -415,7 +418,7 @@ export function Teachers() {
           onSaved={(r) => {
             setEdit(null);
             if (r.tempPassword) setCreated({ name: r.name, email: r.email, password: r.tempPassword });
-            else if (r.textedTo) flash(`Teacher added. Their password will be texted to ${displayPhMobile(r.textedTo)}.`);
+            else if (r.textedTo || r.emailedTo) flash(`Teacher added. Their password will be sent to ${sentTo(r.textedTo, r.emailedTo)}.`);
             else flash('Teacher updated');
           }}
         />

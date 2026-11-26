@@ -124,3 +124,64 @@ server may set someone else's password:
 
 `npx wrangler tail` shows "Password step failed" or `passwords: "skipped (FIREBASE_SERVICE_ACCOUNT is not set)"` if something is missing.
 "Forgot password?" for the same account works at most once every 15 minutes.
+
+### By email too (with Brevo)
+
+When the account has a real email address, the password is also emailed (same password as the text):
+
+- a **new** parent whose guardian has a Gmail (Admin → Students → Gmail): "your account was created" email;
+- a **new** teacher or admin: the welcome email, with a **Confirm this email address** link (Firebase);
+  a teacher or admin with no mobile number now gets the password by email only;
+- **Send new password** (admin): by text and by email.
+
+"Forgot password?" stays by text (Gmail users get Firebase's reset link on the sign-in page). If neither a
+mobile number nor a real email (and Brevo) is available, the password is not changed. For the confirm link to
+open the sign-in page afterwards, the website's domain must be in Firebase → Authentication → Settings →
+Authorized domains (it already is if Google sign-in works).
+
+## At night
+
+From 10 PM to 5 AM the Worker checks for texts and password requests every 5 minutes instead of every minute
+(each check costs database reads). Texts are still sent at night, e.g. a suspension announced late.
+
+## Classes not confirmed yet (alert to the office and the adviser)
+
+Parents get the arrival and absence texts only after a teacher confirms the class. If no teacher has
+confirmed a class **15 minutes after it started** (Settings → School & attendance → "Alert if a class is not confirmed
+after", 0 = off), the Worker, once per class per day:
+
+- puts an alert on the website (admin Overview → "Needs your attention", and the teacher's Alerts);
+- emails the adviser (and today's substitute) and the school office email (needs `BREVO_API_KEY` and `EMAIL_FROM`);
+- texts the adviser's mobile, and sends ONE text to the school's contact number listing all the classes of that
+  run (needs Settings → How texts are sent = Semaphore).
+
+At most 4 classes are alerted per run (the rest 5 minutes later), to stay within the 50 web requests a run may
+make. A teacher or the admin can still confirm the class until it ends; the waiting texts are then sent.
+
+## The gate scanner (ESP32 + GM65)
+
+The scanner never holds Firebase access. In the website, **Settings → Admins & gate scanners → Gate scanners → Add scanner** makes a
+scanner key, shown once (only its SHA-256 is saved). Put it in the scanner. **Cancel key** stops a lost or
+copied key at once. Publish `firestore.rules` after updating (it adds `scanners`).
+
+The scanner sends the key as `Authorization: Bearer <key>` to the Worker's address:
+
+| Request | Body | Answer |
+|---|---|---|
+| `GET /scanner/cards` | | `{ ok, updatedAt, hashes: [...] }` the SHA-256 (hex) of every valid card code |
+| `POST /scanner/scan` | `{ "code": "<QR text>", "at": "<ISO time, optional>" }` | `{ ok, result, name, time }` |
+
+`result` is `present`, `late`, `out` (going home), `already_in`, `no_class_today`, `unknown`, `revoked`,
+`no_class_found` or `old_scan` (kept from an earlier day: not recorded). `bad_key` comes with status 401;
+`server_error` with status 503 (keep the scan and try again).
+
+Suggested scanner program:
+
+1. On start-up and every 30 minutes, download `/scanner/cards` and keep the hashes in flash (LittleFS).
+2. On each scan: SHA-256 the code, beep "accepted" or "not a Doorbell card" at once from the saved list.
+3. Save the scan (code + time from the DS3231 clock) in a queue file, then send it with `at`. Remove it from the
+   queue when the answer is 200 (any `result`) or 401; keep it on 503 or no connection and retry.
+4. Run on a power bank or a small UPS so scanning continues during brownouts.
+
+Each scan uses about 7 database reads (the meta documents are kept in the Worker's memory for 5 minutes), so
+600 pupils scanning in and out use about 8,000 of the free 50,000 daily reads.

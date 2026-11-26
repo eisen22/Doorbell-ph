@@ -360,6 +360,15 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // Gate scanners (ESP32 at the gate). Only the SHA-256 of each scanner key is saved. The admin adds and
+    // cancels them; the Worker (gate account) checks a key and saves "last seen".
+    match /scanners/{id} {
+      allow read: if isAdmin() || isGate();
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin()
+        || (isGate() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastSeenAt']));
+    }
+
     // Who changed what. Can never be edited or deleted.
     match /audit/{id} {
       allow read: if isAdmin();

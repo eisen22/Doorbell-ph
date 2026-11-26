@@ -81,6 +81,12 @@ export function isoWeekday(d) {
 }
 
 /** Today's date in the Philippines, e.g. '2026-10-29', whatever time zone the device uses. */
+/** True for an email address that can really receive mail (not empty, not the sample school's made-up addresses). */
+export function isRealEmail(email) {
+  const e = String(email ?? '').trim();
+  return /^[^@\s/]+@[^@\s/]+\.[^@\s/]+$/.test(e) && !/@sunnyside\.edu\.ph$/i.test(e);
+}
+
 export function manilaToday(now = new Date()) {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila' }).format(now); // en-CA writes YYYY-MM-DD
 }

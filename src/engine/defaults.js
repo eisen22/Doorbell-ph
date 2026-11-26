@@ -26,6 +26,9 @@ export const settings = {
   gateOpens: '06:00',
   // Absence texts go out when the first period ends: class start + this many minutes.
   firstPeriodMins: 60,
+  // No teacher has confirmed a class this many minutes after it started: the office and the adviser get an
+  // email and a text (Cloudflare Worker). 0 = off.
+  unconfirmedAlertMins: 15,
   streakDays: 3,
   // Totals (not in a row): see DEFAULT_LIMITS in logic.js. Empty = the defaults.
   limits: {},

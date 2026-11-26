@@ -14,6 +14,7 @@ import {
   isoWeekday,
   addDays,
   parentKeyOf,
+  isRealEmail,
 } from '../logic';
 import { dayId, fmtDay, schedulesOverlap, uid, byName } from './util';
 
@@ -51,8 +52,9 @@ export const adminMethods = {
     });
   },
   // ---------------------------------------------------------------------
-  // PASSWORDS BY TEXT (worker/src/passwords.js makes the password and texts it; nobody sees it here).
-  //   reason 'new'   = a new parent number, or a new teacher/admin with a mobile number (welcome text)
+  // PASSWORDS BY TEXT AND EMAIL (worker/src/passwords.js makes the password and sends it; nobody sees it here).
+  //   reason 'new'   = a new parent number, or a new teacher/admin with a mobile number or a real email
+  //                    (welcome text; plus a welcome email with the password if there is a real email/Gmail)
   //   reason 'admin' = the admin pressed "Send new password"
   // ---------------------------------------------------------------------
   queuePassword(who, login, reason) {
@@ -70,11 +72,15 @@ export const adminMethods = {
     await this.logAudit('parent.password', g.name, `new password texted to ${g.mobile}`);
     return g.mobile;
   },
-  // Admin -> Teachers / Settings -> Admins: texts a teacher or admin a new password (mobile number needed).
+  // Admin -> Teachers / Settings -> Admins: sends a teacher or admin a new password, by text (mobile number on
+  // file) and by email (a real email address). Returns where it goes.
   async sendStaffPassword(email, mobile) {
-    if (!parentKeyOf(mobile)) throw new Error('Add a mobile number first: the new password is sent by text.');
+    const textedTo = parentKeyOf(mobile) ? mobile : null;
+    const emailedTo = isRealEmail(email) ? email : null;
+    if (!textedTo && !emailedTo) throw new Error('Add a mobile number first: the new password is sent by text or email.');
     this.queuePassword('staff', email, 'admin');
-    await this.logAudit('account.password', email, `new password texted to ${mobile}`);
+    await this.logAudit('account.password', email, `new password sent to ${[textedTo, emailedTo].filter(Boolean).join(' and ')}`);
+    return { textedTo, emailedTo };
   },
   // Admin -> Settings: SMS templates, streak days, school name, etc.
   async updateSettings(patch) {
@@ -452,18 +458,21 @@ export const adminMethods = {
     // gradeLevel: the grade they teach ('K'...'6'), used to show only that grade's classes when placing them.
     const teacher = { id: uid('t'), name: input.name, email: input.email, mobile: input.mobile, subjects: input.subjects ?? [], gradeLevel: input.gradeLevel ?? null, active: true };
     const { uid: accountUid, tempPassword } = await this.auth.createTeacherAccount(input.email, input.name, teacher.id);
-    // With a mobile number, the Worker replaces the temporary password with a new one and texts it.
+    // With a mobile number and/or a real email, the Worker replaces the temporary password with a new one and
+    // sends it by text and/or email (the email also has a link to confirm the address).
     const textedTo = this.mode === 'cloud' && parentKeyOf(input.mobile) ? input.mobile : null;
+    const emailedTo = this.mode === 'cloud' && isRealEmail(input.email) ? input.email : null;
     teacher.uid = accountUid;
     const account = { uid: accountUid, email: input.email, name: input.name, role: 'teacher', teacherId: teacher.id };
     this.s.users.set(accountUid, account);
     this.put('users', accountUid, account);
     this.s.teachers.set(teacher.id, teacher);
     this.put('teachers', teacher.id, teacher);
-    if (textedTo) this.queuePassword('staff', input.email, 'new');
-    await this.logAudit('teacher.create', teacher.name, textedTo ? `sign-in account created, password texted to ${textedTo}` : 'sign-in account created');
+    if (textedTo || emailedTo) this.queuePassword('staff', input.email, 'new');
+    const sentTo = [textedTo, emailedTo].filter(Boolean).join(' and ');
+    await this.logAudit('teacher.create', teacher.name, sentTo ? `sign-in account created, password sent to ${sentTo}` : 'sign-in account created');
     this.emit();
-    return { teacher, tempPassword: textedTo ? null : tempPassword, textedTo };
+    return { teacher, tempPassword: textedTo || emailedTo ? null : tempPassword, textedTo, emailedTo };
   },
   // ---------------------------------------------------------------------
   // GATE SCANNER ACCOUNTS
@@ -496,6 +505,37 @@ export const adminMethods = {
     this.emit();
   },
   // ---------------------------------------------------------------------
+  // GATE SCANNERS (ESP32 + GM65 at the gate, see worker/src/scanner.js)
+  // A scanner never holds Firebase access: it sends scans to the Cloudflare Worker with its own scanner key.
+  // Only the SHA-256 of the key is saved (scanners/{id}); the key itself is shown to the admin once.
+  // A lost or copied key is cancelled here, and a new one issued.
+  // ---------------------------------------------------------------------
+  gateScanners() {
+    return [...this.s.scanners.values()].sort((a, b) => (a.active === b.active ? a.name.localeCompare(b.name) : a.active ? -1 : 1));
+  },
+  async addGateScanner(name) {
+    const clean = (name ?? '').trim() || 'Gate scanner';
+    if (clean.length > 40) throw new Error('Use a shorter name (at most 40 characters).');
+    const bytes = crypto.getRandomValues(new Uint8Array(24));
+    const key = `dbs_${btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')}`;
+    const hash = [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(key)))].map((b) => b.toString(16).padStart(2, '0')).join('');
+    const scanner = { id: uid('scn'), name: clean, keyHash: hash, keyEnd: key.slice(-4), active: true, createdAt: new Date().toISOString(), createdBy: this.actor() };
+    this.s.scanners.set(scanner.id, scanner);
+    this.put('scanners', scanner.id, scanner);
+    await this.logAudit('scanner.create', clean, `scanner key ending in ${scanner.keyEnd}`);
+    this.emit();
+    return { scanner, key };
+  },
+  async cancelGateScanner(id) {
+    const sc = this.s.scanners.get(id);
+    if (!sc || !sc.active) return;
+    const next = { ...sc, active: false, cancelledAt: new Date().toISOString(), cancelledBy: this.actor() };
+    this.s.scanners.set(id, next);
+    this.put('scanners', id, next);
+    await this.logAudit('scanner.cancel', sc.name, `scanner key ending in ${sc.keyEnd} cancelled`);
+    this.emit();
+  },
+  // ---------------------------------------------------------------------
   // ADMIN ACCOUNTS (Settings -> Admins). The school can have several admins; each one can do
   // everything. Removing an admin deletes their profile (users/{uid}), so they can no longer
   // open the website. Nobody can remove their own access or the last admin, so the school
@@ -522,12 +562,14 @@ export const adminMethods = {
     const account = { uid: made.uid || uid('u'), email: clean, name: cleanName, role: 'admin', ...(phone ? { mobile: phone } : {}) };
     this.s.users.set(account.uid, account);
     this.put('users', account.uid, account);
-    // With a mobile number, the Worker replaces the temporary password with a new one and texts it.
+    // With a mobile number and/or a real email, the Worker replaces the temporary password with a new one and
+    // sends it by text and/or email (the email also has a link to confirm the address).
     const textedTo = this.mode === 'cloud' && phone ? phone : null;
-    if (textedTo) this.queuePassword('staff', clean, 'new');
+    const emailedTo = this.mode === 'cloud' && isRealEmail(clean) ? clean : null;
+    if (textedTo || emailedTo) this.queuePassword('staff', clean, 'new');
     await this.logAudit('admin.create', cleanName, clean);
     this.emit();
-    return { account, tempPassword: textedTo ? null : made.tempPassword, textedTo };
+    return { account, tempPassword: textedTo || emailedTo ? null : made.tempPassword, textedTo, emailedTo };
   },
   async removeAdmin(accountUid) {
     const acc = this.s.users.get(accountUid);
@@ -900,7 +942,8 @@ export const adminMethods = {
     this.checkGuardianEmail(input);
     const { student, touched, newGuardian } = this.upsertStudent(input);
     for (const g of touched) await this.syncParentKey(g);
-    // A new parent number gets its parent portal account and password by text (cloud only).
+    // A new parent number gets its parent portal account and password by text, and by email too if a Gmail
+    // was given (cloud only).
     if (newGuardian && this.mode === 'cloud') this.queuePassword('parent', newGuardian.mobile, 'new');
     await this.logAudit(input.id ? 'student.update' : 'student.create', `${student.firstName} ${student.lastName}`);
     this.emit();

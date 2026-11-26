@@ -29,7 +29,27 @@ import {
   signInWithEmailAndPassword,
   signOut as fbSignOut,
 } from 'firebase/auth';
-import { collection, doc, getDoc, getDocs, initializeFirestore, limit, onSnapshot, orderBy, query, serverTimestamp, setDoc, where, writeBatch } from 'firebase/firestore';
+import {
+  clearIndexedDbPersistence,
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  getFirestore,
+  initializeFirestore,
+  limit,
+  onSnapshot,
+  orderBy,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+  query,
+  serverTimestamp,
+  setDoc,
+  terminate,
+  waitForPendingWrites,
+  where,
+  writeBatch,
+} from 'firebase/firestore';
 import { DEPED_SY_2026_2027, manilaToday } from './logic';
 import { Engine, emptyState, realClock, schoolYear as defaultYear, settings as defaultSettings, buildDemoState } from './engine';
 
@@ -127,7 +147,21 @@ export function createCloudEngine() {
     auth = getAuth(app); // already started (happens when Vite reloads this file during development)
   }
   // ignoreUndefinedProperties: fields that are `undefined` are simply left out instead of causing an error.
-  const db = initializeFirestore(app, { ignoreUndefinedProperties: true });
+  // localCache: a copy of what was read is kept in this browser (IndexedDB), shared by all its Doorbell tabs.
+  //   Opening or refreshing the site within 30 minutes then reads (and counts toward the free 50,000 reads a
+  //   day) only the documents that CHANGED, not the whole school again; and extra tabs share one copy instead
+  //   of each reading everything. Before this, every refresh of the admin pages read every attendance record of
+  //   the year. Signing out clears the copy (auth.signOut below). If the browser cannot keep it (private
+  //   window), Firebase simply works without it, as before.
+  let db;
+  try {
+    db = initializeFirestore(app, {
+      ignoreUndefinedProperties: true,
+      localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+    });
+  } catch {
+    db = getFirestore(app); // already started (happens when Vite reloads this file during development)
+  }
 
   /* =================================================================
      WRITING: the Engine calls persistence.put(collection, id, data).
@@ -280,7 +314,24 @@ export function createCloudEngine() {
     },
     async signOut() {
       setRemembered(false);
+      // First let the last changes reach the cloud (while still signed in). Without internet they stay
+      // in this browser's copy and are sent next time, so then the copy is not removed.
+      const synced = (pending.size ? flush() : Promise.resolve()).then(() => waitForPendingWrites(db)).then(() => true);
+      const saved = await Promise.race([synced.catch(() => false), new Promise((r) => setTimeout(() => r(false), 5000))]);
+      stop();
       await fbSignOut(auth);
+      // Remove the school data kept in this browser (see localCache above), so the next person using this
+      // computer finds nothing. Firestore must be stopped first; it starts again when the page reloads. If another
+      // Doorbell tab is still open, the copy cannot be removed now (it is removed at a later sign-out).
+      if (saved) {
+        try {
+          await terminate(db);
+          await clearIndexedDbPersistence(db);
+        } catch (e) {
+          console.warn('Saved copy not cleared (another Doorbell tab is open):', e?.code ?? e);
+        }
+      }
+      window.location.assign(`${import.meta.env.BASE_URL}login`);
     },
     async sendPasswordReset(email) {
       await sendPasswordResetEmail(auth, email);
@@ -419,6 +470,7 @@ export function createCloudEngine() {
         // Seating charts (skipped if firestore.rules is older than the seating chart).
         all('seating').catch((e) => console.warn('Seating charts not loaded: publish the new firestore.rules', e)),
         all('announcements').catch((e) => console.warn('Announcements not loaded: publish the new firestore.rules', e)),
+        all('scanners').catch((e) => console.warn('Gate scanners not loaded: publish the new firestore.rules', e)),
         listen('sms', query(collection(db, 'sms'), orderBy('createdAt', 'desc'), limit(400))),
         listen('notifications', query(collection(db, 'notifications'), orderBy('createdAt', 'desc'), limit(300))),
         listen('audit', query(collection(db, 'audit'), orderBy('at', 'desc'), limit(300))),

@@ -1,5 +1,5 @@
 // =====================================================================
-// passwords.js — NEW PASSWORDS SENT BY TEXT (parents, and staff without a Gmail address)
+// passwords.js — NEW PASSWORDS SENT BY TEXT AND EMAIL (parents and staff)
 // ---------------------------------------------------------------------
 // Only a trusted server may give someone else's account a new password. The Worker does it with the
 // Firebase SERVICE ACCOUNT key (Cloudflare secret FIREBASE_SERVICE_ACCOUNT, the whole JSON file):
@@ -11,9 +11,13 @@
 //   reason 'forgot' = "Forgot password?" on the sign-in page (anyone; firestore.rules: once per 15 minutes)
 // The password is made here and goes straight to Semaphore: it is never saved in Firestore. The SMS
 // log keeps the text with the password hidden.
+// EMAIL (Brevo, BREVO_API_KEY and EMAIL_FROM): when the account has a real email address (a parent's Gmail,
+// or a teacher's or admin's sign-in email), a new account ('new') and "Send new password" ('admin') also
+// email the password. A new staff account's email also has a link to confirm the address (Firebase).
+// "Forgot password?" stays by text only (staff with Gmail get Firebase's reset link on the sign-in page).
 // =====================================================================
 import { Firestore } from './firestore.js';
-import { parentEmail, parentKeyOf } from '../../src/logic.js';
+import { parentEmail, parentKeyOf, isRealEmail } from '../../src/logic.js';
 
 const b64url = (bytes) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 const utf8 = (s) => new TextEncoder().encode(s);
@@ -143,12 +147,86 @@ async function forParent(env, f, db, settings, school, req) {
     writes.push({ path: `parents/${uid}`, data: { mobile: key, defaultPassword: false, createdAt: new Date().toISOString() } });
   }
   const make = (req.reason === 'new' ? TEXTS.parentNew : TEXTS.parentReset)[lang];
-  return deliver(env, f, db, settings, writes, {
+  const texted = await deliver(env, f, db, settings, writes, {
     to: key,
     body: make(school, password),
     hidden: make(school, HIDDEN),
     extra: { guardianId: g?.id ?? null, studentId: g?.data.studentIds?.[0] ?? null },
   });
+  // The parent's Gmail (optional, Admin -> Students): the same password by email, for a new account or "Send new password".
+  const gmail = g?.data.email;
+  if (req.reason === 'forgot' || !isRealEmail(gmail)) return texted;
+  const mobile = `${key.slice(0, 4)} ${key.slice(4, 7)} ${key.slice(7)}`;
+  const mailed = await sendEmail(env, f, settings, {
+    to: gmail,
+    name: g.data.name ?? '',
+    subject: req.reason === 'new' ? `Your Doorbell parent portal account (${school})` : `Your new Doorbell parent portal password (${school})`,
+    lines: [
+      req.reason === 'new'
+        ? `This email confirms that your parent portal account for ${school} has been created.`
+        : `Your parent portal password for ${school} was reset by the school.`,
+      `Sign in with your mobile number ${mobile} and this temporary password: ${password}`,
+      'You can also sign in with Google using this Gmail address.',
+      'Please change the password after you sign in. The same password was also sent by text to your mobile number.',
+    ],
+    path: '/parent',
+  });
+  return combine(texted, mailed);
+}
+
+// "sent", or "sent (text failed...)" when one of the two went through.
+const combine = (texted, mailed) => {
+  if (mailed === 'sent' && texted === 'sent') return 'sent';
+  if (mailed === 'sent') return `sent by email (text: ${texted})`.slice(0, 200);
+  if (texted === 'sent') return mailed === 'skipped' ? 'sent' : `sent by text (email: ${mailed})`.slice(0, 200);
+  return `failed: text ${texted}; email ${mailed}`.slice(0, 200);
+};
+
+/**
+ * One email through Brevo with the temporary password (and, for a new staff account, the "confirm your
+ * email" link). Returns 'sent', 'skipped' (Brevo not set up) or 'failed: ...'.
+ */
+async function sendEmail(env, f, settings, { to, name, subject, lines, link, path }) {
+  if (!env.BREVO_API_KEY || !env.EMAIL_FROM) return 'skipped';
+  const site = (env.SITE_URL ?? '').replace(/\/$/, '');
+  const school = settings.schoolName ?? '';
+  const esc = (x) => String(x ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+  const signIn = site ? `${site}${path ?? '/login'}` : '';
+  const text = [
+    ...lines,
+    ...(link ? ['', `Confirm this email address: ${link}`] : []),
+    ...(signIn ? ['', `Open Doorbell: ${signIn}`] : []),
+    '',
+    `Did not expect this email? Contact ${school || 'the school office'}.`,
+  ].join('\n');
+  const html = `${lines.map((l) => `<p>${esc(l)}</p>`).join('')}${
+    link ? `<p><a href="${esc(link)}" style="display:inline-block;padding:10px 16px;background:#1f2d3d;color:#fff;border-radius:8px;text-decoration:none">Confirm this email address</a></p>` : ''
+  }${signIn ? `<p><a href="${esc(signIn)}">Open Doorbell</a></p>` : ''}<p style="color:#666;font-size:12px">Did not expect this email? Contact ${esc(school || 'the school office')}.</p>`;
+  const res = await f('https://api.brevo.com/v3/smtp/email', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'application/json', 'api-key': env.BREVO_API_KEY },
+    body: JSON.stringify({
+      sender: { name: `Doorbell${school ? ` · ${school}` : ''}`.slice(0, 70), email: env.EMAIL_FROM },
+      to: [{ email: to, name }],
+      subject,
+      textContent: text,
+      htmlContent: html,
+    }),
+  }).catch(() => null);
+  if (res?.ok) return 'sent';
+  return `failed: Brevo answered ${res?.status ?? 'nothing'}`;
+}
+
+// Firebase's "confirm your email address" link for a staff account (marks the email as verified when opened).
+async function verifyLink(env, f, email) {
+  const site = (env.SITE_URL ?? '').replace(/\/$/, '');
+  const ask = (extra) => authAdmin(env, f, 'accounts:sendOobCode', { requestType: 'VERIFY_EMAIL', email, returnOobLink: true, ...extra });
+  try {
+    return (await ask(site ? { continueUrl: `${site}/login` } : {})).oobLink ?? null;
+  } catch {
+    // e.g. the website's address is not in Firebase's authorized domains: the link still works without it.
+    return (await ask({}).catch(() => null))?.oobLink ?? null;
+  }
 }
 
 async function forStaff(env, f, db, settings, school, req) {
@@ -160,11 +238,31 @@ async function forStaff(env, f, db, settings, school, req) {
   let mobile = profile.data.mobile;
   if (!mobile && profile.data.teacherId) mobile = (await db.get(`teachers/${profile.data.teacherId}`))?.data.mobile;
   const to = parentKeyOf(mobile);
-  if (!to) return 'no mobile number on file';
+  // By email too: a real address, Brevo set up, and not "Forgot password?" (Gmail users get Firebase's link there).
+  const byEmail = req.reason !== 'forgot' && isRealEmail(email) && !!(env.BREVO_API_KEY && env.EMAIL_FROM);
+  if (!to && !byEmail) return 'no mobile number or email to send it to'; // the password is NOT changed
   const password = newPassword();
   await setPassword(env, f, found.localId, password);
   const make = req.reason === 'new' ? TEXTS.staffNew : TEXTS.staffReset;
-  return deliver(env, f, db, settings, [], { to, body: make(school, email, password), hidden: make(school, email, HIDDEN), extra: {} });
+  const texted = to ? await deliver(env, f, db, settings, [], { to, body: make(school, email, password), hidden: make(school, email, HIDDEN), extra: {} }) : 'skipped';
+  if (!byEmail) return texted;
+  const link = req.reason === 'new' && !found.emailVerified ? await verifyLink(env, f, email) : null;
+  const mailed = await sendEmail(env, f, settings, {
+    to: email,
+    name: profile.data.name ?? '',
+    subject: req.reason === 'new' ? `Your Doorbell staff account (${school})` : `Your new Doorbell password (${school})`,
+    lines: [
+      req.reason === 'new'
+        ? `This email confirms that your ${school} staff account in Doorbell has been created.`
+        : `Your Doorbell password for ${school} was reset by the school.`,
+      `Sign in with ${email} and this temporary password: ${password}`,
+      ...(/@gmail\.com$/i.test(email) ? ['You can also sign in with Google using this Gmail address.'] : []),
+      `Please change the password after you sign in (Settings, Your password).${to ? ' The same password was also sent by text.' : ''}`,
+    ],
+    link,
+    path: '/login',
+  });
+  return to ? combine(texted, mailed) : mailed === 'sent' ? 'sent' : mailed;
 }
 
 // Sends the text and keeps a copy in the SMS log with the password hidden.

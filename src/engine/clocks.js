@@ -59,6 +59,7 @@ export function emptyState(meta, calendar = []) {
     threads: new Map(), // conversations between parents, teachers and the school office (src/messaging.js)
     messages: new Map(), // the messages in those conversations
     attachments: new Map(), // photos and PDFs sent in messages (cloud: only the ones opened on this device)
+    scanners: new Map(), // gate scanners (ESP32): name, SHA-256 of the scanner key, active, last seen (admin only)
     seating: new Map(), // seating charts: section id -> { rows, cols, aisleEvery, spacing, seats: { 'row-col': studentId } }
   };
 }

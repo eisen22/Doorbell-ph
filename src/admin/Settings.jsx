@@ -28,6 +28,7 @@ import {
   DEFAULT_LIMITS,
   renderTemplate,
   smsSegments,
+  isRealEmail,
   isGsmPlain,
 } from '../logic';
 import { TEMPLATE_KINDS } from '../engine';
@@ -58,7 +59,7 @@ const SETTINGS_TABS = [
   ['school', 'School & attendance'],
   ['texts', 'Texts to parents'],
   ['templates', 'Message templates'],
-  ['accounts', 'Admins & gate phone'],
+  ['accounts', 'Admins & gate scanners'],
   ['portal', 'Parent portal'],
 ];
 
@@ -170,10 +171,23 @@ export function AdminSettings() {
                   onChange={(e) => setS({ ...s, firstPeriodMins: Number(e.target.value) || 60 })}
                 />
               </label>
+              <label className="field">
+                <span>Alert if a class is not confirmed after (minutes; 0 = off)</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={120}
+                  className="input"
+                  value={s.unconfirmedAlertMins ?? 15}
+                  onChange={(e) => setS({ ...s, unconfirmedAlertMins: Math.max(0, Math.min(120, Number(e.target.value) || 0)) })}
+                />
+              </label>
             </div>
             <p className="muted small">
               The same for every class. DepEd sets no national gate time, so each school sets its own. Absence texts go out when the first period
-              ends (class start + this length), for example 8:30 AM for a 7:30 AM class with a 60-minute first period.
+              ends (class start + this length), for example 8:30 AM for a 7:30 AM class with a 60-minute first period. If no teacher has confirmed a
+              class by the alert time, the school office and the adviser get an email and a text (the text needs Semaphore), so someone can check the
+              class or send a substitute.
             </p>
           </Card>
           <LimitsCard s={s} setS={setS} />
@@ -307,6 +321,7 @@ export function AdminSettings() {
           <AdminsCard flash={flash} />
           <MyPasswordCard />
           <GateAccountCard flash={flash} />
+          <GateScannersCard flash={flash} />
         </>
       )}
 
@@ -318,6 +333,123 @@ export function AdminSettings() {
       )}
       <Toast message={toast} />
     </div>
+  );
+}
+
+// The gate scanners (ESP32 + GM65). Each one has its own scanner key and sends scans to the Cloudflare
+// Worker (worker/src/scanner.js), never to Firebase directly. The key is shown once, when it is made.
+function GateScannersCard({ flash }) {
+  const repo = useRepo();
+  const { data: scanners } = useLive((r) => r.gateScanners());
+  const [name, setName] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [newKey, setNewKey] = useState(null); // { name, key } shown once
+  const [cancelling, setCancelling] = useState(null);
+  const when = (iso) => (iso ? new Date(iso).toLocaleString('en-PH', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'never');
+  const add = async (e) => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      const { scanner, key } = await repo.addGateScanner(name);
+      setNewKey({ name: scanner.name, key });
+      setName('');
+    } catch (err) {
+      flash(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Card title="Gate scanners">
+      <p className="muted small">
+        The QR scanner at the gate (ESP32 with a GM65 module) sends each scan to the Doorbell Worker with its own scanner key. It keeps the list of
+        valid cards in its memory, so it beeps at once even when the Wi-Fi is down, and uploads the scans when the connection returns. If a key is lost
+        or copied, cancel it here and add the scanner again for a new key.
+      </p>
+      {scanners?.length ? (
+        <ul className="cal-list">
+          {scanners.map((sc) => (
+            <li key={sc.id}>
+              <QrCode size={16} aria-hidden="true" />
+              <span>
+                <b>{sc.name}</b> · key ending in {sc.keyEnd} ·{' '}
+                {sc.active ? `last seen ${when(sc.lastSeenAt)}` : <span className="muted">cancelled {when(sc.cancelledAt)}</span>}
+              </span>
+              {sc.active && (
+                <button className="btn btn-sm" onClick={() => setCancelling(sc)}>
+                  <Trash2 size={15} /> Cancel key
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="muted small">No gate scanner yet.</p>
+      )}
+      <form className="form-row" onSubmit={add}>
+        <label className="field">
+          <span>Scanner name</span>
+          <input className="input" placeholder="e.g. Main gate" value={name} maxLength={40} onChange={(e) => setName(e.target.value)} />
+        </label>
+        <button className="btn btn-ink align-end" disabled={busy}>
+          <Plus size={17} /> Add scanner
+        </button>
+      </form>
+      {newKey && (
+        <Modal
+          title={`Scanner key for ${newKey.name}`}
+          onClose={() => setNewKey(null)}
+          footer={
+            <>
+              <button
+                className="btn"
+                onClick={async () => {
+                  await navigator.clipboard?.writeText(newKey.key).catch(() => {});
+                  flash('Scanner key copied.');
+                }}
+              >
+                Copy key
+              </button>
+              <button className="btn btn-ink" onClick={() => setNewKey(null)}>
+                Done
+              </button>
+            </>
+          }
+        >
+          <p>Put this key in the scanner's settings now. It is shown only once; Doorbell keeps only a scrambled copy that cannot be turned back into the key.</p>
+          <p style={{ fontFamily: 'monospace', wordBreak: 'break-all', userSelect: 'all' }}>{newKey.key}</p>
+          <p className="muted small">
+            The scanner sends it as <span style={{ fontFamily: 'monospace' }}>Authorization: Bearer &lt;key&gt;</span> to your Worker's address +{' '}
+            <span style={{ fontFamily: 'monospace' }}>/scanner/cards</span> (list of valid cards) and <span style={{ fontFamily: 'monospace' }}>/scanner/scan</span> (each scan).
+          </p>
+        </Modal>
+      )}
+      {cancelling && (
+        <Modal
+          title={`Cancel the key of ${cancelling.name}?`}
+          onClose={() => setCancelling(null)}
+          footer={
+            <>
+              <button className="btn" onClick={() => setCancelling(null)}>
+                Keep it
+              </button>
+              <button
+                className="btn btn-danger"
+                onClick={async () => {
+                  await repo.cancelGateScanner(cancelling.id);
+                  setCancelling(null);
+                  flash('Scanner key cancelled.');
+                }}
+              >
+                Cancel key
+              </button>
+            </>
+          }
+        >
+          <p>The scanner stops working at once: its scans are refused. To use it again, add it again and put the new key in it.</p>
+        </Modal>
+      )}
+    </Card>
   );
 }
 
@@ -412,8 +544,9 @@ function AdminsCard({ flash }) {
       const phone = mobile.trim() ? normalizePhMobile(mobile.trim()) : '';
       if (mobile.trim() && !phone) throw new Error('Mobile must look like 0917 123 4567.');
       const res = await repo.addAdmin({ name, email, mobile: phone });
-      // With a mobile number, the password is texted (worker/src/passwords.js); otherwise it is shown once.
-      if (res.textedTo) flash(`${res.account.name} was added. Their password will be texted to ${displayPhMobile(res.textedTo)}.`);
+      // With a mobile number or a real email, the password is sent (worker/src/passwords.js); otherwise it is shown once.
+      if (res.textedTo || res.emailedTo)
+        flash(`${res.account.name} was added. Their password will be sent to ${[res.textedTo ? displayPhMobile(res.textedTo) : null, res.emailedTo].filter(Boolean).join(' and ')}.`);
       else setCreated({ name: res.account.name, email: res.account.email, password: res.tempPassword });
       setName('');
       setEmail('');
@@ -434,12 +567,12 @@ function AdminsCard({ flash }) {
       setError(err.message);
     }
   };
-  // Texts an admin a new password (only if they have a mobile number on file).
+  // Sends an admin a new password, by text (mobile number on file) and by email (a real email address).
   const sendPassword = async (a) => {
     setError('');
     try {
-      await repo.sendStaffPassword(a.email, a.mobile);
-      flash(`A new password will be texted to ${displayPhMobile(a.mobile)} within a few minutes.`);
+      const { textedTo, emailedTo } = await repo.sendStaffPassword(a.email, a.mobile);
+      flash(`A new password will be sent to ${[textedTo ? displayPhMobile(textedTo) : null, emailedTo].filter(Boolean).join(' and ')} within a few minutes.`);
     } catch (err) {
       setError(err.message);
     }
@@ -460,7 +593,7 @@ function AdminsCard({ flash }) {
                 <b>{a.name}</b> · {a.email}
                 {a.uid === me ? ' (you)' : ''}
               </span>
-              {a.uid !== me && a.mobile && (
+              {a.uid !== me && (a.mobile || isRealEmail(a.email)) && (
                 <button className="btn btn-sm" onClick={() => sendPassword(a)}>
                   Send new password
                 </button>

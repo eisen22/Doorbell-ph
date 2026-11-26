@@ -11,15 +11,20 @@
 //                        if nobody has Doorbell open, with the SAME rules as the website (src/engine.js):
 //                          - a class a TEACHER confirmed: at the absence text time (end of first
 //                            period) queues the "has not arrived" texts and the 3-day / limit texts
+//                          - a class NOBODY confirmed 15 minutes after it started: the office and the
+//                            class adviser get an email and a text, so someone confirms it or a substitute
+//                            is sent (Settings -> "Alert if a class is not confirmed")
 //                          - a class NOBODY confirmed: closed quietly after the class ends (no texts)
+//   4. The gate scanner (worker/src/scanner.js): GET /scanner/cards and POST /scanner/scan, with a scanner key.
 //                        The Worker never confirms a class in the morning: only a teacher does.
 // It signs in to Firebase with a Doorbell gate account (see README.md), so firestore.rules
 // decides what it may do, like for any user. Secrets (passwords, API key) are kept in Cloudflare.
 // =====================================================================
 import { Firestore } from './firestore.js';
 import { sendPasswords } from './passwords.js';
+import { handleScanner } from './scanner.js';
 import { Engine, emptyState } from '../../src/engine.js';
-import { addDays, isSchoolDay, manilaTime, manilaToday, shouldAutoFinalize, classEnded, semesterOf, parentKeyOf } from '../../src/logic.js';
+import { addDays, isSchoolDay, manilaTime, manilaToday, shouldAutoFinalize, classEnded, semesterOf, parentKeyOf, toMinutes, to12h } from '../../src/logic.js';
 
 export default {
   // The schedule (wrangler.toml: every minute).
@@ -27,8 +32,10 @@ export default {
     ctx.waitUntil(run(env, new Date(controller.scheduledTime)));
   },
   // Opening the Worker's address in a browser shows that it is alive (nothing secret is shown).
-  async fetch() {
-    return new Response('Doorbell worker is running. It sends Semaphore texts and auto-confirms classes on a schedule.\n', {
+  // /scanner/... is the gate scanner (worker/src/scanner.js). Anything else shows that the Worker is alive.
+  async fetch(request, env) {
+    if (new URL(request.url).pathname.startsWith('/scanner/')) return handleScanner(request, env);
+    return new Response('Doorbell worker is running. It sends texts and emails, alerts the office about classes not confirmed, and records gate scans.\n', {
       headers: { 'content-type': 'text/plain; charset=utf-8' },
     });
   },
@@ -41,6 +48,10 @@ export async function run(env, now = new Date(), fetchFn = (...args) => fetch(..
   const hour = Number(manilaTime(now).slice(0, 2));
   const weekday = new Date(`${manilaToday(now)}T12:00:00+08:00`).getUTCDay(); // 0 = Sunday
   const classMinute = now.getUTCMinutes() % 5 === 0 && hour >= 6 && hour <= 18 && weekday !== 0;
+  // At night (10 PM to 5 AM) nothing is scheduled, so the Worker looks for texts and password requests every
+  // 5 minutes instead of every minute (each look costs database reads, even when nothing is waiting). It does
+  // not stop: a suspension announced late at night must still reach the parents.
+  if ((hour >= 22 || hour < 5) && now.getUTCMinutes() % 5 !== 1) return { night: 'skipped this minute' };
   // New passwords by text (worker/src/passwords.js): every minute except the class-work minutes.
   // Each one uses about 8 of the 50 web requests a run may make, so fewer texts are sent that minute.
   let passwordWork = false;
@@ -68,7 +79,7 @@ export async function run(env, now = new Date(), fetchFn = (...args) => fetch(..
   }
   if (classMinute) {
     try {
-      report.confirm = await dailyWork(db, now);
+      report.confirm = await dailyWork(db, now, env, fetchFn);
     } catch (e) {
       console.error('Class step failed:', e.message);
     }
@@ -179,7 +190,8 @@ async function sendQueuedSms(db, env, fetchFn, batch = 14, preloaded = null) {
   let failed = 0;
   // A text left as 'sending' for over 5 minutes was interrupted (the Worker stopped mid-way). It may or
   // may not have gone out, so it is not sent again by itself: it is marked failed and staff can Resend.
-  for (const m of await db.query('sms', [['status', 'EQUAL', 'sending']], 5)) {
+  // (Checked every 5 minutes: it is rare, and each check costs a database read.)
+  for (const m of new Date().getUTCMinutes() % 5 === 1 ? await db.query('sms', [['status', 'EQUAL', 'sending']], 5) : []) {
     if (Date.now() - new Date(m.updateTime).getTime() < 5 * 60_000) continue;
     await db.commit([{ path: `sms/${m.id}`, patch: { status: 'failed', error: 'Sending was interrupted. Press Resend if the parent did not get it.', failedAt: new Date().toISOString() } }]).catch(() => {});
     failed += 1;
@@ -264,7 +276,7 @@ async function sendQueuedSms(db, env, fetchFn, batch = 14, preloaded = null) {
    For today: classes a teacher confirmed get their absence step once the absence text time passes.
    For today and the last 7 days: classes nobody confirmed are closed quietly after they end.
    ===================================================================== */
-async function dailyWork(db, now) {
+async function dailyWork(db, now, env = {}, fetchFn = fetch) {
   const today = manilaToday(now);
   const time = manilaTime(now);
   const [school, cal, secs] = await Promise.all([db.get('meta/school'), db.get('meta/calendar'), db.query('sections')]);
@@ -294,13 +306,29 @@ async function dailyWork(db, now) {
   const have = await db.getMany([
     ...due.map(({ sec, d }) => `confirmations/${sec.id}_${d}`),
     ...due.filter(({ d }) => d === today).map(({ sec }) => `notifications/absrun_${sec.id}_${today}`), // "absence step done" markers
+    ...due.filter(({ d }) => d === today).map(({ sec }) => `notifications/uncnow_${sec.id}_${today}`), // "office alerted" markers
   ]);
   const confOf = ({ sec, d }) => have.get(`confirmations/${sec.id}_${d}`);
+  // Not confirmed yet, some minutes after class started (and before it ends): alert the office and the adviser.
+  const alertMins = Number(meta.settings?.unconfirmedAlertMins ?? 15);
+  const toAlert = alertMins > 0
+    ? due.filter((x) => x.d === today && !confOf(x) && !classEnded(time, x.sec.schedule) && toMinutes(time) >= toMinutes(x.sec.schedule.startTime) + alertMins && !have.has(`notifications/uncnow_${x.sec.id}_${today}`))
+    : [];
+  let alerted = 0;
+  if (toAlert.length) {
+    try {
+      // At most 4 classes per run (each adviser gets an email and a text: 2 of the 50 web requests a
+      // run may make, plus 2 for the office); the others are alerted 5 minutes later.
+      alerted = await alertUnconfirmed(db, env, fetchFn, meta.settings ?? {}, toAlert.slice(0, 4).map((x) => x.sec), today, time, norm);
+    } catch (e) {
+      console.error('Unconfirmed-class alert failed:', e.message);
+    }
+  }
   const toClose = due.filter((x) => !confOf(x) && (x.d < today || classEnded(time, x.sec.schedule)));
   const toText = due.filter(
     (x) => x.d === today && confOf(x) && !confOf(x).auto && shouldAutoFinalize(time, x.sec.schedule) && !have.has(`notifications/absrun_${x.sec.id}_${today}`),
   );
-  if (!toClose.length && !toText.length) return { closed: 0, absence: 0 };
+  if (!toClose.length && !toText.length) return { closed: 0, absence: 0, alerted };
 
   // 2. Load what the engine needs, only for those classes (keeps the Worker fast): children, guardians,
   //    placements, attendance since the semester started (at least the last 60 days) for the 3-day and
@@ -360,5 +388,81 @@ async function dailyWork(db, now) {
   console.log(
     `Closed (nobody confirmed): ${toClose.map(({ sec, d }) => `${sec.name} ${d}`).join(', ') || 'none'}. Absence texts: ${toText.map(({ sec }) => sec.name).join(', ') || 'none'}. (${writes.size} writes)`,
   );
-  return { closed: toClose.length, absence: toText.length, writes: writes.size };
+  return { closed: toClose.length, absence: toText.length, alerted, writes: writes.size };
+}
+
+/* =====================================================================
+   5. A CLASS NOT CONFIRMED YET (default: 15 minutes after it started)
+   Parents get the arrival and absence texts only after a teacher confirms the class, so a class nobody
+   confirmed (teacher absent, busy, or forgot) must be noticed quickly. Once per class per day:
+     - an alert on the website (Overview and the teacher's Alerts)
+     - an email (Brevo) to the school office and to the adviser (and today's substitute, if any)
+     - a text (Semaphore) to the adviser's mobile and to the school's contact number, if it is a mobile
+   A teacher or the admin can still confirm the class until it ends; the waiting texts are then sent.
+   ===================================================================== */
+async function alertUnconfirmed(db, env, fetchFn, settings, sections, today, time, engine) {
+  const teacherIds = new Set();
+  for (const sec of sections) {
+    if (sec.teacherId) teacherIds.add(sec.teacherId);
+    const away = engine.awayOn(sec, today);
+    if (away?.kind === 'substitute' && away.teacherId) teacherIds.add(away.teacherId);
+  }
+  const teachers = await db.getMany([...teacherIds].map((id) => `teachers/${id}`));
+  const site = (env.SITE_URL ?? '').replace(/\/$/, '');
+  const canMail = !!(env.BREVO_API_KEY && env.EMAIL_FROM);
+  const canText = settings.smsProvider === 'semaphore' && !!env.SEMAPHORE_API_KEY;
+  const okMail = (e) => /^\S+@\S+\.\S+$/.test(e ?? '') && !/@sunnyside\.edu\.ph$/i.test(e);
+  let mails = 0;
+  let texts = 0;
+  const mail = async (to, subject, body) => {
+    if (!canMail || !okMail(to.email)) return;
+    const res = await fetchFn('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json', 'api-key': env.BREVO_API_KEY },
+      body: JSON.stringify({
+        sender: { name: `Doorbell${settings.schoolName ? ` · ${settings.schoolName}` : ''}`.slice(0, 70), email: env.EMAIL_FROM },
+        to: [to],
+        subject,
+        textContent: `${body}\n\n${site ? `Open Doorbell: ${site}\n\n` : ''}${settings.schoolName ?? ''}\nThis is an automatic alert from Doorbell.`,
+        htmlContent: `<p><b>${escapeHtml(subject)}</b></p><p>${escapeHtml(body)}</p>${site ? `<p><a href="${escapeHtml(site)}">Open Doorbell</a></p>` : ''}<p style="color:#666;font-size:12px">${escapeHtml(settings.schoolName ?? '')}<br>This is an automatic alert from Doorbell.</p>`,
+      }),
+    }).catch(() => null);
+    if (res?.ok) mails += 1;
+  };
+  const text = async (mobile, message) => {
+    const number = toSemaphoreNumber(mobile);
+    if (!canText || !number) return;
+    const form = new URLSearchParams({ apikey: env.SEMAPHORE_API_KEY, number, message });
+    if (settings.senderName) form.set('sendername', settings.senderName);
+    const res = await fetchFn('https://api.semaphore.co/api/v4/messages', { method: 'POST', body: form }).catch(() => null);
+    if (res?.ok) texts += 1;
+  };
+  const writes = [];
+  const why = 'Parents get the arrival and absence texts only after a teacher confirms the class.';
+  for (const sec of sections) {
+    const started = to12h(sec.schedule.startTime);
+    const title = `${sec.name} has not confirmed attendance yet (class started at ${started})`;
+    const body = `${why} Check that a teacher is in ${sec.name}, or send a substitute; then confirm attendance on the Attendance page.`;
+    const id = `uncnow_${sec.id}_${today}`;
+    writes.push({ path: `notifications/${id}`, data: { id, kind: 'cover', sectionId: sec.id, createdAt: `${today}T${time}:00+08:00`, read: false, title, body } });
+    // The adviser (and today's substitute): one email and one text each.
+    const away = engine.awayOn(sec, today);
+    const people = [sec.teacherId, away?.kind === 'substitute' ? away.teacherId : null]
+      .filter(Boolean)
+      .map((tid) => teachers.get(`teachers/${tid}`))
+      .filter((t) => t && t.active !== false);
+    for (const t of people) {
+      await mail({ email: t.email, name: t.name ?? '' }, title, body);
+      await text(t.mobile, `Doorbell: ${sec.name} has not confirmed attendance yet (class started ${started}). Please confirm it on Doorbell.`);
+    }
+  }
+  // The school office: ONE email and ONE text for all the classes of this run.
+  const names = sections.map((s) => s.name);
+  const list = names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0];
+  const verb = names.length > 1 ? 'have' : 'has';
+  if (settings.officeEmail) await mail({ email: settings.officeEmail, name: 'School office' }, `${list} ${verb} not confirmed attendance yet`, `${why} Check that a teacher is in each class, or send a substitute.`);
+  await text(settings.contactNumber, `Doorbell: ${list} ${verb} not confirmed attendance yet. Please check the class${names.length > 1 ? 'es' : ''}.`.slice(0, 300));
+  await db.commit(writes);
+  console.log(`Not confirmed yet: ${list} (${mails} emails, ${texts} texts)`);
+  return sections.length;
 }

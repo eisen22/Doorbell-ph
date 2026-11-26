@@ -21,7 +21,7 @@ import {
   countByGrade,
 } from '../ui';
 import { LEVEL_BANDS, bandOf } from './Sections';
-import { autoFinalizeTime, isSchoolDay } from '../logic';
+import { isSchoolDay, toMinutes, fromMinutes } from '../logic';
 import { useState } from 'react';
 import { SAMPLE_TEACHER_PASSWORD } from '../firebase';
 
@@ -109,6 +109,7 @@ export function AdminDashboard() {
     const teachers = await r.listTeachers();
     const calendar = await r.getCalendar();
     const sms = await r.listSms(1000);
+    const settings = await r.getSettings();
     const perSection = await Promise.all(
       sections.map(async (s) => {
         const roster = await r.getRoster(s.id, today.date);
@@ -126,7 +127,7 @@ export function AdminDashboard() {
     );
     // Children scanned at the gate but marked absent in class (urgent), newest first.
     const missing = (await r.listNotifications()).filter((n) => n.kind === 'missing' && !n.read);
-    return { today, sections, rows, teachers, calendar, sms, perSection, missing, session: await r.getSession() };
+    return { today, sections, rows, teachers, calendar, sms, perSection, missing, settings, session: await r.getSession() };
   });
   const repo = useRepo();
   if (!data)
@@ -145,12 +146,15 @@ export function AdminDashboard() {
   const noTeacher = data.sections.filter((s) => !s.teacherId);
   const teacherName = (id) => teachers.find((t) => t.id === id)?.name ?? 'a teacher';
   // A class nobody confirmed today (closed automatically) with no teacher away planned: the teacher may be absent.
+  // Shown from the same time the Worker emails and texts the office (Settings: "Alert if a class is not confirmed").
+  const alertMins = Number(data.settings?.unconfirmedAlertMins ?? 15) || 15;
+  const alertTime = (schedule) => fromMinutes(toMinutes(schedule.startTime) + alertMins);
   const unconfirmedByTeacher = perSection.filter(
     (p) =>
       !p.away &&
       ((p.confirmation?.auto && p.confirmation.date === today.date) ||
-        // no teacher has confirmed yet and first period is over
-        (!p.confirmation && today.isSchoolDay && today.date === today.actualDate && p.total > 0 && today.time >= autoFinalizeTime(p.section.schedule))),
+        // no teacher has confirmed yet, some minutes after class started
+        (!p.confirmation && today.isSchoolDay && today.date === today.actualDate && p.total > 0 && today.time >= alertTime(p.section.schedule))),
   );
   // What the "Today by section" line says under each class.
   const statusOf = ({ confirmation, away }) => {
@@ -322,7 +326,11 @@ export function AdminDashboard() {
             {unconfirmedByTeacher.map(({ section }) => (
               <li key={`auto-${section.id}`}>
                 <UserX size={18} />
-                <span>No teacher confirmed {section.name} today. Is the teacher absent?</span>
+                <span>
+                  {perSection.find((p) => p.section.id === section.id)?.confirmation
+                    ? `No teacher confirmed ${section.name} today. Was the teacher absent?`
+                    : `${section.name} has not confirmed attendance yet. Is a teacher in class?`}
+                </span>
                 <Link className="link" to="/admin/sections">
                   Teacher absent
                 </Link>
