@@ -256,6 +256,11 @@ export async function confirmItIsYou(password) {
   return user.getIdToken(true);
 }
 
+/** After the Worker changed the account's number: reload the account here (its sign-in email changed). */
+export async function reloadParent() {
+  await start().auth.currentUser?.reload().catch(() => {});
+}
+
 /** Sends an excuse request to the child's teacher. files: prepared photos/PDFs (excuse letter, medical certificate). */
 export async function sendExcuse({ studentId, sectionId, studentName, guardianName, dates, reason, note, periods, files = [], mobile }) {
   const { auth, db } = start();

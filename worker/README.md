@@ -158,6 +158,12 @@ password). Wait times and confirm links are kept in `limits/` and `emailChanges/
 Needs `FIREBASE_SERVICE_ACCOUNT`, `BREVO_API_KEY`, `EMAIL_FROM` and `SITE_URL`, and the newest `firestore.rules`
 (it adds `accountChanges`). Test without the internet: `npm test` (runs `test.mjs` and `test-account.mjs`).
 
+## Demo switch: everything every minute (for the defense)
+
+In `wrangler.toml`, set `FAST_MODE = "1"` and run `npx wrangler deploy`. The class work (absence texts, "class not
+confirmed" alerts, closing classes) then runs every minute instead of every 5, and nothing slows down at night.
+Afterwards set it back to `"0"` and deploy again: fast mode uses more of the free 50,000 database reads a day.
+
 ## At night
 
 From 10 PM to 5 AM the Worker checks for texts and password requests every 5 minutes instead of every minute

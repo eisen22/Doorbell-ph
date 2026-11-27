@@ -14,7 +14,7 @@ import { AlertTriangle, X, CalendarClock, CalendarDays, CloudRain, Megaphone, Ch
 import { Logo, Wordmark, useRepo, PasswordInput } from '../ui';
 import { addDays, isoWeekday, manilaToday, manilaTime, to12h, ordinal, periodsLabel, excuseStatusLabel, EXCUSE_REASONS, parentKeyOf } from '../logic';
 import { callWorker, maskMobile, offerToSavePassword, SCHOOL_HELP } from '../accountHelp';
-import { changeParentPassword, confirmItIsYou, parentUsesGoogle, dismissAnnouncement, portalAvailable, sendExcuse, signOutParent, watchParent, sendParentMessage, markParentRead, fetchParentAttachment } from './parentCloud';
+import { changeParentPassword, confirmItIsYou, parentUsesGoogle, reloadParent, dismissAnnouncement, portalAvailable, sendExcuse, signOutParent, watchParent, sendParentMessage, markParentRead, fetchParentAttachment } from './parentCloud';
 import { ParentMessages, parentUnread, latestMonth } from './ParentMessages';
 import { AttachButton, PendingFiles } from '../shared/Attachments';
 
@@ -950,6 +950,7 @@ function ChangeSignIn({ kind, current, onDone, onBack }) {
       const r = await callWorker(number ? '/account/change-number' : '/account/change-gmail', number ? { idToken, mobile: key } : { idToken, email: value.trim() });
       if (!r.ok) throw new Error(r.error);
       if (number) {
+        await reloadParent(); // so "Change password" works right away with the new number
         if (!google) offerToSavePassword(key, password); // the browser's saved sign-in now uses the new number
         onDone(`Your mobile number is now ${maskMobile(key)}. Sign in with it from now on. A notice was sent to your old number.`);
       } else onDone(`We sent a link to ${r.sentTo}. Open it within 1 hour to finish. Until then, your current Gmail stays.`);

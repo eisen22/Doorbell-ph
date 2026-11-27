@@ -506,7 +506,15 @@ export function StudentModal({ input, sections, onClose, onSaved }) {
     if (!mobile) return setError('Guardian mobile must look like 0917 123 4567.');
     if (!f.guardianName.trim()) return setError("Enter the guardian's name.");
     try {
-      await repo.saveStudent({ ...f, guardianMobile: mobile, guardianEmail: (f.guardianEmail ?? '').trim(), firstName: f.firstName.trim(), lastName: f.lastName.trim() });
+      await repo.saveStudent({
+        ...f,
+        guardianMobile: mobile,
+        guardianEmail: (f.guardianEmail ?? '').trim(),
+        firstName: f.firstName.trim(),
+        lastName: f.lastName.trim(),
+        // Editing: the number is changed only with "Change number", so the child keeps their guardian.
+        keepGuardian: editing && numberMode !== 'move',
+      });
     } catch (e) {
       return setError(e.message);
     }

@@ -948,7 +948,11 @@ export const adminMethods = {
     this.put('students', student.id, student);
     let sibling = false;
     const touched = []; // guardians whose parent portal key must be updated
-    let g = [...this.s.guardians.values()].find((x) => x.mobile === input.guardianMobile);
+    // keepGuardian (Admin -> Students, editing): the child keeps their guardian record even if its number is
+    // being changed by "Change number" right now (the Worker changes it a moment later).
+    let g =
+      (input.keepGuardian && input.id ? this.guardianOf(student.id) : undefined) ??
+      [...this.s.guardians.values()].find((x) => x.mobile === input.guardianMobile);
     // A child has ONE guardian record: take the child off any other number (the old number then
     // stops getting texts and loses the child in the parent portal).
     for (const other of this.s.guardians.values()) {
@@ -1024,7 +1028,8 @@ export const adminMethods = {
     const email = String(input.guardianEmail ?? '').trim().toLowerCase();
     if (!email) return;
     if (!/^[^@\s/]+@[^@\s/]+\.[^@\s/]+$/.test(email)) throw new Error('The guardian Gmail address is not valid.');
-    const other = [...this.s.guardians.values()].find((g) => g.email === email && g.mobile !== input.guardianMobile);
+    const mine = input.keepGuardian && input.id ? this.guardianOf(input.id) : null; // this child's own guardian
+    const other = [...this.s.guardians.values()].find((g) => g.email === email && g !== mine && g.mobile !== input.guardianMobile);
     if (other) throw new Error(`This Gmail is already used by another guardian (${other.name}).`);
     if ([...this.s.users.values()].some((u) => u.email?.toLowerCase() === email))
       throw new Error('This Gmail belongs to a teacher or admin account. Use another Gmail for the parent.');

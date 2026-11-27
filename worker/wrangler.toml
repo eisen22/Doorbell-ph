@@ -15,6 +15,10 @@ FIREBASE_PROJECT_ID = "doorbell-ph-f12d0"
 FIREBASE_API_KEY = "AIzaSyClVWQwsBbDPrIUqrASHSnowVWqVLowT4o"
 # The website's address: email alerts link to its Messages page.
 SITE_URL = "https://eisen22.github.io/Doorbell-ph"
+# DEMO SWITCH. "1" = the class work (absence texts, "class not confirmed" alerts, closing classes) runs every
+# minute instead of every 5 minutes, and the Worker does not slow down at night. Use it for the defense, then set
+# it back to "0" (it uses more of the free daily database reads). After changing it: npx wrangler deploy
+FAST_MODE = "0"
 
 [observability]
 enabled = true

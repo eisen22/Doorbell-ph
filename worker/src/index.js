@@ -51,11 +51,14 @@ export async function run(env, now = new Date(), fetchFn = (...args) => fetch(..
   // The class work runs every 5 minutes during school hours (fewer database reads).
   const hour = Number(manilaTime(now).slice(0, 2));
   const weekday = new Date(`${manilaToday(now)}T12:00:00+08:00`).getUTCDay(); // 0 = Sunday
-  const classMinute = now.getUTCMinutes() % 5 === 0 && hour >= 6 && hour <= 18 && weekday !== 0;
+  // FAST_MODE = "1" (wrangler.toml [vars], or Cloudflare -> doorbell-worker -> Settings -> Variables): for a demo,
+  // the class work runs EVERY minute and nothing slows down at night. Uses more database reads: turn it off after.
+  const fast = String(env.FAST_MODE ?? '') === '1';
+  const classMinute = (fast || now.getUTCMinutes() % 5 === 0) && hour >= 6 && hour <= 18 && weekday !== 0;
   // At night (10 PM to 5 AM) nothing is scheduled, so the Worker looks for texts and password requests every
   // 5 minutes instead of every minute (each look costs database reads, even when nothing is waiting). It does
   // not stop: a suspension announced late at night must still reach the parents.
-  if ((hour >= 22 || hour < 5) && now.getUTCMinutes() % 5 !== 1) return { night: 'skipped this minute' };
+  if (!fast && (hour >= 22 || hour < 5) && now.getUTCMinutes() % 5 !== 1) return { night: 'skipped this minute' };
   // New passwords by text (worker/src/passwords.js): every minute except the class-work minutes.
   // Each one uses about 8 of the 50 web requests a run may make, so fewer texts are sent that minute.
   let passwordWork = false;
@@ -66,12 +69,14 @@ export async function run(env, now = new Date(), fetchFn = (...args) => fetch(..
   } catch (e) {
     console.error('Settings not read:', e.message);
   }
-  if (!classMinute && settings) {
+  // In FAST_MODE the class work runs every minute, so passwords share those minutes (1 at a time, to stay
+  // under the 50 web requests a run may make).
+  if ((!classMinute || fast) && settings) {
     try {
-      report.passwords = await sendPasswords(env, fetchFn, settings);
+      report.passwords = await sendPasswords(env, fetchFn, settings, classMinute ? 1 : 2);
       passwordWork = typeof report.passwords === 'object' && report.passwords.done + report.passwords.failed + report.passwords.skipped > 0;
       // A parent's number changed by the admin, and notices after a Gmail change (worker/src/account.js).
-      report.accounts = await processAccountChanges(env, fetchFn, settings);
+      report.accounts = await processAccountChanges(env, fetchFn, settings, classMinute ? 1 : 2);
       if (report.accounts?.done) passwordWork = true;
     } catch (e) {
       console.error('Password step failed:', e.message);
