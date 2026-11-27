@@ -4,15 +4,17 @@
 // A phone-first page for parents: sign in with the mobile number + password, then see each child's
 // CONFIRMED attendance (calendar, month and semester totals) and send an excuse request to the teacher.
 // Parents sign in on the shared sign-in page (/login, main.jsx) with their mobile number.
-// Screens: Home (one tab per child) -> ExcuseForm / ChangePassword / Messages. Signed out -> back to /login.
+// Screens: Home (one tab per child) -> ExcuseForm / ChangePassword / ChangeSignIn (number, Gmail) / Messages.
+// Signed out -> back to /login.
 // The data comes from parentCloud.js (not from the engine: parents never load the whole school).
 // =====================================================================
 import React, { useEffect, useMemo, useState } from 'react';
 import { Navigate } from 'react-router-dom';
-import { AlertTriangle, X, CalendarClock, CalendarDays, CloudRain, Megaphone, ChevronLeft, ChevronRight, FileText, KeyRound, LogOut, Send, MessagesSquare } from 'lucide-react';
+import { AlertTriangle, X, CalendarClock, CalendarDays, CloudRain, Megaphone, ChevronLeft, ChevronRight, FileText, KeyRound, LogOut, Send, MessagesSquare, Smartphone, Mail } from 'lucide-react';
 import { Logo, Wordmark, useRepo, PasswordInput } from '../ui';
-import { addDays, isoWeekday, manilaToday, manilaTime, to12h, ordinal, periodsLabel, excuseStatusLabel, EXCUSE_REASONS } from '../logic';
-import { changeParentPassword, dismissAnnouncement, portalAvailable, sendExcuse, signOutParent, watchParent, sendParentMessage, markParentRead, fetchParentAttachment } from './parentCloud';
+import { addDays, isoWeekday, manilaToday, manilaTime, to12h, ordinal, periodsLabel, excuseStatusLabel, EXCUSE_REASONS, parentKeyOf } from '../logic';
+import { callWorker, maskMobile, offerToSavePassword, SCHOOL_HELP } from '../accountHelp';
+import { changeParentPassword, confirmItIsYou, parentUsesGoogle, dismissAnnouncement, portalAvailable, sendExcuse, signOutParent, watchParent, sendParentMessage, markParentRead, fetchParentAttachment } from './parentCloud';
 import { ParentMessages, parentUnread, latestMonth } from './ParentMessages';
 import { AttachButton, PendingFiles } from '../shared/Attachments';
 
@@ -126,7 +128,7 @@ function Home({ st }) {
   const demoLoad = useMemo(() => (id) => repo.fetchAttachment(id), [repo]);
   const children = st.key?.children ?? [];
   const [childId, setChildId] = useState(children[0]?.id ?? null);
-  const [screen, setScreen] = useState('home'); // 'home' | 'excuse' | 'password' | 'announcements' | 'messages'
+  const [screen, setScreen] = useState('home'); // 'home' | 'excuse' | 'password' | 'number' | 'gmail' | 'announcements' | 'messages'
   const [closedHere, setClosedHere] = useState([]); // closed on this page (the demo, or before the cloud saves it)
   const [flash, setFlash] = useState(null);
   useEffect(() => {
@@ -206,6 +208,22 @@ function Home({ st }) {
           onDone={() => {
             setScreen('home');
             setFlash('Password changed.');
+          }}
+          onBack={() => setScreen('home')}
+        />
+      </Shell>
+    );
+  // The Gmail on file: in the parent portal key (saved by the school), or the Google account signed in.
+  const gmail = st.key?.email ?? (st.profile?.via === 'google' ? st.profile.email : null);
+  if (screen === 'number' || screen === 'gmail')
+    return (
+      <Shell school={school}>
+        <ChangeSignIn
+          kind={screen}
+          current={screen === 'number' ? maskMobile(mobile) : gmail}
+          onDone={(text) => {
+            setScreen('home');
+            setFlash(text);
           }}
           onBack={() => setScreen('home')}
         />
@@ -309,6 +327,17 @@ function Home({ st }) {
           <button type="button" className="pp-link" onClick={() => setScreen('password')}>
             <KeyRound size={15} aria-hidden="true" /> Change password
           </button>
+        )}
+        {/* The parent's own sign-in details (not in the demo: it has no school server). */}
+        {!st.demo && mobile && (
+          <>
+            <button type="button" className="pp-link" onClick={() => setScreen('number')}>
+              <Smartphone size={15} aria-hidden="true" /> Change mobile number
+            </button>
+            <button type="button" className="pp-link" onClick={() => setScreen('gmail')}>
+              <Mail size={15} aria-hidden="true" /> {gmail ? 'Change Gmail' : 'Add a Gmail'}
+            </button>
+          </>
         )}
       </div>
     </Shell>
@@ -892,6 +921,84 @@ function ChangePassword({ codeHash, onDone, onBack }) {
       <button className="btn btn-ink wide pp-big" type="submit" disabled={busy}>
         {busy ? 'Saving…' : 'Save new password'}
       </button>
+    </form>
+  );
+}
+
+// ---------------------------------------------------------------------
+// CHANGE MOBILE NUMBER / CHANGE GMAIL. The parent types their password again (or picks their Google
+// account again) first, so someone holding an unlocked phone cannot do it. The Worker
+// (worker/src/account.js) makes the change and sends a notice to the old number and the Gmail.
+// A new Gmail must be confirmed by opening a link sent to it (so a typo cannot lock them out).
+// ---------------------------------------------------------------------
+function ChangeSignIn({ kind, current, onDone, onBack }) {
+  const google = parentUsesGoogle();
+  const [value, setValue] = useState('');
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const number = kind === 'number';
+  const submit = async (e) => {
+    e.preventDefault();
+    setError(null);
+    const key = parentKeyOf(value);
+    if (number && !key) return setError('Enter the new mobile number, e.g. 0917 123 4567.');
+    if (!number && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value.trim())) return setError('Enter the new Gmail, e.g. name@gmail.com.');
+    setBusy(true);
+    try {
+      const idToken = await confirmItIsYou(password);
+      const r = await callWorker(number ? '/account/change-number' : '/account/change-gmail', number ? { idToken, mobile: key } : { idToken, email: value.trim() });
+      if (!r.ok) throw new Error(r.error);
+      if (number) {
+        if (!google) offerToSavePassword(key, password); // the browser's saved sign-in now uses the new number
+        onDone(`Your mobile number is now ${maskMobile(key)}. Sign in with it from now on. A notice was sent to your old number.`);
+      } else onDone(`We sent a link to ${r.sentTo}. Open it within 1 hour to finish. Until then, your current Gmail stays.`);
+    } catch (err) {
+      setError(err.message);
+      setBusy(false);
+    }
+  };
+  return (
+    <form onSubmit={submit} className="pp-stack" autoComplete="on">
+      <button type="button" className="pp-back" onClick={onBack}>
+        <ChevronLeft size={18} aria-hidden="true" /> Back
+      </button>
+      <h1 className="pp-h1">{number ? 'Change mobile number' : current ? 'Change Gmail' : 'Add a Gmail'}</h1>
+      <section className="pp-card pp-form">
+        {current && <p className="pp-muted pp-small">Now: {current}</p>}
+        <label className="pp-field">
+          <span>{number ? 'New mobile number' : 'New Gmail'}</span>
+          {number ? (
+            <input className="input" type="tel" inputMode="tel" autoComplete="tel" placeholder="0917 123 4567" value={value} onChange={(e) => setValue(e.target.value)} autoFocus />
+          ) : (
+            <input className="input" type="email" inputMode="email" autoComplete="email" placeholder="name@gmail.com" value={value} onChange={(e) => setValue(e.target.value)} autoFocus />
+          )}
+        </label>
+        {google ? (
+          <p className="pp-muted pp-small">To confirm it's you, a Google window will ask you to choose your Google account again.</p>
+        ) : (
+          <label className="pp-field">
+            <span>Your password (to confirm it's you)</span>
+            <PasswordInput autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
+          </label>
+        )}
+        <p className="pp-muted pp-small">
+          {number
+            ? 'Your children, messages and password stay the same. A notice is sent to your old number and your Gmail.'
+            : 'We will send a link to the new Gmail. The change happens when you open it. You can then sign in with Google using it, and reset a forgotten password through it.'}
+        </p>
+      </section>
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+      <button className="btn btn-ink wide pp-big" type="submit" disabled={busy}>
+        {busy ? 'Saving…' : number ? 'Change number' : 'Send confirmation link'}
+      </button>
+      <p className="pp-muted pp-small">
+        Can't do it here? Contact the school: {SCHOOL_HELP.email} or {SCHOOL_HELP.phone}.
+      </p>
     </form>
   );
 }

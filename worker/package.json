@@ -7,7 +7,7 @@
     "deploy": "wrangler deploy",
     "logs": "wrangler tail",
     "dev": "wrangler dev --test-scheduled",
-    "test": "node --import ./resolve-hook.mjs test.mjs"
+    "test": "node --import ./resolve-hook.mjs test.mjs && node --import ./resolve-hook.mjs test-account.mjs"
   },
   "devDependencies": {
     "wrangler": "^4.40.0"

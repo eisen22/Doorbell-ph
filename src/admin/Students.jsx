@@ -37,7 +37,9 @@ import {
   manilaToday,
   GRADE_LEVELS,
   gradeName,
+  isRealEmail,
 } from '../logic';
+import { sentTo } from './Teachers';
 
 // =====================================================================
 // STUDENTS (/admin/students): children, guardians, class placement, leaving the school.
@@ -459,13 +461,35 @@ export function StudentModal({ input, sections, onClose, onSaved }) {
   const [f, setF] = useState(input);
   const [error, setError] = useState(null);
   const [info, setInfo] = useState(null);
-  // Texts the guardian a new parent portal password (worker/src/passwords.js), to the number on file.
+  // The mobile number of a saved guardian is changed with "Change number" (all their children, their account
+  // and messages move with it). 'change' = that box is open; 'move' = the field is unlocked to move ONLY this
+  // child to another guardian (the old way).
+  const editing = !!(f.id && input.guardianMobile);
+  const [numberMode, setNumberMode] = useState(null);
+  const [newMobile, setNewMobile] = useState('');
+  const changeNumber = async () => {
+    setError(null);
+    setInfo(null);
+    try {
+      const { mobile } = await repo.changeGuardianNumber(f.id, newMobile);
+      set({ guardianMobile: displayPhMobile(mobile) });
+      setNumberMode(null);
+      setNewMobile('');
+      setInfo(
+        `The number will change to ${displayPhMobile(mobile)} within a minute, for all of this guardian's children. Their sign-in, parent portal and messages move with it, and a notice goes to the old number and the Gmail.`,
+      );
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+  // Sends the guardian a new parent portal password (worker/src/passwords.js): by text to the number on file,
+  // and by email to the saved Gmail if there is one.
   const sendPassword = async () => {
     setError(null);
     setInfo(null);
     try {
-      const to = await repo.sendParentPassword(f.id);
-      setInfo(`A new parent portal password will be texted to ${displayPhMobile(to)} within a few minutes. The old one stops working.`);
+      const { textedTo, emailedTo } = await repo.sendParentPassword(f.id);
+      setInfo(`A new parent portal password will be sent to ${sentTo(textedTo, emailedTo)} within a few minutes. The old one stops working.`);
     } catch (e) {
       setError(e.message);
     }
@@ -489,7 +513,9 @@ export function StudentModal({ input, sections, onClose, onSaved }) {
     onSaved(
       f.id
         ? 'Student updated'
-        : "Student added. A QR card was created automatically. A new guardian number gets the parent portal password by text.",
+        : `Student added. A QR card was created automatically. A new guardian number gets the parent portal password by text${
+            isRealEmail(f.guardianEmail) ? ` and by email to ${f.guardianEmail.trim()}` : ''
+          }.`,
     );
   };
   return (
@@ -599,10 +625,19 @@ export function StudentModal({ input, sections, onClose, onSaved }) {
         </label>
       </div>
       <div className="form-row">
-        <label className="field">
+        <div className="field">
           <span>Mobile</span>
-          <input className="input" value={f.guardianMobile} onChange={(e) => set({ guardianMobile: e.target.value })} placeholder="0917 123 4567" />
-        </label>
+          {editing && numberMode !== 'move' ? (
+            <div className="inline-field">
+              <input className="input" value={f.guardianMobile} readOnly aria-label="Mobile" />
+              <button type="button" className="btn" onClick={() => setNumberMode(numberMode === 'change' ? null : 'change')}>
+                Change number
+              </button>
+            </div>
+          ) : (
+            <input className="input" value={f.guardianMobile} onChange={(e) => set({ guardianMobile: e.target.value })} placeholder="0917 123 4567" aria-label="Mobile" />
+          )}
+        </div>
         <label className="field">
           <span>Gmail (optional: Google sign-in, and a new parent gets the password by email too)</span>
           <input
@@ -622,6 +657,38 @@ export function StudentModal({ input, sections, onClose, onSaved }) {
           </select>
         </label>
       </div>
+      {editing && numberMode === 'change' && (
+        <div className="reset-confirm" role="group" aria-label="Change the guardian's mobile number">
+          <p>
+            <b>Change {f.guardianName || "the guardian"}'s mobile number</b>
+          </p>
+          <p className="muted small">
+            First make sure it is really the parent: check a valid ID that matches the guardian's name in person, or confirm the request by
+            replying to the Gmail on file. Don't change it because of a phone call or an email from an unknown address.
+          </p>
+          <label className="field">
+            <span>New mobile number</span>
+            <input className="input" value={newMobile} onChange={(e) => setNewMobile(e.target.value)} placeholder="0917 123 4567" autoFocus />
+          </label>
+          <div className="reset-actions">
+            <button type="button" className="btn btn-ink" onClick={changeNumber}>
+              Change number for all their children
+            </button>
+            <button type="button" className="btn" onClick={() => setNumberMode(null)}>
+              Cancel
+            </button>
+          </div>
+          <button type="button" className="link-btn" onClick={() => setNumberMode('move')}>
+            This child has a different guardian now (move only this child)
+          </button>
+        </div>
+      )}
+      {editing && (f.guardianEmail ?? '').trim().toLowerCase() !== (input.guardianEmail ?? '').trim().toLowerCase() && (
+        <p className="muted small" role="note">
+          Changing the Gmail: make sure it is really the parent (valid ID in person, or a request from the Gmail on file). A notice is sent to
+          the old Gmail and the parent's number when you save.
+        </p>
+      )}
       <label className="check">
         <input type="checkbox" checked={f.smsConsent} onChange={(e) => set({ smsConsent: e.target.checked })} /> Guardian signed the SMS consent form
       </label>

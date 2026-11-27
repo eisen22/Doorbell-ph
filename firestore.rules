@@ -85,14 +85,16 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
-    // "Send me a new password" requests (worker/src/passwords.js makes the password and texts it).
-    // Anyone may ask from the sign-in page, but the same account at most once every 15 minutes; the
-    // admin may ask any time (new parent, new teacher or admin, "Send new password"). Nobody can read
-    // them: the Worker uses the service account. One document per account: p_<09 number> or s_<email>.
+    // "Send me a new password" requests (worker/src/passwords.js makes the password and sends it).
+    // The sign-in page now asks the Worker directly (worker/src/account.js); this is the backup when the
+    // Worker cannot be reached: anyone may ask, the same number or email at most once every 5 minutes. The
+    // admin may ask any time (new parent, new teacher or admin, "Send new password"). Nobody can read them:
+    // the Worker uses the service account. One document per account: p_<09 number or Gmail> or s_<email>.
     function passwordRequestOk(id) {
       let d = request.resource.data;
       return d.keys().hasOnly(['who', 'login', 'reason', 'at', 'state']) && d.state == 'new' && d.login is string
-        && ((d.who == 'parent' && d.login.matches('09[0-9]{9}') && id == 'p_' + d.login)
+        && ((d.who == 'parent' && (d.login.matches('09[0-9]{9}') || (d.reason == 'forgot' && d.login.size() <= 100 && d.login.matches('[^@ /A-Z]+@[^@ /A-Z]+')))
+            && id == 'p_' + d.login)
           || (d.who == 'staff' && d.login.size() <= 100 && d.login.matches('[^@ /]+@[^@ /]+') && id == 's_' + d.login));
     }
     function forgotRequest() {
@@ -101,9 +103,20 @@ service cloud.firestore {
     match /passwordRequests/{id} {
       allow create: if passwordRequestOk(id) && (forgotRequest() || (isAdmin() && request.resource.data.reason in ['new', 'admin']));
       allow update: if passwordRequestOk(id) && (
-        (forgotRequest() && (!(resource.data.at is timestamp) || request.time > resource.data.at + duration.value(15, 'm')))
+        (forgotRequest() && (!(resource.data.at is timestamp) || request.time > resource.data.at + duration.value(5, 'm')))
         || (isAdmin() && request.resource.data.reason in ['new', 'admin']));
     }
+
+    // Changes the admin asks the Worker to make (worker/src/account.js): a parent's new mobile number
+    // ('mobile'), a teacher's new sign-in email ('staffEmail'), and the notice after a parent's Gmail changed
+    // ('gmailNotice'). Only the admin; the Worker writes the result.
+    match /accountChanges/{id} {
+      allow read: if isAdmin();
+      allow create: if isAdmin() && request.resource.data.state == 'new'
+        && request.resource.data.kind in ['mobile', 'staffEmail', 'gmailNotice'];
+    }
+    // limits/{hash} (wait times) and emailChanges/{hash} (Gmail confirm links): no rule, so only the Worker
+    // (service account) can use them.
 
     // School setup: only the admin changes these; all staff can read them.
     match /sections/{id}    { allow read: if isStaff(); allow write: if isAdmin(); }

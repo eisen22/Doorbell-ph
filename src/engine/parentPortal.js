@@ -49,6 +49,8 @@ export const parentPortalMethods = {
       sectionIds: [...new Set(kids.map((k) => this.activeEnrollment(k.id)?.sectionId).filter(Boolean))],
       codeHash: code ? await sha256Hex(code) : null,
       defaultFrom: eldest ? `${eldest.firstName} ${eldest.lastName}` : null,
+      // The Gmail on file, shown in the parent portal (Change Gmail).
+      email: g.email ?? null,
       updatedAt: new Date().toISOString(),
     };
     this.put('parentKeys', key, doc);

@@ -64,13 +64,71 @@ export const adminMethods = {
     this.put('passwordRequests', id, { who, login: clean, reason, at: new Date().toISOString(), state: 'new' });
     return true;
   },
-  // Admin -> Students: texts this child's guardian a new parent portal password.
+  // Admin -> Teachers -> Change email: a teacher who lost their Gmail gets a new sign-in email (same account,
+  // classes and password). In the cloud the Worker changes the sign-in account too (accountChanges, worker/src/account.js).
+  async changeStaffEmail(teacherId, emailInput) {
+    await this.ready;
+    const t = this.s.teachers.get(teacherId);
+    if (!t) throw new Error('Teacher not found.');
+    const email = String(emailInput ?? '').trim().toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new Error('Enter a valid email address.');
+    if (email === String(t.email).toLowerCase()) throw new Error('That is already their email.');
+    if ([...this.s.users.values()].some((u) => String(u.email).toLowerCase() === email) || [...this.s.teachers.values()].some((x) => x !== t && String(x.email).toLowerCase() === email))
+      throw new Error('That email already has an account.');
+    if ([...this.s.guardians.values()].some((g) => g.email === email)) throw new Error("That email is a parent's Gmail. Use another email.");
+    const account = [...this.s.users.values()].find((u) => u.teacherId === t.id);
+    const old = t.email;
+    if (this.mode === 'cloud') {
+      if (!account) throw new Error('This teacher has no sign-in account yet.');
+      this.put('accountChanges', `s_${account.uid}_${Date.now().toString(36)}`, { kind: 'staffEmail', uid: account.uid, teacherId: t.id, email, by: this.actor(), at: new Date().toISOString(), state: 'new' });
+    } else {
+      t.email = email;
+      this.put('teachers', t.id, t);
+      if (account) {
+        account.email = email;
+        this.put('users', account.uid, account);
+      }
+    }
+    await this.logAudit('teacher.email', t.name, `${old} -> ${email}${this.mode === 'cloud' ? ' (changed by the Worker)' : ''}`);
+    this.emit();
+    return { email };
+  },
+  // Admin -> Students -> Change number: the guardian's new mobile number, for ALL their children. Only
+  // after checking it is really the parent (valid ID in person, or a request from the Gmail on file).
+  // In the cloud the Worker moves everything to the new number (sign-in account, parent portal,
+  // conversations) and sends a notice to the old number and the Gmail (accountChanges, worker/src/account.js).
+  async changeGuardianNumber(studentId, mobileInput) {
+    await this.ready;
+    const g = this.guardianOf(studentId);
+    if (!g) throw new Error('This child has no guardian record yet.');
+    const key = parentKeyOf(mobileInput);
+    if (!key) throw new Error('Enter the new mobile number, e.g. 0917 123 4567.');
+    const oldKey = parentKeyOf(g.mobile);
+    if (oldKey === key) throw new Error('That is already the number on file.');
+    if ([...this.s.guardians.values()].some((x) => x !== g && parentKeyOf(x.mobile) === key))
+      throw new Error('Another guardian already uses this number. If this child now belongs to that guardian, use "This child has a different guardian" instead.');
+    if (this.mode === 'cloud') {
+      this.put('accountChanges', `m_${g.id}_${Date.now().toString(36)}`, { kind: 'mobile', guardianId: g.id, mobile: key, by: this.actor(), at: new Date().toISOString(), state: 'new' });
+    } else {
+      // Demo mode (no Worker): change it here.
+      if (oldKey) this.persistence.remove('parentKeys', oldKey);
+      g.mobile = `+63${key.slice(1)}`;
+      this.put('guardians', g.id, g);
+      await this.syncParentKey(g);
+    }
+    await this.logAudit('guardian.mobile', g.name, `${oldKey ?? 'none'} -> ${key}${this.mode === 'cloud' ? ' (moved by the Worker)' : ''}`);
+    this.emit();
+    return { mobile: key, guardian: g };
+  },
+  // Admin -> Students: sends this child's guardian a new parent portal password, by text and, if a Gmail is
+  // saved, by email too. Returns { textedTo, emailedTo }.
   async sendParentPassword(studentId) {
     const g = this.guardianOf(studentId);
     if (!g || !parentKeyOf(g.mobile)) throw new Error('This child has no guardian mobile number on file.');
     this.queuePassword('parent', g.mobile, 'admin');
-    await this.logAudit('parent.password', g.name, `new password texted to ${g.mobile}`);
-    return g.mobile;
+    const emailedTo = isRealEmail(g.email) ? g.email : null;
+    await this.logAudit('parent.password', g.name, `new password texted to ${g.mobile}${emailedTo ? ` and emailed to ${emailedTo}` : ''}`);
+    return { textedTo: g.mobile, emailedTo };
   },
   // Admin -> Teachers / Settings -> Admins: sends a teacher or admin a new password, by text (mobile number on
   // file) and by email (a real email address). Returns where it goes.
@@ -929,6 +987,18 @@ export const adminMethods = {
       const email = String(input.guardianEmail ?? '').trim().toLowerCase() || null;
       if ((g.email ?? null) !== email) {
         if (g.email) this.persistence.remove('parentEmails', g.email); // the old Gmail stops working
+        // A parent's Gmail changed by the school: the Worker tells the parent (old Gmail and the number),
+        // so they find out at once if it was not them who asked (worker/src/account.js).
+        if (!isNew && this.mode === 'cloud' && (g.email || email))
+          this.put('accountChanges', `g_${g.id}_${Date.now().toString(36)}`, {
+            kind: 'gmailNotice',
+            guardianId: g.id,
+            oldEmail: g.email ?? null,
+            newEmail: email,
+            by: this.actor(),
+            at: new Date().toISOString(),
+            state: 'new',
+          });
         g.email = email;
       }
     }

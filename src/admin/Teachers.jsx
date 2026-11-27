@@ -18,7 +18,7 @@ import {
   SectionChips,
 } from '../ui';
 import { useState } from 'react';
-import { displayPhMobile, to12h, normalizePhMobile, GRADE_LEVELS, gradeName, gradeRank, SUBJECTS, hasSubjectTeachers } from '../logic';
+import { displayPhMobile, to12h, normalizePhMobile, GRADE_LEVELS, gradeName, gradeRank, SUBJECTS, hasSubjectTeachers, isRealEmail } from '../logic';
 
 // =====================================================================
 // TEACHERS (/admin/teachers): teacher accounts and the classes they handle.
@@ -61,6 +61,21 @@ export function TeacherModal({ input, sections, teachers, onClose, onSaved }) {
       setError(e.message);
     }
   };
+  // A teacher who lost their Gmail: the admin gives them a new sign-in email (the same account, classes and
+  // password). The Worker changes it and tells the old email and the new one (worker/src/account.js).
+  const [newEmail, setNewEmail] = useState(null); // null = closed; a string = the "Change email" box is open
+  const changeEmail = async () => {
+    setError(null);
+    setInfo(null);
+    try {
+      const { email } = await repo.changeStaffEmail(input.id, newEmail);
+      setEdit({ ...edit, email });
+      setNewEmail(null);
+      setInfo(`The sign-in email will change to ${email} within a minute. Their password stays the same; a notice goes to the old and the new email.`);
+    } catch (e) {
+      setError(e.message);
+    }
+  };
   const nameOf = (id) => teachers.find((t) => t.id === id)?.name;
   // The grade they teach: picked here, or (for older records) the grade of the class they advise.
   const grade = edit.gradeLevel ?? live.find((s) => input.id && s.teacherId === input.id)?.gradeLevel ?? '';
@@ -77,6 +92,8 @@ export function TeacherModal({ input, sections, teachers, onClose, onSaved }) {
       if (!n) return setError('Mobile must look like 0917 123 4567.');
       mobile = n;
     }
+    // A forgotten password is sent to a real email as a reset link, or else by text: every teacher needs one of them.
+    if (!isRealEmail(edit.email) && !mobile) return setError('Add a mobile number: this email cannot receive emails, so a forgotten password is sent by text.');
     setBusy(true);
     try {
       const res = await repo.saveTeacher({ ...edit, gradeLevel: grade || null, name: edit.name.trim(), email: edit.email.trim(), mobile });
@@ -126,12 +143,41 @@ export function TeacherModal({ input, sections, teachers, onClose, onSaved }) {
         <span>Full name</span>
         <input className="input" value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} autoFocus />
       </label>
+      <div className="field">
+        <span>Email (used to sign in)</span>
+        {edit.id ? (
+          <div className="inline-field">
+            <input type="email" className="input" value={edit.email} readOnly aria-label="Email" />
+            <button type="button" className="btn" onClick={() => setNewEmail(newEmail === null ? '' : null)}>
+              Change email
+            </button>
+          </div>
+        ) : (
+          <input type="email" className="input" value={edit.email} onChange={(e) => setEdit({ ...edit, email: e.target.value })} aria-label="Email" />
+        )}
+      </div>
+      {edit.id && newEmail !== null && (
+        <div className="reset-confirm" role="group" aria-label="Change the teacher's sign-in email">
+          <p className="muted small">
+            For a teacher who lost their Gmail. Check that it is really them (in person, with their ID). They keep their account, classes and
+            password; Google sign-in moves to the new Gmail.
+          </p>
+          <label className="field">
+            <span>New email</span>
+            <input type="email" className="input" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} placeholder="name@gmail.com" autoFocus />
+          </label>
+          <div className="reset-actions">
+            <button type="button" className="btn btn-ink" onClick={changeEmail}>
+              Change email
+            </button>
+            <button type="button" className="btn" onClick={() => setNewEmail(null)}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
       <label className="field">
-        <span>Email (used to sign in){edit.id ? ' · cannot be changed here' : ''}</span>
-        <input type="email" className="input" value={edit.email} disabled={!!edit.id} onChange={(e) => setEdit({ ...edit, email: e.target.value })} />
-      </label>
-      <label className="field">
-        <span>Mobile (optional, for alerts)</span>
+        <span>Mobile (for alerts; needed if the email is not a real inbox)</span>
         <input className="input" value={edit.mobile} onChange={(e) => setEdit({ ...edit, mobile: e.target.value })} placeholder="0917 123 4567" />
       </label>
       {/* The grade they teach: only that grade's classes are listed below. */}

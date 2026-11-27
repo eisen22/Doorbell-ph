@@ -109,8 +109,8 @@ teacher's Gmail (and Spam). `npx wrangler tail` shows "Brevo refused an email" i
 
 When the admin adds a parent number (or a teacher or admin with a mobile number), or someone presses
 "Forgot password?" and accepts, the Worker makes a random password, sets it on the account and texts it.
-The password is never saved in Firestore; the SMS log shows it hidden. Staff with a Gmail address get
-Firebase's reset link instead. This needs the Firebase **service account** key, because only a trusted
+The password is never saved in Firestore; the SMS log shows it hidden. Accounts with a Gmail (or a staff
+member's real email) get a reset link instead (see "Forgot password and account changes" below). This needs the Firebase **service account** key, because only a trusted
 server may set someone else's password:
 
 1. Firebase console → Project settings → **Service accounts** → **Generate new private key**. A `.json` file downloads.
@@ -123,7 +123,7 @@ server may set someone else's password:
 4. Publish the newest `firestore.rules` (it adds `passwordRequests`).
 
 `npx wrangler tail` shows "Password step failed" or `passwords: "skipped (FIREBASE_SERVICE_ACCOUNT is not set)"` if something is missing.
-"Forgot password?" for the same account works at most once every 15 minutes.
+"Forgot password?" for the same account works at most once every 5 minutes.
 
 ### By email too (with Brevo)
 
@@ -134,10 +134,29 @@ When the account has a real email address, the password is also emailed (same pa
   a teacher or admin with no mobile number now gets the password by email only;
 - **Send new password** (admin): by text and by email.
 
-"Forgot password?" stays by text (Gmail users get Firebase's reset link on the sign-in page). If neither a
-mobile number nor a real email (and Brevo) is available, the password is not changed. For the confirm link to
+"Forgot password?" sends a reset link instead (below). If neither a mobile number nor a real email (and Brevo)
+is available, the password is not changed. For the confirm link to
 open the sign-in page afterwards, the website's domain must be in Firebase → Authentication → Settings →
 Authorized domains (it already is if Google sign-in works).
+
+## Forgot password and account changes (`src/account.js`)
+
+The website calls the Worker's address directly (`https://doorbell-worker.doorbell-ph.workers.dev`, set in
+`src/accountHelp.js`). Only the website's own address (`SITE_URL`) and `localhost` may call it.
+
+| Address | What it does |
+|---|---|
+| `POST /auth/forgot` | Mobile number or email. With a Gmail on file (or a staff real email): an email with **Set a new password**, a link to the website's `/reset` page (Firebase's one-time code, 1 hour). The old password works until a new one is chosen. Without one: a new password by text. Once per account every 5 minutes; the answer never says whether the account exists. |
+| `POST /auth/signin` | A parent's Gmail or a teacher's/admin's mobile number with the password: if the password is right, answers which sign-in to use. 10 wrong tries = 15 minutes wait. |
+| `POST /account/change-number` | A signed-in parent (password typed again in the last 10 minutes) changes their number. Their sign-in account, parent portal, Gmail link and conversations move to the new number. Notices go to the old number, the new number and the Gmail. |
+| `POST /account/change-gmail` and `/account/confirm-gmail` | A signed-in parent asks for a new Gmail; a link is sent TO the new Gmail and opening it (website page `/confirm-email`) makes the change. A notice goes to the old Gmail and the number. |
+
+The admin's changes go through `accountChanges/{id}` (checked every minute): **Admin → Students → Change number**
+(the same move as above) and **Admin → Teachers → Change email** (a teacher who lost their Gmail; same account and
+password). Wait times and confirm links are kept in `limits/` and `emailChanges/`, which only the Worker can read.
+
+Needs `FIREBASE_SERVICE_ACCOUNT`, `BREVO_API_KEY`, `EMAIL_FROM` and `SITE_URL`, and the newest `firestore.rules`
+(it adds `accountChanges`). Test without the internet: `npm test` (runs `test.mjs` and `test-account.mjs`).
 
 ## At night
 

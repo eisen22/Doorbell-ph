@@ -8,16 +8,19 @@
 // The website asks for a password by saving passwordRequests/{p_<number> | s_<email>}:
 //   reason 'new'    = the admin added a parent (or a teacher/admin with a mobile number): welcome text
 //   reason 'admin'  = the admin pressed "Send new password"
-//   reason 'forgot' = "Forgot password?" on the sign-in page (anyone; firestore.rules: once per 15 minutes)
+//   reason 'forgot' = "Forgot password?" from an older copy of the website (the website now asks the Worker
+//                     directly, account.js forgotPassword): handled the same way
 // The password is made here and goes straight to Semaphore: it is never saved in Firestore. The SMS
 // log keeps the text with the password hidden.
 // EMAIL (Brevo, BREVO_API_KEY and EMAIL_FROM): when the account has a real email address (a parent's Gmail,
 // or a teacher's or admin's sign-in email), a new account ('new') and "Send new password" ('admin') also
 // email the password. A new staff account's email also has a link to confirm the address (Firebase).
-// "Forgot password?" stays by text only (staff with Gmail get Firebase's reset link on the sign-in page).
+// "Forgot password?" (account.js): an account with a Gmail or real email gets a link to choose a new
+// password itself; without one, a new password by text (forParent / forStaff with reason 'forgot').
 // =====================================================================
 import { Firestore } from './firestore.js';
 import { parentEmail, parentKeyOf, isRealEmail } from '../../src/logic.js';
+import { forgotPassword } from './account.js';
 
 const b64url = (bytes) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 const utf8 = (s) => new TextEncoder().encode(s);
@@ -57,7 +60,7 @@ export async function adminToken(env, fetchFn) {
 /** Firestore with the service account (used for passwordRequests, parents/{uid} and the SMS log). */
 export const adminFirestore = (env, fetchFn) => new Firestore(env, fetchFn, () => adminToken(env, fetchFn));
 
-async function authAdmin(env, fetchFn, path, payload) {
+export async function authAdmin(env, fetchFn, path, payload) {
   const res = await fetchFn(`https://identitytoolkit.googleapis.com/v1/projects/${env.FIREBASE_PROJECT_ID}/${path}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${await adminToken(env, fetchFn)}` },
@@ -67,11 +70,11 @@ async function authAdmin(env, fetchFn, path, payload) {
   if (!res.ok) throw new Error(`Firebase Authentication: ${json.error?.message ?? res.status}`);
   return json;
 }
-const findAccount = async (env, f, email) => (await authAdmin(env, f, 'accounts:lookup', { email: [email] })).users?.[0] ?? null;
+export const findAccount = async (env, f, email) => (await authAdmin(env, f, 'accounts:lookup', { email: [email] })).users?.[0] ?? null;
 // A new password also signs the account out on every other device (validSince = now).
-const setPassword = (env, f, localId, password) =>
+export const setPassword = (env, f, localId, password) =>
   authAdmin(env, f, 'accounts:update', { localId, password, validSince: String(Math.floor(Date.now() / 1000)) });
-const createAccount = async (env, f, email, password) => (await authAdmin(env, f, 'accounts', { email, password })).localId;
+export const createAccount = async (env, f, email, password) => (await authAdmin(env, f, 'accounts', { email, password })).localId;
 
 /** 8 characters, small letters and digits, without look-alikes (0/o, 1/l/i). */
 export function newPassword() {
@@ -80,7 +83,7 @@ export function newPassword() {
   return [...n].map((x) => abc[x % abc.length]).join('');
 }
 
-const HIDDEN = '••••••••';
+export const HIDDEN = '••••••••';
 const TEXTS = {
   parentNew: {
     en: (s, pw) => `Doorbell: Your parent portal account for ${s} is ready. Sign in with this mobile number and the password: ${pw}`,
@@ -117,7 +120,12 @@ export async function sendPasswords(env, fetchFn, settings, max = 2) {
     }
     let result;
     try {
-      result = r.data.who === 'parent' ? await forParent(env, fetchFn, db, settings, school, r.data) : await forStaff(env, fetchFn, db, settings, school, r.data);
+      result =
+        r.data.reason === 'forgot'
+          ? await forgotPassword(env, fetchFn, db, settings, { who: r.data.who, id: r.data.login })
+          : r.data.who === 'parent'
+            ? await forParent(env, fetchFn, db, settings, school, r.data)
+            : await forStaff(env, fetchFn, db, settings, school, r.data);
     } catch (e) {
       console.error('Password request failed:', r.id, e.message);
       result = `failed: ${e.message}`.slice(0, 200);
@@ -130,7 +138,7 @@ export async function sendPasswords(env, fetchFn, settings, max = 2) {
   return report;
 }
 
-async function forParent(env, f, db, settings, school, req) {
+export async function forParent(env, f, db, settings, school, req) {
   const key = parentKeyOf(req.login);
   const pk = key ? await db.get(`parentKeys/${key}`) : null;
   if (!pk) return 'not a registered parent number'; // nothing is said on the sign-in page either way
@@ -186,7 +194,7 @@ const combine = (texted, mailed) => {
  * One email through Brevo with the temporary password (and, for a new staff account, the "confirm your
  * email" link). Returns 'sent', 'skipped' (Brevo not set up) or 'failed: ...'.
  */
-async function sendEmail(env, f, settings, { to, name, subject, lines, link, path }) {
+export async function sendEmail(env, f, settings, { to, name, subject, lines, link, linkLabel = 'Confirm this email address', path }) {
   if (!env.BREVO_API_KEY || !env.EMAIL_FROM) return 'skipped';
   const site = (env.SITE_URL ?? '').replace(/\/$/, '');
   const school = settings.schoolName ?? '';
@@ -194,13 +202,13 @@ async function sendEmail(env, f, settings, { to, name, subject, lines, link, pat
   const signIn = site ? `${site}${path ?? '/login'}` : '';
   const text = [
     ...lines,
-    ...(link ? ['', `Confirm this email address: ${link}`] : []),
+    ...(link ? ['', `${linkLabel}: ${link}`] : []),
     ...(signIn ? ['', `Open Doorbell: ${signIn}`] : []),
     '',
     `Did not expect this email? Contact ${school || 'the school office'}.`,
   ].join('\n');
   const html = `${lines.map((l) => `<p>${esc(l)}</p>`).join('')}${
-    link ? `<p><a href="${esc(link)}" style="display:inline-block;padding:10px 16px;background:#1f2d3d;color:#fff;border-radius:8px;text-decoration:none">Confirm this email address</a></p>` : ''
+    link ? `<p><a href="${esc(link)}" style="display:inline-block;padding:10px 16px;background:#1f2d3d;color:#fff;border-radius:8px;text-decoration:none">${esc(linkLabel)}</a></p>` : ''
   }${signIn ? `<p><a href="${esc(signIn)}">Open Doorbell</a></p>` : ''}<p style="color:#666;font-size:12px">Did not expect this email? Contact ${esc(school || 'the school office')}.</p>`;
   const res = await f('https://api.brevo.com/v3/smtp/email', {
     method: 'POST',
@@ -229,7 +237,7 @@ async function verifyLink(env, f, email) {
   }
 }
 
-async function forStaff(env, f, db, settings, school, req) {
+export async function forStaff(env, f, db, settings, school, req) {
   const email = String(req.login).trim().toLowerCase();
   const found = await findAccount(env, f, email);
   if (!found) return 'no account with this email';
@@ -238,7 +246,8 @@ async function forStaff(env, f, db, settings, school, req) {
   let mobile = profile.data.mobile;
   if (!mobile && profile.data.teacherId) mobile = (await db.get(`teachers/${profile.data.teacherId}`))?.data.mobile;
   const to = parentKeyOf(mobile);
-  // By email too: a real address, Brevo set up, and not "Forgot password?" (Gmail users get Firebase's link there).
+  // By email too: a real address, Brevo set up, and not "Forgot password?" (an account with a real email gets a
+  // reset link instead, account.js; this text-only path is for staff without one).
   const byEmail = req.reason !== 'forgot' && isRealEmail(email) && !!(env.BREVO_API_KEY && env.EMAIL_FROM);
   if (!to && !byEmail) return 'no mobile number or email to send it to'; // the password is NOT changed
   const password = newPassword();
@@ -266,7 +275,7 @@ async function forStaff(env, f, db, settings, school, req) {
 }
 
 // Sends the text and keeps a copy in the SMS log with the password hidden.
-async function deliver(env, f, db, settings, writes, { to, body, hidden, extra }) {
+export async function deliver(env, f, db, settings, writes, { to, body, hidden, extra }) {
   const id = `pw_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
   const now = new Date().toISOString();
   const log = { id, to, kind: 'password', createdAt: now, queuedAt: now, attempts: 1, ...extra };

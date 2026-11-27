@@ -338,7 +338,7 @@ export function createCloudEngine() {
     },
     // "Forgot password?" for a parent (mobile number) or a staff member without a Gmail address: the
     // Worker makes a new password and texts it (worker/src/passwords.js). Works without signing in.
-    // Asked again within 15 minutes, firestore.rules refuses it: the first text is still on its way, so
+    // (Backup only: the sign-in page asks the Worker first.) Asked again within 5 minutes, firestore.rules refuses it, so
     // the page says the same thing either way (it never tells whether the account exists).
     async requestNewPassword(who, login) {
       const id = `${who === 'parent' ? 'p' : 's'}_${login}`;

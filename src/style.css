@@ -500,6 +500,14 @@ a.kpi:hover { background: var(--surface) !important; }
 .demo-acc span { color: var(--muted); font-size: 12.5px; }
 .reset-confirm { border: 1px solid var(--line); background: var(--surface); border-radius: var(--r-md); padding: 14px; display: flex; flex-direction: column; gap: 8px; font-size: 14px; }
 .reset-confirm p { margin: 0; }
+/* The one-column card of the "Set a new password" and "Confirm your Gmail" pages (ResetPassword.jsx). */
+.login-card.single { width: min(480px, 100%); min-height: 0; grid-template-columns: minmax(0, 1fr); }
+.login-card.single h1 { display: flex; align-items: center; gap: 10px; font-size: 26px; }
+/* A field with a button beside it (Admin -> Students -> Mobile + Change number). */
+.inline-field { display: flex; gap: 8px; align-items: center; }
+.inline-field .input { flex: 1; min-width: 0; }
+.login-brand-row { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.login-card.single a.btn { text-align: center; text-decoration: none; }
 .reset-actions { display: flex; gap: 8px; }
 .boot { display: grid; place-items: center; }
 

@@ -23,6 +23,7 @@
 import { Firestore } from './firestore.js';
 import { sendPasswords } from './passwords.js';
 import { handleScanner } from './scanner.js';
+import { handleAccount, processAccountChanges } from './account.js';
 import { Engine, emptyState } from '../../src/engine.js';
 import { addDays, isSchoolDay, manilaTime, manilaToday, shouldAutoFinalize, classEnded, semesterOf, parentKeyOf, toMinutes, to12h } from '../../src/logic.js';
 
@@ -34,7 +35,10 @@ export default {
   // Opening the Worker's address in a browser shows that it is alive (nothing secret is shown).
   // /scanner/... is the gate scanner (worker/src/scanner.js). Anything else shows that the Worker is alive.
   async fetch(request, env) {
-    if (new URL(request.url).pathname.startsWith('/scanner/')) return handleScanner(request, env);
+    const path = new URL(request.url).pathname;
+    if (path.startsWith('/scanner/')) return handleScanner(request, env);
+    // Sign-in help, "Forgot password?" and a parent changing their number or Gmail (worker/src/account.js).
+    if (path.startsWith('/auth/') || path.startsWith('/account/')) return handleAccount(request, env);
     return new Response('Doorbell worker is running. It sends texts and emails, alerts the office about classes not confirmed, and records gate scans.\n', {
       headers: { 'content-type': 'text/plain; charset=utf-8' },
     });
@@ -66,6 +70,9 @@ export async function run(env, now = new Date(), fetchFn = (...args) => fetch(..
     try {
       report.passwords = await sendPasswords(env, fetchFn, settings);
       passwordWork = typeof report.passwords === 'object' && report.passwords.done + report.passwords.failed + report.passwords.skipped > 0;
+      // A parent's number changed by the admin, and notices after a Gmail change (worker/src/account.js).
+      report.accounts = await processAccountChanges(env, fetchFn, settings);
+      if (report.accounts?.done) passwordWork = true;
     } catch (e) {
       console.error('Password step failed:', e.message);
     }

@@ -543,6 +543,8 @@ function AdminsCard({ flash }) {
     try {
       const phone = mobile.trim() ? normalizePhMobile(mobile.trim()) : '';
       if (mobile.trim() && !phone) throw new Error('Mobile must look like 0917 123 4567.');
+      // A forgotten password goes to a real email as a reset link, or else by text: every admin needs one of them.
+      if (!isRealEmail(email.trim()) && !phone) throw new Error('Add a mobile number: this email cannot receive emails, so a forgotten password is sent by text.');
       const res = await repo.addAdmin({ name, email, mobile: phone });
       // With a mobile number or a real email, the password is sent (worker/src/passwords.js); otherwise it is shown once.
       if (res.textedTo || res.emailedTo)

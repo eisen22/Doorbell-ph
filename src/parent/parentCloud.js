@@ -29,6 +29,7 @@ import {
   initializeAuth,
   onAuthStateChanged,
   reauthenticateWithCredential,
+  reauthenticateWithPopup,
   signInWithEmailAndPassword,
   signInWithPopup,
   signOut as fbSignOut,
@@ -211,6 +212,48 @@ export async function changeParentPassword(current, next, codeHash) {
   }
   await updatePassword(user, next);
   await updateDoc(doc(db, 'parents', user.uid), { defaultPassword: false });
+}
+
+/** True when the parent signed in with Google (they have no Doorbell password to type again). */
+export function parentUsesGoogle() {
+  const user = start().auth.currentUser;
+  return !!user && !user.providerData.some((p) => p.providerId === 'password');
+}
+
+/**
+ * Before changing the number or the Gmail, the parent proves it is them again: their password, or Google.
+ * Resolves to a fresh sign-in token for the Worker (worker/src/account.js accepts it for 10 minutes).
+ */
+export async function confirmItIsYou(password) {
+  const { auth } = start();
+  const user = auth.currentUser;
+  if (!user) throw new Error('Sign in again first.');
+  if (parentUsesGoogle()) {
+    const provider = new GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: 'select_account', ...(user.email ? { login_hint: user.email } : {}) });
+    try {
+      await reauthenticateWithPopup(user, provider, browserPopupRedirectResolver);
+    } catch (e) {
+      const code = e?.code ?? '';
+      if (code.includes('popup-closed') || code.includes('cancelled-popup')) throw new Error('Google sign-in was closed before it finished.');
+      if (code.includes('popup-blocked')) throw new Error('The browser blocked the Google window. Allow pop-ups for this site and try again.');
+      if (code.includes('user-mismatch')) throw new Error('Choose the same Google account you signed in with.');
+      throw friendly(e);
+    }
+  } else {
+    const typed = String(password ?? '').trim();
+    if (!typed) throw new Error('Type your password.');
+    try {
+      await reauthenticateWithCredential(user, EmailAuthProvider.credential(user.email, typed));
+    } catch (e) {
+      try {
+        await reauthenticateWithCredential(user, EmailAuthProvider.credential(user.email, typed.toLowerCase()));
+      } catch {
+        throw isCredentialError(e) ? new Error('Your password is wrong.') : friendly(e);
+      }
+    }
+  }
+  return user.getIdToken(true);
 }
 
 /** Sends an excuse request to the child's teacher. files: prepared photos/PDFs (excuse letter, medical certificate). */
